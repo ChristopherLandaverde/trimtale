@@ -170,6 +170,21 @@ GOOGLE_ANALYTICS_DISCOVERY_ENABLED=true
 
 After reconnecting Google, `GET /api/google/analytics/destinations` returns accessible analytics accounts, properties, and web data streams. The extension presents the web stream by name and derives its measurement ID from Google instead of requiring manual entry. App and Android streams are excluded.
 
+New Analytics account provisioning is a separate opt-in capability. Register this second exact URI on the Google OAuth web client:
+
+```text
+http://127.0.0.1:8787/api/google/analytics/provisioning/callback
+```
+
+Then start the backend with:
+
+```text
+GOOGLE_ANALYTICS_ACCOUNT_PROVISIONING_ENABLED=true
+GOOGLE_ANALYTICS_PROVISIONING_REDIRECT_URI=http://127.0.0.1:8787/api/google/analytics/provisioning/callback
+```
+
+This mode requests `analytics.edit`. The overlay requires an explicit action before `POST /api/google/analytics/account-provisioning-tickets` requests a ticket. It opens Google's Terms of Service URL; the ticket request does not create an account, and GTM Observability cannot accept the terms for the practitioner. After acceptance, refresh discovery to see the new account. No property or web stream is created by this slice.
+
 For an opt-in live smoke check, supply a short-lived token carrying the same read-only scope:
 
 ```bash

@@ -60,6 +60,10 @@ _Avoid_: Measurement ID, website, GTM container
 The website-specific source within an analytics property that owns the measurement ID used to send web events.
 _Avoid_: Analytics property, GTM destination, tracking code
 
+**Analytics account provisioning**:
+The practitioner-controlled process of requesting a new Google Analytics account and accepting Google's Terms of Service before the account exists.
+_Avoid_: Automatic account creation, property creation, backend acceptance
+
 **Scenario corpus**:
 A collection of reproducible website, consent, GTM, and destination configurations with known expected outcomes, used to test diagnoses, generated setups, and implementation-confidence calibration.
 _Avoid_: Training data, mock websites, examples

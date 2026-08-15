@@ -10,9 +10,15 @@ chrome.action.onClicked.addListener(async (tab) => {
   }
 });
 
-chrome.runtime.onMessage.addListener((message: { type?: string }) => {
+chrome.runtime.onMessage.addListener((message: { type?: string; url?: string }) => {
   if (message.type === "OPEN_GOOGLE_AUTH") {
     void chrome.tabs.create({ url: "http://127.0.0.1:8787/api/google/oauth/start" });
+  }
+  if (
+    message.type === "OPEN_ANALYTICS_TERMS" &&
+    message.url?.startsWith("https://analytics.google.com/analytics/web/")
+  ) {
+    void chrome.tabs.create({ url: message.url });
   }
 });
 

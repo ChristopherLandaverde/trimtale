@@ -145,6 +145,11 @@ function createOverlay(): HTMLDivElement {
           <label class="field">Measurement ID<input class="measurement" placeholder="G-XXXXXXXXXX"></label>
           <label class="field">GTM destination<select class="destination"><option value="">Connect Google to choose</option></select></label>
         </div>
+        <div class="grid provisioning hidden">
+          <label class="field">New Analytics account name<input class="analytics-account-name" value="ConsentFlow Verification"></label>
+          <label class="field">Country code<input class="analytics-region" value="US" maxlength="2"></label>
+        </div>
+        <div class="actions provisioning-actions hidden"><button class="provision secondary">Create new Analytics account</button></div>
         <div class="actions setup-actions"><button class="connect secondary">Connect Google</button><button class="review-button primary">Review setup</button></div>
         <div class="review hidden"></div>
         <div class="actions approval hidden"><button class="back secondary">Back</button><button class="create primary">Create in GTM</button></div>
@@ -193,7 +198,7 @@ function createOverlay(): HTMLDivElement {
 
   const refreshGoogle = async (): Promise<void> => {
     try {
-      const state = await fetch(`${apiBase}/api/google/status`).then((response) => response.json()) as { connected?: boolean; trackingSetupWritesEnabled?: boolean };
+      const state = await fetch(`${apiBase}/api/google/status`).then((response) => response.json()) as { connected?: boolean; trackingSetupWritesEnabled?: boolean; analyticsAccountProvisioningEnabled?: boolean };
       if (!state.connected) return;
       const body = await fetch(`${apiBase}/api/google/accounts`).then((response) => response.json()) as { accounts?: Array<{ accountId: string; name: string; containers: Array<{ containerId: string; publicId: string; name: string }> }> };
       const destinations = (body.accounts ?? []).flatMap((account) => account.containers.map((container) => ({ ...container, accountId: account.accountId, accountName: account.name })));
@@ -210,6 +215,8 @@ function createOverlay(): HTMLDivElement {
       }
       query<HTMLButtonElement>(".create").disabled = !state.trackingSetupWritesEnabled;
       query<HTMLButtonElement>(".connect").textContent = "Refresh Google";
+      query<HTMLElement>(".provisioning").classList.toggle("hidden", !state.analyticsAccountProvisioningEnabled);
+      query<HTMLElement>(".provisioning-actions").classList.toggle("hidden", !state.analyticsAccountProvisioningEnabled);
       const analyticsBody = await fetch(`${apiBase}/api/google/analytics/destinations`).then((response) => response.json()) as {
         accounts?: Array<{ displayName: string; properties: Array<{ property: string; displayName: string; webStreams: Array<{ name: string; displayName: string; measurementId: string; defaultUri: string }> }> }>;
       };
@@ -272,6 +279,26 @@ function createOverlay(): HTMLDivElement {
   query<HTMLInputElement>(".intent").addEventListener("keydown", (event) => { if (event.key === "Enter") discover(); });
   query<HTMLButtonElement>(".close").addEventListener("click", () => { host.remove(); overlayHost = undefined; markSelection(scanned, new Set()); });
   query<HTMLButtonElement>(".connect").addEventListener("click", () => { void chrome.runtime.sendMessage({ type: "OPEN_GOOGLE_AUTH" }); status.textContent = "Finish Google authorization, then click Refresh Google."; });
+  query<HTMLButtonElement>(".provision").addEventListener("click", async () => {
+    try {
+      status.textContent = "Requesting Google Analytics terms…";
+      const response = await fetch(`${apiBase}/api/google/analytics/account-provisioning-tickets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          approval: "request-analytics-account-terms",
+          displayName: query<HTMLInputElement>(".analytics-account-name").value,
+          regionCode: query<HTMLInputElement>(".analytics-region").value,
+        }),
+      });
+      const body = await response.json() as { ticket?: { termsUrl: string }; error?: string };
+      if (!response.ok || !body.ticket) throw new Error(body.error ?? "Unable to request Analytics terms.");
+      await chrome.runtime.sendMessage({ type: "OPEN_ANALYTICS_TERMS", url: body.ticket.termsUrl });
+      status.textContent = "Accept Google Analytics terms in the new tab, then refresh Google here.";
+    } catch (error) {
+      status.textContent = error instanceof Error ? error.message : "Unable to provision Analytics account.";
+    }
+  });
   query<HTMLButtonElement>(".review-button").addEventListener("click", async () => {
     try {
       const selected = new Set([...shadow.querySelectorAll<HTMLInputElement>(".item input:checked")].map((input) => input.dataset.id!));

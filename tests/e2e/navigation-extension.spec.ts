@@ -33,7 +33,12 @@ test("discovers, generates, downloads, and verifies navigation tracking", async 
 
   try {
     await context.route("http://127.0.0.1:8787/api/google/status", (route) => route.fulfill({
-      json: { configured: true, connected: true, trackingSetupWritesEnabled: true },
+      json: {
+        configured: true,
+        connected: true,
+        trackingSetupWritesEnabled: true,
+        analyticsAccountProvisioningEnabled: true,
+      },
     }));
     await context.route("http://127.0.0.1:8787/api/google/accounts", (route) => route.fulfill({
       json: {
@@ -85,6 +90,7 @@ test("discovers, generates, downloads, and verifies navigation tracking", async 
     await expect(site.locator("#gtm-observability-overlay .panel.open")).toBeVisible();
     await expect(site.locator("[data-gtmo-selected=true]")).toHaveCount(5);
     await expect(site.locator("#gtm-observability-overlay .analytics-destination")).toContainText("Demo web");
+    await expect(site.locator("#gtm-observability-overlay .provision")).toBeVisible();
     await site.locator("#gtm-observability-overlay .measurement").fill("G-REMEMBER123");
     await site.locator("#gtm-observability-overlay .measurement").press("Tab");
     await worker.evaluate(async () => {

@@ -76,6 +76,8 @@ const server = createServer(async (request, response) => {
       entityWritesEnabled: oauthConfig?.entityWritesEnabled ?? false,
       trackingSetupWritesEnabled: oauthConfig?.trackingSetupWritesEnabled ?? false,
       analyticsDiscoveryEnabled: oauthConfig?.analyticsDiscoveryEnabled ?? false,
+      analyticsAccountProvisioningEnabled:
+        oauthConfig?.analyticsAccountProvisioningEnabled ?? false,
     });
     return;
   }
@@ -155,6 +157,58 @@ const server = createServer(async (request, response) => {
         : "Unable to discover Google Analytics web streams.";
       sendJson(response, status, { error: message });
     }
+    return;
+  }
+
+  if (request.method === "POST" && requestUrl.pathname === "/api/google/analytics/account-provisioning-tickets") {
+    if (
+      !analyticsClient ||
+      !oauthConfig?.analyticsAccountProvisioningEnabled ||
+      !oauthConfig.analyticsProvisioningRedirectUri
+    ) {
+      sendJson(response, 403, { error: "Google Analytics account provisioning is disabled on this backend." });
+      return;
+    }
+    try {
+      const body = (await readJson(request)) as {
+        approval?: unknown;
+        displayName?: unknown;
+        regionCode?: unknown;
+      };
+      if (
+        body.approval !== "request-analytics-account-terms" ||
+        typeof body.displayName !== "string" ||
+        typeof body.regionCode !== "string"
+      ) {
+        throw new GoogleIntegrationError(
+          "Provisioning requires explicit approval, displayName, and regionCode.",
+          400,
+        );
+      }
+      sendJson(response, 201, {
+        ticket: await analyticsClient.provisionAccountTicket(
+          body.displayName,
+          body.regionCode,
+          oauthConfig.analyticsProvisioningRedirectUri,
+        ),
+        accountStatus: "pending-terms-acceptance",
+      });
+    } catch (integrationError) {
+      const status = integrationError instanceof GoogleIntegrationError
+        ? integrationError.status
+        : 502;
+      const message = integrationError instanceof Error
+        ? integrationError.message
+        : "Unable to request an Analytics account provisioning ticket.";
+      sendJson(response, status, { error: message });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && requestUrl.pathname === "/api/google/analytics/provisioning/callback") {
+    sendJson(response, 200, {
+      message: "Google Analytics terms completed. Return to the GTM Observability overlay and refresh Google.",
+    });
     return;
   }
 

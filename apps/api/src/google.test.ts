@@ -4,6 +4,7 @@ import {
   AnalyticsDiscoveryClient,
   GtmDiscoveryClient,
   GOOGLE_ANALYTICS_READONLY_SCOPE,
+  GOOGLE_ANALYTICS_EDIT_SCOPE,
   GTM_EDIT_CONTAINERS_SCOPE,
   GTM_READONLY_SCOPE,
   googleOAuthConfig,
@@ -21,6 +22,8 @@ const config = {
   trackingSetupWritesEnabled: false,
   trackingSetupContainerPath: undefined,
   analyticsDiscoveryEnabled: false,
+  analyticsAccountProvisioningEnabled: false,
+  analyticsProvisioningRedirectUri: undefined,
 };
 
 describe("Google OAuth configuration", () => {
@@ -76,6 +79,20 @@ describe("Google OAuth configuration", () => {
     expect(authorization.searchParams.get("scope")?.split(" ")).toEqual([
       GTM_READONLY_SCOPE,
       GOOGLE_ANALYTICS_READONLY_SCOPE,
+    ]);
+  });
+
+  it("requests Analytics edit access only when account provisioning is enabled", () => {
+    const session = new GoogleOAuthSession({
+      ...config,
+      analyticsDiscoveryEnabled: true,
+      analyticsAccountProvisioningEnabled: true,
+    });
+    const authorization = new URL(session.authorizationUrl());
+
+    expect(authorization.searchParams.get("scope")?.split(" ")).toEqual([
+      GTM_READONLY_SCOPE,
+      GOOGLE_ANALYTICS_EDIT_SCOPE,
     ]);
   });
 
@@ -136,6 +153,28 @@ describe("read-only Google Analytics discovery", () => {
       defaultUri: "https://example.com",
     }]);
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("requests a terms ticket without creating the Analytics account", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({ accountTicketId: "ticket-123" }),
+    );
+    const client = new AnalyticsDiscoveryClient(async () => "token", fetcher);
+
+    const result = await client.provisionAccountTicket(
+      "ConsentFlow Verification",
+      "us",
+      "http://127.0.0.1:8787/api/google/analytics/provisioning/callback",
+    );
+
+    expect(result).toEqual({
+      accountTicketId: "ticket-123",
+      termsUrl: "https://analytics.google.com/analytics/web/?provisioningSignup=false#/termsofservice/ticket-123",
+    });
+    expect(JSON.parse(fetcher.mock.calls[0]?.[1]?.body as string)).toEqual({
+      account: { displayName: "ConsentFlow Verification", regionCode: "US" },
+      redirectUri: "http://127.0.0.1:8787/api/google/analytics/provisioning/callback",
+    });
   });
 });
 

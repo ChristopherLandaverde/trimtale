@@ -5,6 +5,8 @@ export const GTM_EDIT_CONTAINERS_SCOPE =
   "https://www.googleapis.com/auth/tagmanager.edit.containers";
 export const GOOGLE_ANALYTICS_READONLY_SCOPE =
   "https://www.googleapis.com/auth/analytics.readonly";
+export const GOOGLE_ANALYTICS_EDIT_SCOPE =
+  "https://www.googleapis.com/auth/analytics.edit";
 
 const authorizationEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
 const tokenEndpoint = "https://oauth2.googleapis.com/token";
@@ -28,6 +30,8 @@ export interface GoogleOAuthConfig {
   trackingSetupWritesEnabled: boolean;
   trackingSetupContainerPath: string | undefined;
   analyticsDiscoveryEnabled: boolean;
+  analyticsAccountProvisioningEnabled: boolean;
+  analyticsProvisioningRedirectUri: string | undefined;
 }
 
 interface GoogleTokenResponse {
@@ -115,6 +119,10 @@ export function googleOAuthConfig(
     trackingSetupWritesEnabled: environment.GOOGLE_GTM_TRACKING_SETUP_WRITES_ENABLED === "true",
     trackingSetupContainerPath: environment.GOOGLE_GTM_TRACKING_SETUP_CONTAINER_PATH?.trim(),
     analyticsDiscoveryEnabled: environment.GOOGLE_ANALYTICS_DISCOVERY_ENABLED === "true",
+    analyticsAccountProvisioningEnabled:
+      environment.GOOGLE_ANALYTICS_ACCOUNT_PROVISIONING_ENABLED === "true",
+    analyticsProvisioningRedirectUri:
+      environment.GOOGLE_ANALYTICS_PROVISIONING_REDIRECT_URI?.trim(),
   };
 }
 
@@ -164,7 +172,11 @@ export class GoogleOAuthSession {
     ) {
       scopes.push(GTM_EDIT_CONTAINERS_SCOPE);
     }
-    if (this.config.analyticsDiscoveryEnabled) scopes.push(GOOGLE_ANALYTICS_READONLY_SCOPE);
+    if (this.config.analyticsAccountProvisioningEnabled) {
+      scopes.push(GOOGLE_ANALYTICS_EDIT_SCOPE);
+    } else if (this.config.analyticsDiscoveryEnabled) {
+      scopes.push(GOOGLE_ANALYTICS_READONLY_SCOPE);
+    }
     url.search = new URLSearchParams({
       client_id: this.config.clientId,
       redirect_uri: this.config.redirectUri,
@@ -334,6 +346,50 @@ export class AnalyticsDiscoveryClient {
             })),
         }))),
     })));
+  }
+
+  async provisionAccountTicket(
+    displayName: string,
+    regionCode: string,
+    redirectUri: string,
+  ): Promise<{ accountTicketId: string; termsUrl: string }> {
+    const normalizedName = displayName.replace(/\s+/g, " ").trim();
+    if (normalizedName.length < 3 || normalizedName.length > 100) {
+      throw new GoogleIntegrationError("Analytics account name must be between 3 and 100 characters.", 400);
+    }
+    const normalizedRegion = regionCode.trim().toUpperCase();
+    if (!/^[A-Z]{2}$/.test(normalizedRegion)) {
+      throw new GoogleIntegrationError("Analytics region code must be a two-letter country code.", 400);
+    }
+    let redirect: URL;
+    try {
+      redirect = new URL(redirectUri);
+      if (redirect.protocol !== "http:" && redirect.protocol !== "https:") throw new Error("Invalid protocol");
+    } catch {
+      throw new GoogleIntegrationError("Analytics provisioning redirect URI must be HTTP or HTTPS.", 400);
+    }
+    const response = await this.fetcher(
+      `${analyticsAdminEndpoint}/v1beta/accounts:provisionAccountTicket`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${await this.getAccessToken()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          account: { displayName: normalizedName, regionCode: normalizedRegion },
+          redirectUri: redirect.toString(),
+        }),
+      },
+    );
+    const result = await responseJson<{ accountTicketId?: string }>(response);
+    if (!result.accountTicketId) {
+      throw new GoogleIntegrationError("Google did not return an Analytics account ticket.", 502);
+    }
+    return {
+      accountTicketId: result.accountTicketId,
+      termsUrl: `https://analytics.google.com/analytics/web/?provisioningSignup=false#/termsofservice/${encodeURIComponent(result.accountTicketId)}`,
+    };
   }
 
   private async listAll<T, R extends { nextPageToken?: string }>(

@@ -121,6 +121,7 @@ The open policy question is workspace retention: retain by default after the fir
 - The extension action now opens an on-page, bottom-centered command overlay instead of the side panel. Discovery expands the overlay upward and outlines selected links on the website; the side panel remains a secondary/fallback surface.
 - The extension remembers the practitioner's GA4 measurement ID and last valid GTM destination locally, restoring both in the overlay and fallback side panel while retaining destination review before approval.
 - Read-only Google Analytics discovery is implemented behind `GOOGLE_ANALYTICS_DISCOVERY_ENABLED`; OAuth adds only `analytics.readonly`, and the extension selects an accessible web data stream to derive its measurement ID.
+- Analytics account provisioning is implemented behind its own edit-scope gate. The overlay requests a ticket and opens Google's Terms page; the practitioner must accept it before the account exists. Property and stream creation remain a later explicit slice.
 
 ## Verification evidence
 
