@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   GoogleOAuthSession,
   AnalyticsDiscoveryClient,
@@ -25,6 +28,7 @@ const config = {
   analyticsAccountProvisioningEnabled: false,
   analyticsProvisioningRedirectUri: undefined,
   analyticsSetupWritesEnabled: false,
+  tokenFile: undefined,
 };
 
 describe("Google OAuth configuration", () => {
@@ -129,6 +133,42 @@ describe("Google OAuth configuration", () => {
     await session.authorize("authorization-code", state);
     await expect(session.authorize("authorization-code", state)).rejects.toThrow("already used");
     expect(await session.accessToken()).toBe("access-token");
+  });
+
+  it("persists only the refresh token and restores it after a restart", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "gtmo-oauth-"));
+    const tokenFile = join(directory, "google-token.json");
+    try {
+      const authorizeFetcher = vi.fn<typeof fetch>().mockResolvedValue(
+        Response.json({
+          access_token: "access-token-that-must-not-be-persisted",
+          expires_in: 3600,
+          refresh_token: "persistent-refresh-token",
+          token_type: "Bearer",
+        }),
+      );
+      const firstSession = new GoogleOAuthSession({ ...config, tokenFile }, authorizeFetcher);
+      const authorization = new URL(firstSession.authorizationUrl());
+      await firstSession.authorize("authorization-code", authorization.searchParams.get("state") ?? "");
+
+      expect(JSON.parse(readFileSync(tokenFile, "utf8"))).toEqual({
+        refreshToken: "persistent-refresh-token",
+      });
+      expect(statSync(tokenFile).mode & 0o777).toBe(0o600);
+
+      const refreshFetcher = vi.fn<typeof fetch>().mockResolvedValue(
+        Response.json({ access_token: "refreshed-access-token", expires_in: 3600, token_type: "Bearer" }),
+      );
+      const restartedSession = new GoogleOAuthSession({ ...config, tokenFile }, refreshFetcher);
+
+      expect(restartedSession.isConnected()).toBe(true);
+      expect(await restartedSession.accessToken()).toBe("refreshed-access-token");
+      expect(refreshFetcher).toHaveBeenCalledTimes(1);
+      expect((refreshFetcher.mock.calls[0]?.[1]?.body as URLSearchParams).get("refresh_token"))
+        .toBe("persistent-refresh-token");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });
 

@@ -1,4 +1,6 @@
 import { randomBytes } from "node:crypto";
+import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
 export const GTM_READONLY_SCOPE = "https://www.googleapis.com/auth/tagmanager.readonly";
 export const GTM_EDIT_CONTAINERS_SCOPE =
@@ -33,6 +35,7 @@ export interface GoogleOAuthConfig {
   analyticsAccountProvisioningEnabled: boolean;
   analyticsProvisioningRedirectUri: string | undefined;
   analyticsSetupWritesEnabled: boolean;
+  tokenFile: string | undefined;
 }
 
 interface GoogleTokenResponse {
@@ -125,6 +128,7 @@ export function googleOAuthConfig(
     analyticsProvisioningRedirectUri:
       environment.GOOGLE_ANALYTICS_PROVISIONING_REDIRECT_URI?.trim(),
     analyticsSetupWritesEnabled: environment.GOOGLE_ANALYTICS_SETUP_WRITES_ENABLED === "true",
+    tokenFile: environment.GOOGLE_OAUTH_TOKEN_FILE?.trim(),
   };
 }
 
@@ -155,7 +159,9 @@ export class GoogleOAuthSession {
     private readonly config: GoogleOAuthConfig,
     private readonly fetcher: Fetch = fetch,
     private readonly now: () => number = Date.now,
-  ) {}
+  ) {
+    this.tokens = this.loadPersistedTokens();
+  }
 
   isConnected(): boolean {
     return this.tokens !== undefined;
@@ -241,11 +247,47 @@ export class GoogleOAuthSession {
       throw new GoogleIntegrationError("Google returned an invalid OAuth token response.", 502);
     }
     const refreshToken = result.refresh_token ?? existingRefreshToken;
-    return {
+    const tokens = {
       accessToken: result.access_token,
       expiresAt: this.now() + result.expires_in * 1_000,
       ...(refreshToken ? { refreshToken } : {}),
     };
+    if (refreshToken) this.persistRefreshToken(refreshToken);
+    return tokens;
+  }
+
+  private loadPersistedTokens(): StoredTokens | undefined {
+    if (!this.config.tokenFile) return undefined;
+    try {
+      const parsed = JSON.parse(readFileSync(this.config.tokenFile, "utf8")) as { refreshToken?: unknown };
+      if (typeof parsed.refreshToken !== "string" || parsed.refreshToken.length === 0) {
+        throw new Error("refreshToken is missing");
+      }
+      return { accessToken: "", expiresAt: 0, refreshToken: parsed.refreshToken };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw new Error(`Unable to load the configured Google OAuth token file: ${error instanceof Error ? error.message : "invalid file"}`);
+    }
+  }
+
+  private persistRefreshToken(refreshToken: string): void {
+    const tokenFile = this.config.tokenFile;
+    if (!tokenFile) return;
+    const directory = dirname(tokenFile);
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    chmodSync(directory, 0o700);
+    const temporaryFile = `${tokenFile}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
+    try {
+      writeFileSync(temporaryFile, `${JSON.stringify({ refreshToken })}\n`, {
+        encoding: "utf8",
+        flag: "wx",
+        mode: 0o600,
+      });
+      renameSync(temporaryFile, tokenFile);
+      chmodSync(tokenFile, 0o600);
+    } finally {
+      rmSync(temporaryFile, { force: true });
+    }
   }
 
   private removeExpiredStates(): void {
