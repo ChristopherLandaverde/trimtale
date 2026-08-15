@@ -1,0 +1,27 @@
+{
+  "name": "invalid-measurement-id",
+  "request": {
+    "intent": "Track all navigation clicks",
+    "pageUrl": "https://example.test/",
+    "measurementId": "UA-OLD-ID",
+    "container": {
+      "accountId": "0",
+      "containerId": "0",
+      "publicId": "GTM-ABC1234",
+      "name": "Example"
+    },
+    "navigation": [
+      {
+        "id": "nav_contact",
+        "text": "Contact",
+        "href": "https://example.test/contact",
+        "area": "header",
+        "selector": "header a.contact"
+      }
+    ]
+  },
+  "expected": {
+    "valid": false,
+    "navigationCount": 1
+  }
+}

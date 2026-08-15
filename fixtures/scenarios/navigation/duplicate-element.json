@@ -1,0 +1,34 @@
+{
+  "name": "duplicate-element",
+  "request": {
+    "intent": "Measure navigation link clicks",
+    "pageUrl": "https://example.test/",
+    "measurementId": "G-ABC1234567",
+    "container": {
+      "accountId": "0",
+      "containerId": "0",
+      "publicId": "GTM-ABC1234",
+      "name": "Example"
+    },
+    "navigation": [
+      {
+        "id": "nav_contact_1",
+        "text": " Contact ",
+        "href": "https://example.test/contact",
+        "area": "header",
+        "selector": "header a.contact"
+      },
+      {
+        "id": "nav_contact_2",
+        "text": "Contact",
+        "href": "https://example.test/contact",
+        "area": "header",
+        "selector": "header a.contact"
+      }
+    ]
+  },
+  "expected": {
+    "valid": true,
+    "navigationCount": 1
+  }
+}

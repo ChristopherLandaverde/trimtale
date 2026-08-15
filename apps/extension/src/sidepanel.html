@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GTM Observability</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <main>
+      <header class="product-header">
+        <div class="mark">G</div>
+        <div>
+          <h1>GTM Observability</h1>
+          <p>Evidence-backed tracking setup</p>
+        </div>
+      </header>
+
+      <section class="card">
+        <label for="intent">What do you want to track?</label>
+        <textarea id="intent" rows="3">Track all navigation clicks</textarea>
+        <button id="scan" class="primary">Discover navigation</button>
+        <p id="status" class="status" aria-live="polite"></p>
+      </section>
+
+      <section id="scope-card" class="card hidden">
+        <div class="section-heading">
+          <div>
+            <h2>Confirm scope</h2>
+            <p>Select the navigation elements to include.</p>
+          </div>
+          <button id="toggle-all" class="link-button">Clear all</button>
+        </div>
+        <div id="navigation-list" class="navigation-list"></div>
+      </section>
+
+      <section id="configuration-card" class="card hidden">
+        <h2>GTM configuration</h2>
+        <label for="measurement-id">GA4 measurement ID</label>
+        <input id="measurement-id" placeholder="G-XXXXXXXXXX" autocomplete="off" />
+        <label for="container-id">GTM container ID</label>
+        <input id="container-id" placeholder="GTM-XXXXXXX" autocomplete="off" />
+        <button id="generate" class="primary">Generate GTM file</button>
+      </section>
+
+      <section id="proposal-card" class="card hidden">
+        <h2>Preflight passed</h2>
+        <ul id="preflight-list" class="check-list"></ul>
+        <div class="warning">
+          Import using <strong>Merge into a new workspace</strong>. Never choose Overwrite.
+        </div>
+        <button id="download" class="primary">Download container JSON</button>
+        <button id="verify" class="secondary">I imported it — start verification</button>
+      </section>
+
+      <section id="verification-card" class="card hidden">
+        <h2>Guided verification</h2>
+        <p>Start GTM Preview, then click each confirmed navigation link on the page.</p>
+        <div id="verification-list" class="navigation-list"></div>
+        <div class="boundary">
+          <strong>Platform confirmation:</strong> Not independently confirmed from browser evidence.
+        </div>
+      </section>
+    </main>
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>

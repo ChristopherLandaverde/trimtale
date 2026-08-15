@@ -1,0 +1,87 @@
+import { expect, test, chromium, type BrowserContext, type Page, type TestInfo } from "@playwright/test";
+import { readFile, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+
+async function extensionId(context: BrowserContext): Promise<string> {
+  let [worker] = context.serviceWorkers();
+  worker ??= await context.waitForEvent("serviceworker");
+  return new URL(worker.url()).host;
+}
+
+async function saveFailureScreenshots(testInfo: TestInfo, pages: Page[]): Promise<void> {
+  if (testInfo.status === testInfo.expectedStatus) return;
+  await Promise.all(
+    pages.map(async (page, index) => {
+      if (page.isClosed()) return;
+      await page.screenshot({ path: testInfo.outputPath(`page-${index}.png`), fullPage: true });
+    }),
+  );
+}
+
+test("discovers, generates, downloads, and verifies navigation tracking", async ({}, testInfo) => {
+  const profile = await mkdtemp(join(tmpdir(), "gtm-observability-"));
+  const extensionPath = resolve("apps/extension/dist");
+  const context = await chromium.launchPersistentContext(profile, {
+    channel: "chromium",
+    headless: true,
+    args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+    acceptDownloads: true,
+  });
+  const pages: Page[] = [];
+
+  try {
+    const site = await context.newPage();
+    pages.push(site);
+    await site.goto("http://127.0.0.1:4173/");
+
+    const id = await extensionId(context);
+    const panel = await context.newPage();
+    pages.push(panel);
+    await panel.goto(`chrome-extension://${id}/sidepanel.html`);
+
+    await panel.getByRole("button", { name: "Discover navigation" }).click();
+    await expect(panel.locator("#navigation-list .navigation-item")).toHaveCount(5);
+    await expect(panel.locator("#status")).toContainText("Found 5 candidate");
+
+    await panel.getByLabel("GA4 measurement ID").fill("G-TEST123456");
+    await panel.getByLabel("GTM container ID").fill("GTM-TEST123");
+    await panel.getByRole("button", { name: "Generate GTM file" }).click();
+    await expect(panel.getByRole("heading", { name: "Preflight passed" })).toBeVisible();
+    await expect(panel.locator("#preflight-list li")).toHaveCount(4);
+
+    const downloadPromise = panel.waitForEvent("download");
+    await panel.getByRole("button", { name: "Download container JSON" }).click();
+    const download = await downloadPromise;
+    const downloadPath = await download.path();
+    expect(downloadPath).not.toBeNull();
+    const file = JSON.parse(await readFile(downloadPath!, "utf8")) as {
+      exportFormatVersion: number;
+      containerVersion: { tag: unknown[]; trigger: unknown[]; builtInVariable: unknown[] };
+    };
+    expect(file.exportFormatVersion).toBe(2);
+    expect(file.containerVersion.tag).toHaveLength(1);
+    expect(file.containerVersion.trigger).toHaveLength(1);
+    expect(file.containerVersion.builtInVariable).toHaveLength(2);
+
+    await panel.getByRole("button", { name: "I imported it — start verification" }).click();
+    await expect(panel.getByRole("heading", { name: "Guided verification" })).toBeVisible();
+
+    await site.bringToFront();
+    await site.getByRole("link", { name: "Services" }).click({ noWaitAfter: true });
+
+    const servicesResult = panel
+      .locator("#verification-list .navigation-item")
+      .filter({ hasText: "Services" });
+    await expect(servicesResult.locator(".area")).toHaveText("passed");
+    await expect(servicesResult).toContainText("Observed 1 matching GA4 request");
+    await expect(panel.locator(".boundary")).toContainText("Not independently confirmed");
+
+  } catch (error) {
+    await saveFailureScreenshots(testInfo, pages);
+    throw error;
+  } finally {
+    await context.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});
