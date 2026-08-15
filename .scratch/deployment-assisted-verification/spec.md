@@ -62,6 +62,8 @@ Choose verification target
 - Isolated workspace creation has a separate backend flag and exact-container path allowlist.
 - Workspace creation returns the resource identifier before status inspection or entity writes and retains the workspace for evidence by default.
 - No workspace deletion, container-version creation, quick preview, or publishing route exists in this slice.
+- Navigation entity writes have a separate flag and exact workspace-path allowlist.
+- Entity application proceeds in recorded order: built-in variables, scoped trigger, then linked tag; partial failures retain evidence.
 
 ## Live integration evidence
 
@@ -69,3 +71,5 @@ Choose verification target
 - Created protected Vercel preview `https://consentflow-j98gp45fr-christopherlandaverdes-projects.vercel.app`.
 - Authenticated deployment verification confirmed the preview contains the expected container marker, GTM script, and noscript fallback.
 - The production ConsentFlow alias was not changed and no GTM container version was published.
+- Created isolated workspace `3`, named `GTM Observability - Navigation - 20260815T171400Z`.
+- Baseline workspace status returned no changes or merge conflicts before entity application.

@@ -110,6 +110,9 @@ The open policy question is workspace retention: retain by default after the fir
 - Creation requires `purpose=isolated-verification-workspace` and returns `retain-for-evidence`.
 - Workspace status inspection is implemented separately so the created identifier is recorded first.
 - Quick preview remains deferred because Google requires the additional `tagmanager.edit.containerversions` scope.
+- Live workspace `3` was created as `GTM Observability - Navigation - 20260815T171400Z`.
+- Its baseline status was empty before entity application.
+- Entity writes are implemented behind `GOOGLE_GTM_ENTITY_WRITES_ENABLED` and exact path `GOOGLE_GTM_ENTITY_WORKSPACE_PATH`.
 
 ## Verification evidence
 

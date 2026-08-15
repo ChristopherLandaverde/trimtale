@@ -9,6 +9,10 @@ const tokenEndpoint = "https://oauth2.googleapis.com/token";
 const tagManagerEndpoint = "https://tagmanager.googleapis.com/tagmanager/v2";
 const stateLifetimeMs = 10 * 60 * 1_000;
 
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export interface GoogleOAuthConfig {
   clientId: string;
   clientSecret: string;
@@ -16,6 +20,8 @@ export interface GoogleOAuthConfig {
   containerWritesEnabled: boolean;
   workspaceWritesEnabled: boolean;
   workspaceContainerPath: string | undefined;
+  entityWritesEnabled: boolean;
+  entityWorkspacePath: string | undefined;
 }
 
 interface GoogleTokenResponse {
@@ -98,6 +104,8 @@ export function googleOAuthConfig(
     containerWritesEnabled: environment.GOOGLE_GTM_CONTAINER_WRITES_ENABLED === "true",
     workspaceWritesEnabled: environment.GOOGLE_GTM_WORKSPACE_WRITES_ENABLED === "true",
     workspaceContainerPath: environment.GOOGLE_GTM_WORKSPACE_CONTAINER_PATH?.trim(),
+    entityWritesEnabled: environment.GOOGLE_GTM_ENTITY_WRITES_ENABLED === "true",
+    entityWorkspacePath: environment.GOOGLE_GTM_ENTITY_WORKSPACE_PATH?.trim(),
   };
 }
 
@@ -139,7 +147,11 @@ export class GoogleOAuthSession {
     this.states.set(state, this.now() + stateLifetimeMs);
     const url = new URL(authorizationEndpoint);
     const scopes = [GTM_READONLY_SCOPE];
-    if (this.config.containerWritesEnabled || this.config.workspaceWritesEnabled) {
+    if (
+      this.config.containerWritesEnabled ||
+      this.config.workspaceWritesEnabled ||
+      this.config.entityWritesEnabled
+    ) {
       scopes.push(GTM_EDIT_CONTAINERS_SCOPE);
     }
     url.search = new URLSearchParams({
@@ -235,6 +247,28 @@ interface WorkspaceListResponse {
 export interface GtmWorkspaceStatus {
   workspaceChange?: unknown[];
   mergeConflict?: unknown[];
+}
+
+interface GtmBuiltInVariableCreateResponse {
+  builtInVariable?: unknown[];
+}
+
+export interface GtmCreatedTrigger {
+  triggerId: string;
+  name: string;
+  path?: string;
+}
+
+export interface GtmCreatedTag {
+  tagId: string;
+  name: string;
+  path?: string;
+}
+
+export interface GtmNavigationSetupResult {
+  builtInVariables: unknown[];
+  trigger: GtmCreatedTrigger;
+  tag: GtmCreatedTag;
 }
 
 export class GtmDiscoveryClient {
@@ -351,6 +385,113 @@ export class GtmDiscoveryClient {
     return this.get<GtmWorkspaceStatus>(
       `/accounts/${accountId}/containers/${containerId}/workspaces/${workspaceId}/status`,
     );
+  }
+
+  async applyNavigationSetup(
+    accountId: string,
+    containerId: string,
+    workspaceId: string,
+    measurementId: string,
+    linkUrls: string[],
+  ): Promise<GtmNavigationSetupResult> {
+    this.validateContainerPath(accountId, containerId);
+    if (!/^\d+$/.test(workspaceId)) {
+      throw new GoogleIntegrationError("GTM workspace ID must be numeric.", 400);
+    }
+    const normalizedMeasurementId = measurementId.trim().toUpperCase();
+    if (!/^G-[A-Z0-9]+$/.test(normalizedMeasurementId)) {
+      throw new GoogleIntegrationError("Measurement ID must look like G-XXXXXXXXXX.", 400);
+    }
+    const normalizedLinks = [...new Set(linkUrls.map((link) => {
+      const url = new URL(link);
+      if (url.protocol !== "https:") throw new Error("HTTPS required");
+      return url.toString();
+    }))];
+    if (normalizedLinks.length === 0 || normalizedLinks.length > 50) {
+      throw new GoogleIntegrationError("Provide between 1 and 50 HTTPS navigation URLs.", 400);
+    }
+    const parent = `/accounts/${accountId}/containers/${containerId}/workspaces/${workspaceId}`;
+    const builtInUrl = new URL(`${tagManagerEndpoint}${parent}/built_in_variables`);
+    builtInUrl.searchParams.append("type", "clickText");
+    builtInUrl.searchParams.append("type", "clickUrl");
+    const builtInResponse = await this.fetcher(builtInUrl, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${await this.getAccessToken()}` },
+    });
+    const builtInVariables = await responseJson<GtmBuiltInVariableCreateResponse>(builtInResponse);
+
+    const triggerResponse = await this.fetcher(`${tagManagerEndpoint}${parent}/triggers`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${await this.getAccessToken()}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: "CE - Navigation Links - Confirmed Scope",
+        type: "linkClick",
+        autoEventFilter: [{
+          type: "matchRegex",
+          parameter: [
+            { type: "template", key: "arg0", value: "{{Click URL}}" },
+            {
+              type: "template",
+              key: "arg1",
+              value: `^(?:${normalizedLinks.map(escapeRegex).join("|")})$`,
+            },
+            { type: "boolean", key: "ignore_case", value: "false" },
+          ],
+        }],
+        waitForTags: { type: "boolean", value: "false" },
+        checkValidation: { type: "boolean", value: "true" },
+      }),
+    });
+    const trigger = await responseJson<GtmCreatedTrigger>(triggerResponse);
+
+    const tagResponse = await this.fetcher(`${tagManagerEndpoint}${parent}/tags`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${await this.getAccessToken()}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: "GA4 Event - navigation_click",
+        type: "gaawe",
+        parameter: [
+          { type: "template", key: "eventName", value: "navigation_click" },
+          { type: "template", key: "measurementId", value: normalizedMeasurementId },
+          {
+            type: "list",
+            key: "eventParameters",
+            list: [
+              {
+                type: "map",
+                map: [
+                  { type: "template", key: "name", value: "link_text" },
+                  { type: "template", key: "value", value: "{{Click Text}}" },
+                ],
+              },
+              {
+                type: "map",
+                map: [
+                  { type: "template", key: "name", value: "link_url" },
+                  { type: "template", key: "value", value: "{{Click URL}}" },
+                ],
+              },
+            ],
+          },
+        ],
+        firingTriggerId: [trigger.triggerId],
+        tagFiringOption: "oncePerEvent",
+        monitoringMetadata: { type: "map" },
+        consentSettings: { consentStatus: "notSet" },
+      }),
+    });
+    const tag = await responseJson<GtmCreatedTag>(tagResponse);
+    return {
+      builtInVariables: builtInVariables.builtInVariable ?? [],
+      trigger,
+      tag,
+    };
   }
 
   private validateContainerPath(accountId: string, containerId: string): void {

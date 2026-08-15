@@ -67,6 +67,7 @@ const server = createServer(async (request, response) => {
         : oauthConfig?.containerWritesEnabled ? "container-create" : "read-only",
       containerWritesEnabled: oauthConfig?.containerWritesEnabled ?? false,
       workspaceWritesEnabled: oauthConfig?.workspaceWritesEnabled ?? false,
+      entityWritesEnabled: oauthConfig?.entityWritesEnabled ?? false,
     });
     return;
   }
@@ -267,6 +268,60 @@ const server = createServer(async (request, response) => {
         ? integrationError.message
         : "Unable to inspect the GTM workspace.";
       sendJson(response, status, { error: message });
+    }
+    return;
+  }
+
+  const navigationSetupMatch = requestUrl.pathname.match(
+    /^\/api\/google\/accounts\/(\d+)\/containers\/(\d+)\/workspaces\/(\d+)\/navigation-setup$/,
+  );
+  if (request.method === "POST" && navigationSetupMatch) {
+    if (!discoveryClient || !oauthConfig?.entityWritesEnabled) {
+      sendJson(response, 403, { error: "GTM entity writes are disabled on this backend." });
+      return;
+    }
+    const [, accountId = "", containerId = "", workspaceId = ""] = navigationSetupMatch;
+    const requestedPath = `accounts/${accountId}/containers/${containerId}/workspaces/${workspaceId}`;
+    if (requestedPath !== oauthConfig.entityWorkspacePath) {
+      sendJson(response, 403, { error: "This workspace is not allowlisted for entity writes." });
+      return;
+    }
+    try {
+      const body = (await readJson(request)) as {
+        measurementId?: unknown;
+        linkUrls?: unknown;
+        purpose?: unknown;
+      };
+      if (
+        body.purpose !== "navigation-tracking-setup" ||
+        typeof body.measurementId !== "string" ||
+        !Array.isArray(body.linkUrls) ||
+        !body.linkUrls.every((url) => typeof url === "string")
+      ) {
+        throw new GoogleIntegrationError(
+          "Entity creation requires measurementId, string linkUrls, and purpose=navigation-tracking-setup.",
+          400,
+        );
+      }
+      sendJson(response, 201, {
+        setup: await discoveryClient.applyNavigationSetup(
+          accountId,
+          containerId,
+          workspaceId,
+          body.measurementId,
+          body.linkUrls,
+        ),
+        retention: "retain-for-evidence",
+        publishStatus: "not-published",
+      });
+    } catch (integrationError) {
+      const status = integrationError instanceof GoogleIntegrationError
+        ? integrationError.status
+        : 502;
+      const message = integrationError instanceof Error
+        ? integrationError.message
+        : "Unable to apply the navigation tracking setup.";
+      sendJson(response, status, { error: message, retention: "retain-for-evidence" });
     }
     return;
   }

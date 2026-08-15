@@ -142,6 +142,15 @@ GET /api/google/accounts/6305900974/containers/261236292/workspaces/:workspaceId
 
 The create response records the workspace before any entity writes, with retention set to `retain-for-evidence`. These routes cannot target another container and expose no delete, version-creation, quick-preview, or publish operation.
 
+Navigation entity creation is a third, narrower mode bound to one recorded workspace:
+
+```text
+GOOGLE_GTM_ENTITY_WRITES_ENABLED=true
+GOOGLE_GTM_ENTITY_WORKSPACE_PATH=accounts/6305900974/containers/261236292/workspaces/3
+```
+
+`POST /api/google/accounts/:accountId/containers/:containerId/workspaces/:workspaceId/navigation-setup` requires `purpose=navigation-tracking-setup`, a GA4-format measurement ID, and 1–50 HTTPS navigation URLs. It enables Click Text and Click URL, creates one scoped link-click trigger, then creates one `navigation_click` GA4 event tag linked to the returned trigger ID. Partial failures retain the workspace for inspection. No rollback, deletion, version, preview, or publish call is made automatically.
+
 For an opt-in live smoke check, supply a short-lived token carrying the same read-only scope:
 
 ```bash

@@ -14,6 +14,8 @@ const config = {
   containerWritesEnabled: false,
   workspaceWritesEnabled: false,
   workspaceContainerPath: undefined,
+  entityWritesEnabled: false,
+  entityWorkspacePath: undefined,
 };
 
 describe("Google OAuth configuration", () => {
@@ -46,6 +48,13 @@ describe("Google OAuth configuration", () => {
       GTM_READONLY_SCOPE,
       GTM_EDIT_CONTAINERS_SCOPE,
     ]);
+  });
+
+  it("uses the edit scope for explicitly enabled entity writes", () => {
+    const session = new GoogleOAuthSession({ ...config, entityWritesEnabled: true });
+    const authorization = new URL(session.authorizationUrl());
+
+    expect(authorization.searchParams.get("scope")).toContain(GTM_EDIT_CONTAINERS_SCOPE);
   });
 
   it("requests offline read-only access and rejects a reused state", async () => {
@@ -221,5 +230,35 @@ describe("read-only GTM discovery", () => {
     expect(fetcher.mock.calls[1]?.[0].toString()).toMatch(/\/workspaces\/3\/status$/);
     expect(fetcher.mock.calls.some(([input]) => input.toString().includes("create_version"))).toBe(false);
     expect(fetcher.mock.calls.some(([input]) => input.toString().includes("publish"))).toBe(false);
+  });
+
+  it("applies navigation entities sequentially and links the created trigger", async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({
+        builtInVariable: [{ type: "clickText" }, { type: "clickUrl" }],
+      }))
+      .mockResolvedValueOnce(Response.json({ triggerId: "4", name: "Navigation trigger" }))
+      .mockResolvedValueOnce(Response.json({ tagId: "5", name: "Navigation tag" }));
+    const client = new GtmDiscoveryClient(async () => "token", fetcher);
+
+    const result = await client.applyNavigationSetup(
+      "1",
+      "20",
+      "3",
+      "g-test123456",
+      ["https://preview.test/#features", "https://preview.test/#contact"],
+    );
+
+    expect(result.trigger.triggerId).toBe("4");
+    expect(result.tag.tagId).toBe("5");
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    const triggerBody = JSON.parse(fetcher.mock.calls[1]?.[1]?.body as string);
+    expect(triggerBody.type).toBe("linkClick");
+    expect(triggerBody.autoEventFilter[0].parameter[1].value).toContain(
+      "https://preview\\.test/#features",
+    );
+    const tagBody = JSON.parse(fetcher.mock.calls[2]?.[1]?.body as string);
+    expect(tagBody.firingTriggerId).toEqual(["4"]);
+    expect(tagBody.type).toBe("gaawe");
   });
 });
