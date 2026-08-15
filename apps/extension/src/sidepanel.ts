@@ -8,6 +8,7 @@ import {
 const apiBase = "http://127.0.0.1:8787";
 const measurementStorageKey = "defaultGa4MeasurementId";
 const destinationStorageKey = "defaultGtmDestination";
+const analyticsStreamStorageKey = "defaultGa4WebStream";
 let pageUrl = "";
 let navigation: NavigationElement[] = [];
 let proposal: SetupProposal | undefined;
@@ -45,6 +46,7 @@ const destinationSelect = byId<HTMLSelectElement>("gtm-destination");
 const createGtm = byId<HTMLButtonElement>("create-gtm");
 const connectGoogle = byId<HTMLButtonElement>("connect-google");
 const measurementInput = byId<HTMLInputElement>("measurement-id");
+const analyticsSelect = byId<HTMLSelectElement>("analytics-destination");
 
 void chrome.storage.local.get([measurementStorageKey]).then((stored) => {
   if (typeof stored[measurementStorageKey] === "string") {
@@ -58,6 +60,15 @@ destinationSelect.addEventListener("change", () => {
   if (destinationSelect.value) {
     void chrome.storage.local.set({ [destinationStorageKey]: destinationSelect.value });
   }
+});
+analyticsSelect.addEventListener("change", () => {
+  if (!analyticsSelect.value) return;
+  const stream = JSON.parse(analyticsSelect.value) as { measurementId: string };
+  measurementInput.value = stream.measurementId;
+  void chrome.storage.local.set({
+    [analyticsStreamStorageKey]: analyticsSelect.value,
+    [measurementStorageKey]: stream.measurementId,
+  });
 });
 
 function setStatus(message: string, error = false): void {
@@ -108,6 +119,30 @@ async function refreshGoogle(): Promise<void> {
     const remembered = stored[destinationStorageKey];
     if (typeof remembered === "string" && [...destinationSelect.options].some((option) => option.value === remembered)) {
       destinationSelect.value = remembered;
+    }
+    const analyticsResponse = await fetch(`${apiBase}/api/google/analytics/destinations`);
+    const analyticsBody = await analyticsResponse.json() as {
+      accounts?: Array<{ displayName: string; properties: Array<{ property: string; displayName: string; webStreams: Array<{ name: string; displayName: string; measurementId: string; defaultUri: string }> }> }>;
+    };
+    const streams = (analyticsBody.accounts ?? []).flatMap((account) => account.properties.flatMap((property) => property.webStreams.map((stream) => ({
+      ...stream,
+      property: property.property,
+      propertyName: property.displayName,
+      accountName: account.displayName,
+    }))));
+    analyticsSelect.replaceChildren(...streams.map((stream) => {
+      const option = document.createElement("option");
+      option.value = JSON.stringify(stream);
+      option.textContent = `${stream.propertyName} — ${stream.displayName} (${stream.measurementId})`;
+      return option;
+    }));
+    const analyticsStored = await chrome.storage.local.get([analyticsStreamStorageKey]);
+    const rememberedStream = analyticsStored[analyticsStreamStorageKey];
+    if (typeof rememberedStream === "string" && [...analyticsSelect.options].some((option) => option.value === rememberedStream)) {
+      analyticsSelect.value = rememberedStream;
+    }
+    if (analyticsSelect.value) {
+      measurementInput.value = (JSON.parse(analyticsSelect.value) as { measurementId: string }).measurementId;
     }
     googleDestination.classList.toggle("hidden", destinations.length === 0);
     createGtm.disabled = !state.trackingSetupWritesEnabled || destinations.length === 0;

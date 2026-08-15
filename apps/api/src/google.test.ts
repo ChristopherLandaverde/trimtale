@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   GoogleOAuthSession,
+  AnalyticsDiscoveryClient,
   GtmDiscoveryClient,
+  GOOGLE_ANALYTICS_READONLY_SCOPE,
   GTM_EDIT_CONTAINERS_SCOPE,
   GTM_READONLY_SCOPE,
   googleOAuthConfig,
@@ -18,6 +20,7 @@ const config = {
   entityWorkspacePath: undefined,
   trackingSetupWritesEnabled: false,
   trackingSetupContainerPath: undefined,
+  analyticsDiscoveryEnabled: false,
 };
 
 describe("Google OAuth configuration", () => {
@@ -66,6 +69,16 @@ describe("Google OAuth configuration", () => {
     expect(authorization.searchParams.get("scope")).toContain(GTM_EDIT_CONTAINERS_SCOPE);
   });
 
+  it("requests read-only Analytics access only when discovery is enabled", () => {
+    const session = new GoogleOAuthSession({ ...config, analyticsDiscoveryEnabled: true });
+    const authorization = new URL(session.authorizationUrl());
+
+    expect(authorization.searchParams.get("scope")?.split(" ")).toEqual([
+      GTM_READONLY_SCOPE,
+      GOOGLE_ANALYTICS_READONLY_SCOPE,
+    ]);
+  });
+
   it("requests offline read-only access and rejects a reused state", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
       Response.json({
@@ -84,6 +97,45 @@ describe("Google OAuth configuration", () => {
     await session.authorize("authorization-code", state);
     await expect(session.authorize("authorization-code", state)).rejects.toThrow("already used");
     expect(await session.accessToken()).toBe("access-token");
+  });
+});
+
+describe("read-only Google Analytics discovery", () => {
+  it("lists accessible properties and keeps only web streams with measurement IDs", async () => {
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(input.toString());
+      if (url.pathname.endsWith("/accountSummaries")) {
+        return Response.json({
+          accountSummaries: [{
+            account: "accounts/1",
+            displayName: "Agency",
+            propertySummaries: [{ property: "properties/100", displayName: "Website" }],
+          }],
+        });
+      }
+      return Response.json({
+        dataStreams: [
+          {
+            name: "properties/100/dataStreams/7",
+            type: "WEB_DATA_STREAM",
+            displayName: "Production web",
+            webStreamData: { measurementId: "G-REAL123", defaultUri: "https://example.com" },
+          },
+          { name: "properties/100/dataStreams/8", type: "ANDROID_APP_DATA_STREAM", displayName: "Android" },
+        ],
+      });
+    });
+    const client = new AnalyticsDiscoveryClient(async () => "token", fetcher);
+
+    const result = await client.discover();
+
+    expect(result[0]?.properties[0]?.webStreams).toEqual([{
+      name: "properties/100/dataStreams/7",
+      displayName: "Production web",
+      measurementId: "G-REAL123",
+      defaultUri: "https://example.com",
+    }]);
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 });
 

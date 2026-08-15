@@ -3,10 +3,13 @@ import { randomBytes } from "node:crypto";
 export const GTM_READONLY_SCOPE = "https://www.googleapis.com/auth/tagmanager.readonly";
 export const GTM_EDIT_CONTAINERS_SCOPE =
   "https://www.googleapis.com/auth/tagmanager.edit.containers";
+export const GOOGLE_ANALYTICS_READONLY_SCOPE =
+  "https://www.googleapis.com/auth/analytics.readonly";
 
 const authorizationEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
 const tokenEndpoint = "https://oauth2.googleapis.com/token";
 const tagManagerEndpoint = "https://tagmanager.googleapis.com/tagmanager/v2";
+const analyticsAdminEndpoint = "https://analyticsadmin.googleapis.com";
 const stateLifetimeMs = 10 * 60 * 1_000;
 
 function escapeRegex(value: string): string {
@@ -24,6 +27,7 @@ export interface GoogleOAuthConfig {
   entityWorkspacePath: string | undefined;
   trackingSetupWritesEnabled: boolean;
   trackingSetupContainerPath: string | undefined;
+  analyticsDiscoveryEnabled: boolean;
 }
 
 interface GoogleTokenResponse {
@@ -110,6 +114,7 @@ export function googleOAuthConfig(
     entityWorkspacePath: environment.GOOGLE_GTM_ENTITY_WORKSPACE_PATH?.trim(),
     trackingSetupWritesEnabled: environment.GOOGLE_GTM_TRACKING_SETUP_WRITES_ENABLED === "true",
     trackingSetupContainerPath: environment.GOOGLE_GTM_TRACKING_SETUP_CONTAINER_PATH?.trim(),
+    analyticsDiscoveryEnabled: environment.GOOGLE_ANALYTICS_DISCOVERY_ENABLED === "true",
   };
 }
 
@@ -159,6 +164,7 @@ export class GoogleOAuthSession {
     ) {
       scopes.push(GTM_EDIT_CONTAINERS_SCOPE);
     }
+    if (this.config.analyticsDiscoveryEnabled) scopes.push(GOOGLE_ANALYTICS_READONLY_SCOPE);
     url.search = new URLSearchParams({
       client_id: this.config.clientId,
       redirect_uri: this.config.redirectUri,
@@ -247,6 +253,109 @@ interface ContainerListResponse {
 interface WorkspaceListResponse {
   workspace?: GtmWorkspace[];
   nextPageToken?: string;
+}
+
+export interface AnalyticsWebStream {
+  name: string;
+  displayName: string;
+  measurementId: string;
+  defaultUri: string;
+}
+
+export interface AnalyticsPropertyDiscovery {
+  property: string;
+  displayName: string;
+  webStreams: AnalyticsWebStream[];
+}
+
+export interface AnalyticsAccountDiscovery {
+  account: string;
+  displayName: string;
+  properties: AnalyticsPropertyDiscovery[];
+}
+
+interface AnalyticsPropertySummary {
+  property: string;
+  displayName: string;
+  propertyType?: string;
+}
+
+interface AnalyticsAccountSummary {
+  account: string;
+  displayName: string;
+  propertySummaries?: AnalyticsPropertySummary[];
+}
+
+interface AnalyticsAccountSummaryResponse {
+  accountSummaries?: AnalyticsAccountSummary[];
+  nextPageToken?: string;
+}
+
+interface AnalyticsDataStream {
+  name: string;
+  type: string;
+  displayName: string;
+  webStreamData?: { measurementId?: string; defaultUri?: string };
+}
+
+interface AnalyticsDataStreamResponse {
+  dataStreams?: AnalyticsDataStream[];
+  nextPageToken?: string;
+}
+
+export class AnalyticsDiscoveryClient {
+  constructor(
+    private readonly getAccessToken: () => Promise<string>,
+    private readonly fetcher: Fetch = fetch,
+  ) {}
+
+  async discover(): Promise<AnalyticsAccountDiscovery[]> {
+    const accounts = await this.listAll<AnalyticsAccountSummary, AnalyticsAccountSummaryResponse>(
+      "/v1alpha/accountSummaries",
+      "accountSummaries",
+    );
+    return Promise.all(accounts.map(async (account) => ({
+      account: account.account,
+      displayName: account.displayName,
+      properties: await Promise.all((account.propertySummaries ?? [])
+        .filter((property) => property.propertyType !== "PROPERTY_TYPE_SUBPROPERTY")
+        .map(async (property) => ({
+          property: property.property,
+          displayName: property.displayName,
+          webStreams: (await this.listAll<AnalyticsDataStream, AnalyticsDataStreamResponse>(
+            `/v1beta/${property.property}/dataStreams`,
+            "dataStreams",
+          )).filter((stream) => stream.type === "WEB_DATA_STREAM" && stream.webStreamData?.measurementId)
+            .map((stream) => ({
+              name: stream.name,
+              displayName: stream.displayName,
+              measurementId: stream.webStreamData!.measurementId!,
+              defaultUri: stream.webStreamData?.defaultUri ?? "",
+            })),
+        }))),
+    })));
+  }
+
+  private async listAll<T, R extends { nextPageToken?: string }>(
+    path: string,
+    key: keyof R,
+  ): Promise<T[]> {
+    const values: T[] = [];
+    let pageToken: string | undefined;
+    do {
+      const url = new URL(`${analyticsAdminEndpoint}${path}`);
+      url.searchParams.set("pageSize", "200");
+      if (pageToken) url.searchParams.set("pageToken", pageToken);
+      const response = await this.fetcher(url, {
+        headers: { Authorization: `Bearer ${await this.getAccessToken()}` },
+      });
+      const body = await responseJson<R>(response);
+      const page = body[key];
+      if (Array.isArray(page)) values.push(...page as T[]);
+      pageToken = body.nextPageToken;
+    } while (pageToken);
+    return values;
+  }
 }
 
 export interface GtmWorkspaceStatus {

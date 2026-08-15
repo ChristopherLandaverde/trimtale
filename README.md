@@ -162,6 +162,14 @@ Clicking the extension action opens a compact command-bar overlay at the bottom 
 
 The extension remembers the last GA4 measurement ID and GTM destination in `chrome.storage.local` and restores them in both the overlay and fallback side panel. A remembered destination is selected only when it is still returned by the connected Google account, and it remains visible during setup review.
 
+Google Analytics discovery is separately read-only. Enable the Google Analytics Admin API in the OAuth project, add `https://www.googleapis.com/auth/analytics.readonly` to the OAuth client's allowed scopes, and start the backend with:
+
+```text
+GOOGLE_ANALYTICS_DISCOVERY_ENABLED=true
+```
+
+After reconnecting Google, `GET /api/google/analytics/destinations` returns accessible analytics accounts, properties, and web data streams. The extension presents the web stream by name and derives its measurement ID from Google instead of requiring manual entry. App and Android streams are excluded.
+
 For an opt-in live smoke check, supply a short-lived token carrying the same read-only scope:
 
 ```bash

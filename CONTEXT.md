@@ -52,6 +52,14 @@ _Avoid_: AI confidence, success probability, platform confidence
 Evidence from an analytics or advertising destination that it received or processed tracking data. It remains separate from implementation confidence because browser evidence cannot prove every platform-side outcome.
 _Avoid_: Browser verification, guaranteed attribution, delivery confidence
 
+**Analytics property**:
+A Google Analytics reporting configuration that groups data sources and governs how their events are processed and reported.
+_Avoid_: Measurement ID, website, GTM container
+
+**Web data stream**:
+The website-specific source within an analytics property that owns the measurement ID used to send web events.
+_Avoid_: Analytics property, GTM destination, tracking code
+
 **Scenario corpus**:
 A collection of reproducible website, consent, GTM, and destination configurations with known expected outcomes, used to test diagnoses, generated setups, and implementation-confidence calibration.
 _Avoid_: Training data, mock websites, examples

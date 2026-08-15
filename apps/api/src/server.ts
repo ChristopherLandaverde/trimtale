@@ -4,6 +4,7 @@ import {
   GoogleIntegrationError,
   GoogleOAuthSession,
   GtmDiscoveryClient,
+  AnalyticsDiscoveryClient,
   googleOAuthConfig,
 } from "./google.js";
 
@@ -14,6 +15,9 @@ const oauthConfig = googleOAuthConfig();
 const oauthSession = oauthConfig ? new GoogleOAuthSession(oauthConfig) : undefined;
 const discoveryClient = oauthSession
   ? new GtmDiscoveryClient(() => oauthSession.accessToken())
+  : undefined;
+const analyticsClient = oauthSession
+  ? new AnalyticsDiscoveryClient(() => oauthSession.accessToken())
   : undefined;
 
 function setCors(response: ServerResponse): void {
@@ -71,6 +75,7 @@ const server = createServer(async (request, response) => {
       workspaceWritesEnabled: oauthConfig?.workspaceWritesEnabled ?? false,
       entityWritesEnabled: oauthConfig?.entityWritesEnabled ?? false,
       trackingSetupWritesEnabled: oauthConfig?.trackingSetupWritesEnabled ?? false,
+      analyticsDiscoveryEnabled: oauthConfig?.analyticsDiscoveryEnabled ?? false,
     });
     return;
   }
@@ -129,6 +134,25 @@ const server = createServer(async (request, response) => {
       const message = integrationError instanceof Error
         ? integrationError.message
         : "Unable to discover Google Tag Manager containers.";
+      sendJson(response, status, { error: message });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && requestUrl.pathname === "/api/google/analytics/destinations") {
+    if (!analyticsClient || !oauthConfig?.analyticsDiscoveryEnabled) {
+      sendJson(response, 403, { error: "Google Analytics discovery is disabled on this backend." });
+      return;
+    }
+    try {
+      sendJson(response, 200, { accounts: await analyticsClient.discover() });
+    } catch (integrationError) {
+      const status = integrationError instanceof GoogleIntegrationError
+        ? integrationError.status
+        : 502;
+      const message = integrationError instanceof Error
+        ? integrationError.message
+        : "Unable to discover Google Analytics web streams.";
       sendJson(response, status, { error: message });
     }
     return;

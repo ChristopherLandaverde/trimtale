@@ -120,13 +120,14 @@ The open policy question is workspace retention: retain by default after the fir
 - The deterministic browser test exercises the connected destination and practitioner approval flow without calling Google.
 - The extension action now opens an on-page, bottom-centered command overlay instead of the side panel. Discovery expands the overlay upward and outlines selected links on the website; the side panel remains a secondary/fallback surface.
 - The extension remembers the practitioner's GA4 measurement ID and last valid GTM destination locally, restoring both in the overlay and fallback side panel while retaining destination review before approval.
+- Read-only Google Analytics discovery is implemented behind `GOOGLE_ANALYTICS_DISCOVERY_ENABLED`; OAuth adds only `analytics.readonly`, and the extension selects an accessible web data stream to derive its measurement ID.
 
 ## Verification evidence
 
 The latest completion gate passed:
 
 - Strict TypeScript checks across all workspaces.
-- 22 unit/scenario tests across four test files.
+- 24 unit/scenario tests across four test files.
 - Builds for core, API, fixture site, verification target, and extension.
 - Chromium extension E2E.
 

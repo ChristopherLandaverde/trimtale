@@ -31,6 +31,7 @@ let overlayProposal: SetupProposal | undefined;
 const apiBase = "http://127.0.0.1:8787";
 const measurementStorageKey = "defaultGa4MeasurementId";
 const destinationStorageKey = "defaultGtmDestination";
+const analyticsStreamStorageKey = "defaultGa4WebStream";
 
 function areaFor(element: Element): NavigationArea {
   if (element.closest("header")) return "header";
@@ -140,7 +141,8 @@ function createOverlay(): HTMLDivElement {
         <div class="heading"><div><h2>Choose what to track</h2><p class="summary"></p></div><button class="close secondary" aria-label="Close">×</button></div>
         <div class="list"></div>
         <div class="grid config">
-          <label class="field">GA4 measurement ID<input class="measurement" placeholder="G-XXXXXXXXXX"></label>
+          <label class="field">GA4 web stream<select class="analytics-destination"><option value="">Choose a web stream</option></select></label>
+          <label class="field">Measurement ID<input class="measurement" placeholder="G-XXXXXXXXXX"></label>
           <label class="field">GTM destination<select class="destination"><option value="">Connect Google to choose</option></select></label>
         </div>
         <div class="actions setup-actions"><button class="connect secondary">Connect Google</button><button class="review-button primary">Review setup</button></div>
@@ -163,6 +165,7 @@ function createOverlay(): HTMLDivElement {
   const status = query<HTMLElement>(".status");
   const measurementInput = query<HTMLInputElement>(".measurement");
   const destinationSelect = query<HTMLSelectElement>(".destination");
+  const analyticsSelect = query<HTMLSelectElement>(".analytics-destination");
   let scanned: NavigationElement[] = [];
 
   void chrome.storage.local.get([measurementStorageKey]).then((stored) => {
@@ -177,6 +180,15 @@ function createOverlay(): HTMLDivElement {
     if (destinationSelect.value) {
       void chrome.storage.local.set({ [destinationStorageKey]: destinationSelect.value });
     }
+  });
+  analyticsSelect.addEventListener("change", () => {
+    if (!analyticsSelect.value) return;
+    const stream = JSON.parse(analyticsSelect.value) as { measurementId: string };
+    measurementInput.value = stream.measurementId;
+    void chrome.storage.local.set({
+      [analyticsStreamStorageKey]: analyticsSelect.value,
+      [measurementStorageKey]: stream.measurementId,
+    });
   });
 
   const refreshGoogle = async (): Promise<void> => {
@@ -198,6 +210,29 @@ function createOverlay(): HTMLDivElement {
       }
       query<HTMLButtonElement>(".create").disabled = !state.trackingSetupWritesEnabled;
       query<HTMLButtonElement>(".connect").textContent = "Refresh Google";
+      const analyticsBody = await fetch(`${apiBase}/api/google/analytics/destinations`).then((response) => response.json()) as {
+        accounts?: Array<{ displayName: string; properties: Array<{ property: string; displayName: string; webStreams: Array<{ name: string; displayName: string; measurementId: string; defaultUri: string }> }> }>;
+      };
+      const streams = (analyticsBody.accounts ?? []).flatMap((account) => account.properties.flatMap((property) => property.webStreams.map((stream) => ({
+        ...stream,
+        property: property.property,
+        propertyName: property.displayName,
+        accountName: account.displayName,
+      }))));
+      analyticsSelect.replaceChildren(...streams.map((stream) => {
+        const option = document.createElement("option");
+        option.value = JSON.stringify(stream);
+        option.textContent = `${stream.propertyName} — ${stream.displayName} (${stream.measurementId})`;
+        return option;
+      }));
+      const analyticsStored = await chrome.storage.local.get([analyticsStreamStorageKey]);
+      const rememberedStream = analyticsStored[analyticsStreamStorageKey];
+      if (typeof rememberedStream === "string" && [...analyticsSelect.options].some((option) => option.value === rememberedStream)) {
+        analyticsSelect.value = rememberedStream;
+      }
+      if (analyticsSelect.value) {
+        measurementInput.value = (JSON.parse(analyticsSelect.value) as { measurementId: string }).measurementId;
+      }
     } catch { /* Connection remains an optional next action. */ }
   };
 

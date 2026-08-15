@@ -44,6 +44,24 @@ test("discovers, generates, downloads, and verifies navigation tracking", async 
         }],
       },
     }));
+    await context.route("http://127.0.0.1:8787/api/google/analytics/destinations", (route) => route.fulfill({
+      json: {
+        accounts: [{
+          account: "accounts/2",
+          displayName: "Demo Analytics",
+          properties: [{
+            property: "properties/20",
+            displayName: "Demo property",
+            webStreams: [{
+              name: "properties/20/dataStreams/200",
+              displayName: "Demo web",
+              measurementId: "G-DEMO123456",
+              defaultUri: "http://127.0.0.1:4173",
+            }],
+          }],
+        }],
+      },
+    }));
     await context.route("http://127.0.0.1:8787/api/google/accounts/1/containers/10/tracking-setups", async (route) => {
       approvedSetup = await route.request().postDataJSON() as Record<string, unknown>;
       await route.fulfill({
@@ -66,6 +84,7 @@ test("discovers, generates, downloads, and verifies navigation tracking", async 
     await site.locator("#gtm-observability-overlay .go").click();
     await expect(site.locator("#gtm-observability-overlay .panel.open")).toBeVisible();
     await expect(site.locator("[data-gtmo-selected=true]")).toHaveCount(5);
+    await expect(site.locator("#gtm-observability-overlay .analytics-destination")).toContainText("Demo web");
     await site.locator("#gtm-observability-overlay .measurement").fill("G-REMEMBER123");
     await site.locator("#gtm-observability-overlay .measurement").press("Tab");
     await worker.evaluate(async () => {
