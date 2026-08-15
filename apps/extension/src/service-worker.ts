@@ -15,23 +15,59 @@ interface PendingEvidence {
 }
 
 let pending: PendingEvidence | undefined;
+const recentRequests = new Map<number, BrowserEvidence["requests"]>();
+const requestLifetimeMs = 5_000;
+
+function requestsSince(tabId: number, clickedAt: string): BrowserEvidence["requests"] {
+  const clickedAtMs = Date.parse(clickedAt);
+  return (recentRequests.get(tabId) ?? []).filter(
+    (request) => Date.parse(request.observedAt) >= clickedAtMs,
+  );
+}
+
+function mergeRequests(
+  first: BrowserEvidence["requests"],
+  second: BrowserEvidence["requests"],
+): BrowserEvidence["requests"] {
+  const seen = new Set<string>();
+  return [...first, ...second].filter((request) => {
+    const key = `${request.observedAt}\u0000${request.url}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 
 chrome.runtime.onMessage.addListener(
   (message: { type?: string; evidence?: BrowserEvidence }, sender) => {
     if (message.type !== "VERIFICATION_EVIDENCE" || !message.evidence || sender.tab?.id === undefined) return;
-    pending = { tabId: sender.tab.id, evidence: message.evidence, startedAt: Date.now() };
+    const evidence = {
+      ...message.evidence,
+      requests: mergeRequests(
+        message.evidence.requests,
+        requestsSince(sender.tab.id, message.evidence.clickedAt),
+      ),
+    };
+    pending = { tabId: sender.tab.id, evidence, startedAt: Date.now() };
+    if (evidence.requests.length > message.evidence.requests.length) {
+      void chrome.runtime.sendMessage({ type: "VERIFICATION_EVIDENCE", evidence });
+    }
   },
 );
 
 chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
-    if (!pending || details.tabId !== pending.tabId || Date.now() - pending.startedAt > 5_000) return undefined;
+    const request = { url: details.url, observedAt: new Date().toISOString() };
+    const cutoff = Date.now() - requestLifetimeMs;
+    const observed = (recentRequests.get(details.tabId) ?? [])
+      .filter((item) => Date.parse(item.observedAt) >= cutoff);
+    observed.push(request);
+    recentRequests.set(details.tabId, observed);
+
+    if (!pending || details.tabId !== pending.tabId || Date.now() - pending.startedAt > requestLifetimeMs) return undefined;
     const updated: BrowserEvidence = {
       ...pending.evidence,
-      requests: [
-        ...pending.evidence.requests,
-        { url: details.url, observedAt: new Date().toISOString() },
-      ],
+      requests: mergeRequests(pending.evidence.requests, [request]),
     };
     pending = { ...pending, evidence: updated };
     void chrome.runtime.sendMessage({ type: "VERIFICATION_EVIDENCE", evidence: updated });

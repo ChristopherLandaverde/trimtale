@@ -20,6 +20,10 @@ _Avoid_: Tag creation, AI-generated tag, automatic tagging
 A freelancer or agency team member responsible for implementing and verifying tracking on client websites.
 _Avoid_: GTM person, marketer, user
 
+**Verification target**:
+An isolated deployed website environment where a tracking setup can be installed and checked without risking a production site.
+_Avoid_: Test website, fixture deployment, staging URL
+
 **Lead-generation site**:
 A website whose important measurable outcomes are prospect actions such as form submissions, phone calls, or appointment requests rather than purchases.
 _Avoid_: Simple website, brochure site

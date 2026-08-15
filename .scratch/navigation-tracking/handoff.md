@@ -41,3 +41,9 @@ Continue the separately gated real-Google integration lane:
 5. Delete or retain the disposable workspace according to the test policy.
 
 Keep the local harness deterministic and credential-free. Do not make ordinary verification depend on Google availability.
+
+## Follow-on product insight
+
+Deployment automation can materially reduce time to verified setup by creating a ready-to-check verification target with the isolated GTM container already configured. The proposed provider-neutral workflow and first Vercel slice are recorded in `.scratch/deployment-assisted-verification/spec.md`.
+
+The first Vercel slice is implemented and proven with a placeholder container on a protected preview. The next live step is to create a dedicated GTM web container and redeploy the verification target with its real public ID.

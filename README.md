@@ -111,3 +111,13 @@ GOOGLE_GTM_ACCESS_TOKEN=... npm run test:google
 ```
 
 This command only lists accounts and containers. It is intentionally separate from `npm run verify`.
+
+### Vercel verification target
+
+The verification-target app builds a small isolated website with a configurable GTM container installed in both the script and noscript positions. Deploy it to a Vercel preview without changing production:
+
+```bash
+npm run deploy:verification-target -- --container GTM-XXXXXXX --project consentflow
+```
+
+The command links only `apps/verification-target` to the selected Vercel project, creates a preview deployment, and fails unless the returned page contains the expected container marker and GTM script. A real container ID is mandatory for deployment; the credential-free local build uses `GTM-TEST000`.
