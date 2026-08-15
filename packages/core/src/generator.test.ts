@@ -45,6 +45,8 @@ describe("generated GTM scope", () => {
     const pattern = trigger.autoEventFilter[0]?.parameter.find((item) => item.key === "arg1")?.value;
     expect(pattern).toContain("https://example\\.test/services");
     expect(pattern).toContain("https://example\\.test/contact");
+    expect((trigger as unknown as { checkValidation: { value: string } }).checkValidation.value)
+      .toBe("false");
   });
 
   it("uses the current GA4 event tag parameter schema", () => {

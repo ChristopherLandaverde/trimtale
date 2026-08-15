@@ -559,6 +559,7 @@ describe("read-only GTM discovery", () => {
     expect(triggerBody.autoEventFilter[0].parameter[1].value).toContain(
       "https://preview\\.test/#features",
     );
+    expect(triggerBody.checkValidation).toEqual({ type: "boolean", value: "false" });
     const tagBody = JSON.parse(fetcher.mock.calls[3]?.[1]?.body as string);
     expect(tagBody.firingTriggerId).toEqual(["4"]);
     expect(tagBody.type).toBe("gaawe");
@@ -585,6 +586,32 @@ describe("read-only GTM discovery", () => {
     const body = JSON.parse(fetcher.mock.calls[0]?.[1]?.body as string);
     expect(body.type).toBe("googtag");
     expect(body.firingTriggerId).toEqual(["2147479553"]);
+  });
+
+  it("disables validation on an existing link-click trigger without replacing it", async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({
+        triggerId: "3",
+        name: "CE - Navigation Links - Confirmed Scope",
+        type: "linkClick",
+        fingerprint: "before",
+        checkValidation: { type: "boolean", value: "true" },
+      }))
+      .mockResolvedValueOnce(Response.json({
+        triggerId: "3",
+        name: "CE - Navigation Links - Confirmed Scope",
+        type: "linkClick",
+        fingerprint: "after",
+        checkValidation: { type: "boolean", value: "false" },
+      }));
+    const client = new GtmDiscoveryClient(async () => "token", fetcher);
+
+    const trigger = await client.disableNavigationTriggerValidation("1", "20", "4", "3");
+
+    expect(trigger.triggerId).toBe("3");
+    expect(fetcher.mock.calls[1]?.[1]?.method).toBe("PUT");
+    const body = JSON.parse(fetcher.mock.calls[1]?.[1]?.body as string);
+    expect(body.checkValidation).toEqual({ type: "boolean", value: "false" });
   });
 
   it("completes a retained navigation setup by creating only its missing tag", async () => {

@@ -151,7 +151,7 @@ GOOGLE_GTM_ENTITY_WRITES_ENABLED=true
 GOOGLE_GTM_ENTITY_WORKSPACE_PATH=accounts/6305900974/containers/261236292/workspaces/3
 ```
 
-`POST /api/google/accounts/:accountId/containers/:containerId/workspaces/:workspaceId/navigation-setup` requires `purpose=navigation-tracking-setup`, a GA4-format measurement ID, and 1–50 HTTPS navigation URLs. It creates one Google tag on All Pages to initialize the web data stream, enables Click Text and Click URL, creates one scoped link-click trigger, then creates one `navigation_click` GA4 event tag linked to the returned trigger ID. Partial failures retain the workspace for inspection. No rollback, deletion, version, preview, or publish call is made automatically.
+`POST /api/google/accounts/:accountId/containers/:containerId/workspaces/:workspaceId/navigation-setup` requires `purpose=navigation-tracking-setup`, a GA4-format measurement ID, and 1–50 HTTPS navigation URLs. It creates one Google tag on All Pages to initialize the web data stream, enables Click Text and Click URL, creates one scoped link-click trigger with Wait for Tags and Check Validation disabled, then creates one `navigation_click` GA4 event tag linked to the returned trigger ID. This captures the practitioner-confirmed scope without delaying navigation or excluding JavaScript-controlled links. Partial failures retain the workspace for inspection. No rollback, deletion, version, preview, or publish call is made automatically.
 
 The practitioner-facing extension flow uses one separately gated transaction instead of those harness routes:
 

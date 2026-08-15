@@ -115,7 +115,7 @@ function createContainerFile(request: SetupRequest): GtmContainerExport {
             },
           ],
           waitForTags: { type: "BOOLEAN", value: "false" },
-          checkValidation: { type: "BOOLEAN", value: "true" },
+          checkValidation: { type: "BOOLEAN", value: "false" },
         },
       ],
       tag: [

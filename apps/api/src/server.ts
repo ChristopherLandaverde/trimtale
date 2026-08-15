@@ -405,6 +405,45 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  const navigationValidationMatch = requestUrl.pathname.match(
+    /^\/api\/google\/accounts\/(\d+)\/containers\/(\d+)\/workspaces\/(\d+)\/navigation-trigger-validation$/,
+  );
+  if (request.method === "POST" && navigationValidationMatch) {
+    if (!discoveryClient || !oauthConfig?.entityWritesEnabled) {
+      sendJson(response, 403, { error: "GTM entity writes are disabled on this backend." });
+      return;
+    }
+    const [, accountId = "", containerId = "", workspaceId = ""] = navigationValidationMatch;
+    const requestedPath = `accounts/${accountId}/containers/${containerId}/workspaces/${workspaceId}`;
+    if (requestedPath !== oauthConfig.entityWorkspacePath) {
+      sendJson(response, 403, { error: "This workspace is not allowlisted for entity writes." });
+      return;
+    }
+    try {
+      const body = (await readJson(request)) as { purpose?: unknown; triggerId?: unknown };
+      if (body.purpose !== "capture-confirmed-link-clicks" || typeof body.triggerId !== "string") {
+        throw new GoogleIntegrationError(
+          "Navigation validation update requires purpose=capture-confirmed-link-clicks and triggerId.",
+          400,
+        );
+      }
+      sendJson(response, 200, {
+        trigger: await discoveryClient.disableNavigationTriggerValidation(
+          accountId,
+          containerId,
+          workspaceId,
+          body.triggerId,
+        ),
+        publishStatus: "not-published",
+      });
+    } catch (integrationError) {
+      const status = integrationError instanceof GoogleIntegrationError ? integrationError.status : 502;
+      const message = integrationError instanceof Error ? integrationError.message : "Unable to update navigation validation.";
+      sendJson(response, status, { error: message, retention: "retain-for-evidence" });
+    }
+    return;
+  }
+
   const googleTagMatch = requestUrl.pathname.match(
     /^\/api\/google\/accounts\/(\d+)\/containers\/(\d+)\/workspaces\/(\d+)\/google-tag$/,
   );

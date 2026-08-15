@@ -826,7 +826,7 @@ export class GtmDiscoveryClient {
           ],
         }],
         waitForTags: { type: "boolean", value: "false" },
-        checkValidation: { type: "boolean", value: "true" },
+        checkValidation: { type: "boolean", value: "false" },
       }),
     });
     const trigger = await responseJson<GtmCreatedTrigger>(triggerResponse);
@@ -891,6 +891,35 @@ export class GtmDiscoveryClient {
       }),
     });
     return responseJson<GtmCreatedTag>(response);
+  }
+
+  async disableNavigationTriggerValidation(
+    accountId: string,
+    containerId: string,
+    workspaceId: string,
+    triggerId: string,
+  ): Promise<GtmCreatedTrigger> {
+    this.validateContainerPath(accountId, containerId);
+    if (!/^\d+$/.test(workspaceId) || !/^\d+$/.test(triggerId)) {
+      throw new GoogleIntegrationError("GTM workspace and trigger IDs must be numeric.", 400);
+    }
+    const path = `/accounts/${accountId}/containers/${containerId}/workspaces/${workspaceId}/triggers/${triggerId}`;
+    const trigger = await this.get<GtmCreatedTrigger & Record<string, unknown>>(path);
+    if (trigger.type !== "linkClick") {
+      throw new GoogleIntegrationError("Only a link-click trigger can disable navigation validation.", 400);
+    }
+    const response = await this.fetcher(`${tagManagerEndpoint}${path}`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${await this.getAccessToken()}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ...trigger,
+        checkValidation: { type: "boolean", value: "false" },
+      }),
+    });
+    return responseJson<GtmCreatedTrigger>(response);
   }
 
   async createNavigationEventTag(
