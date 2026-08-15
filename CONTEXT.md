@@ -64,6 +64,10 @@ _Avoid_: Measurement ID, website, GTM container
 The website-specific source within an analytics property that owns the measurement ID used to send web events.
 _Avoid_: Analytics property, GTM destination, tracking code
 
+**Google tag**:
+The container-level tag that initializes a web data stream on page load using its measurement ID, before event tags send specific interactions.
+_Avoid_: GA4 event tag, measurement ID, GTM container
+
 **Analytics account provisioning**:
 The practitioner-controlled process of requesting a new Google Analytics account and accepting Google's Terms of Service before the account exists.
 _Avoid_: Automatic account creation, property creation, backend acceptance

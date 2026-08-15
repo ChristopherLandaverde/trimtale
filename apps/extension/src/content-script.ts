@@ -373,7 +373,7 @@ function createOverlay(): HTMLDivElement {
       const body = await response.json() as SetupProposal | { error: string };
       if (!response.ok || "error" in body) throw new Error("error" in body ? body.error : "Unable to generate setup.");
       overlayProposal = body;
-      query<HTMLElement>(".review").textContent = `Create an isolated unpublished workspace with ${body.navigation.length} scoped links, Click URL and Click Text variables, one navigation trigger, and one GA4 event tag.`;
+      query<HTMLElement>(".review").textContent = `Use a safe unpublished workspace with ${body.navigation.length} scoped links, one Google tag, Click URL and Click Text variables, one navigation trigger, and one GA4 event tag.`;
       query<HTMLElement>(".review").classList.remove("hidden");
       query<HTMLElement>(".approval").classList.remove("hidden");
       query<HTMLElement>(".setup-actions").classList.add("hidden");

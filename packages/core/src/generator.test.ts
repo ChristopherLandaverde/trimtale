@@ -29,7 +29,7 @@ describe("navigation setup scenario corpus", () => {
       expect(proposal.eventName).toBe("navigation_click");
       expect(proposal.preflight.status).toBe("passed");
       expect(proposal.containerFile.exportFormatVersion).toBe(2);
-      expect(proposal.containerFile.containerVersion.tag).toHaveLength(1);
+      expect(proposal.containerFile.containerVersion.tag).toHaveLength(2);
       expect(proposal.containerFile.containerVersion.trigger).toHaveLength(1);
       expect(proposal.containerFile.containerVersion.builtInVariable).toHaveLength(2);
     });
@@ -49,14 +49,36 @@ describe("generated GTM scope", () => {
 
   it("uses the current GA4 event tag parameter schema", () => {
     const proposal = createSetupProposal(scenario("valid-header-links").request);
-    const tag = proposal.containerFile.containerVersion.tag[0] as {
+    const tags = proposal.containerFile.containerVersion.tag as Array<{
+      type?: string;
       parameter: Array<{ key?: string; value?: string }>;
-    };
+    }>;
+    const tag = tags.find((candidate) => candidate.type === "gaawe")!;
 
     expect(tag.parameter).toContainEqual(expect.objectContaining({
       key: "measurementIdOverride",
       value: "G-ABC1234567",
     }));
     expect(tag.parameter).toContainEqual(expect.objectContaining({ key: "eventSettingsTable" }));
+  });
+
+  it("initializes the web data stream with a Google tag on All Pages", () => {
+    const proposal = createSetupProposal(scenario("valid-header-links").request);
+    const tags = proposal.containerFile.containerVersion.tag as Array<{
+      type?: string;
+      name?: string;
+      firingTriggerId?: string[];
+      parameter?: Array<{ key?: string; value?: string }>;
+    }>;
+    const tag = tags.find((candidate) => candidate.type === "googtag");
+
+    expect(tag).toMatchObject({
+      name: "Google tag - ConsentFlow",
+      firingTriggerId: ["2147479553"],
+    });
+    expect(tag?.parameter).toContainEqual(expect.objectContaining({
+      key: "tagId",
+      value: "G-ABC1234567",
+    }));
   });
 });

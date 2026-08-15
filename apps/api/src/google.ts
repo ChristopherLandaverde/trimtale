@@ -601,6 +601,7 @@ export interface GtmCreatedTag {
 
 export interface GtmNavigationSetupResult {
   builtInVariables: unknown[];
+  googleTag: GtmCreatedTag;
   trigger: GtmCreatedTrigger;
   tag: GtmCreatedTag;
 }
@@ -788,6 +789,12 @@ export class GtmDiscoveryClient {
       throw new GoogleIntegrationError("Provide between 1 and 50 HTTPS navigation URLs.", 400);
     }
     const parent = `/accounts/${accountId}/containers/${containerId}/workspaces/${workspaceId}`;
+    const googleTag = await this.createGoogleTag(
+      accountId,
+      containerId,
+      workspaceId,
+      normalizedMeasurementId,
+    );
     const builtInUrl = new URL(`${tagManagerEndpoint}${parent}/built_in_variables`);
     builtInUrl.searchParams.append("type", "clickText");
     builtInUrl.searchParams.append("type", "clickUrl");
@@ -833,9 +840,57 @@ export class GtmDiscoveryClient {
     );
     return {
       builtInVariables: builtInVariables.builtInVariable ?? [],
+      googleTag,
       trigger,
       tag,
     };
+  }
+
+  async createGoogleTag(
+    accountId: string,
+    containerId: string,
+    workspaceId: string,
+    measurementId: string,
+  ): Promise<GtmCreatedTag> {
+    this.validateContainerPath(accountId, containerId);
+    if (!/^\d+$/.test(workspaceId)) {
+      throw new GoogleIntegrationError("GTM workspace ID must be numeric.", 400);
+    }
+    const normalizedMeasurementId = measurementId.trim().toUpperCase();
+    if (!/^G-[A-Z0-9]+$/.test(normalizedMeasurementId)) {
+      throw new GoogleIntegrationError("Measurement ID must look like G-XXXXXXXXXX.", 400);
+    }
+    const parent = `/accounts/${accountId}/containers/${containerId}/workspaces/${workspaceId}`;
+    const response = await this.fetcher(`${tagManagerEndpoint}${parent}/tags`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${await this.getAccessToken()}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: "Google tag - ConsentFlow",
+        type: "googtag",
+        parameter: [
+          { type: "template", key: "tagId", value: normalizedMeasurementId },
+          {
+            type: "list",
+            key: "configSettingsTable",
+            list: [{
+              type: "map",
+              map: [
+                { type: "template", key: "parameter", value: "send_page_view" },
+                { type: "template", key: "parameterValue", value: "true" },
+              ],
+            }],
+          },
+        ],
+        firingTriggerId: ["2147479553"],
+        tagFiringOption: "oncePerEvent",
+        monitoringMetadata: { type: "map" },
+        consentSettings: { consentStatus: "notSet" },
+      }),
+    });
+    return responseJson<GtmCreatedTag>(response);
   }
 
   async createNavigationEventTag(

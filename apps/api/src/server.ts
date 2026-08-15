@@ -405,6 +405,40 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  const googleTagMatch = requestUrl.pathname.match(
+    /^\/api\/google\/accounts\/(\d+)\/containers\/(\d+)\/workspaces\/(\d+)\/google-tag$/,
+  );
+  if (request.method === "POST" && googleTagMatch) {
+    if (!discoveryClient || !oauthConfig?.entityWritesEnabled) {
+      sendJson(response, 403, { error: "GTM entity writes are disabled on this backend." });
+      return;
+    }
+    const [, accountId = "", containerId = "", workspaceId = ""] = googleTagMatch;
+    const requestedPath = `accounts/${accountId}/containers/${containerId}/workspaces/${workspaceId}`;
+    if (requestedPath !== oauthConfig.entityWorkspacePath) {
+      sendJson(response, 403, { error: "This workspace is not allowlisted for entity writes." });
+      return;
+    }
+    try {
+      const body = (await readJson(request)) as { purpose?: unknown; measurementId?: unknown };
+      if (body.purpose !== "initialize-analytics-web-stream" || typeof body.measurementId !== "string") {
+        throw new GoogleIntegrationError(
+          "Google tag creation requires purpose=initialize-analytics-web-stream and measurementId.",
+          400,
+        );
+      }
+      sendJson(response, 201, {
+        tag: await discoveryClient.createGoogleTag(accountId, containerId, workspaceId, body.measurementId),
+        publishStatus: "not-published",
+      });
+    } catch (integrationError) {
+      const status = integrationError instanceof GoogleIntegrationError ? integrationError.status : 502;
+      const message = integrationError instanceof Error ? integrationError.message : "Unable to create the Google tag.";
+      sendJson(response, status, { error: message, retention: "retain-for-evidence" });
+    }
+    return;
+  }
+
   const navigationTagMatch = requestUrl.pathname.match(
     /^\/api\/google\/accounts\/(\d+)\/containers\/(\d+)\/workspaces\/(\d+)\/navigation-tag$/,
   );

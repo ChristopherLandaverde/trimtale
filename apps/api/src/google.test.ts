@@ -523,6 +523,7 @@ describe("read-only GTM discovery", () => {
 
   it("applies navigation entities sequentially and links the created trigger", async () => {
     const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ tagId: "3", name: "Google tag - ConsentFlow" }))
       .mockResolvedValueOnce(Response.json({
         builtInVariable: [{ type: "clickText" }, { type: "clickUrl" }],
       }))
@@ -538,15 +539,27 @@ describe("read-only GTM discovery", () => {
       ["https://preview.test/#features", "https://preview.test/#contact"],
     );
 
+    expect(result.googleTag.tagId).toBe("3");
     expect(result.trigger.triggerId).toBe("4");
     expect(result.tag.tagId).toBe("5");
-    expect(fetcher).toHaveBeenCalledTimes(3);
-    const triggerBody = JSON.parse(fetcher.mock.calls[1]?.[1]?.body as string);
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    const googleTagBody = JSON.parse(fetcher.mock.calls[0]?.[1]?.body as string);
+    expect(googleTagBody).toMatchObject({
+      name: "Google tag - ConsentFlow",
+      type: "googtag",
+      firingTriggerId: ["2147479553"],
+    });
+    expect(googleTagBody.parameter).toContainEqual({
+      type: "template",
+      key: "tagId",
+      value: "G-TEST123456",
+    });
+    const triggerBody = JSON.parse(fetcher.mock.calls[2]?.[1]?.body as string);
     expect(triggerBody.type).toBe("linkClick");
     expect(triggerBody.autoEventFilter[0].parameter[1].value).toContain(
       "https://preview\\.test/#features",
     );
-    const tagBody = JSON.parse(fetcher.mock.calls[2]?.[1]?.body as string);
+    const tagBody = JSON.parse(fetcher.mock.calls[3]?.[1]?.body as string);
     expect(tagBody.firingTriggerId).toEqual(["4"]);
     expect(tagBody.type).toBe("gaawe");
     expect(tagBody.parameter).toContainEqual({
@@ -558,6 +571,20 @@ describe("read-only GTM discovery", () => {
       type: "list",
       key: "eventSettingsTable",
     }));
+  });
+
+  it("creates a Google tag on the built-in All Pages trigger", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      Response.json({ tagId: "6", name: "Google tag - ConsentFlow" }),
+    );
+    const client = new GtmDiscoveryClient(async () => "token", fetcher);
+
+    const tag = await client.createGoogleTag("1", "20", "4", "g-test123456");
+
+    expect(tag.tagId).toBe("6");
+    const body = JSON.parse(fetcher.mock.calls[0]?.[1]?.body as string);
+    expect(body.type).toBe("googtag");
+    expect(body.firingTriggerId).toEqual(["2147479553"]);
   });
 
   it("completes a retained navigation setup by creating only its missing tag", async () => {

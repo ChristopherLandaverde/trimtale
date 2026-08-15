@@ -172,7 +172,7 @@ test("discovers, generates, downloads, and verifies navigation tracking", async 
       containerVersion: { tag: unknown[]; trigger: unknown[]; builtInVariable: unknown[] };
     };
     expect(file.exportFormatVersion).toBe(2);
-    expect(file.containerVersion.tag).toHaveLength(1);
+    expect(file.containerVersion.tag).toHaveLength(2);
     expect(file.containerVersion.trigger).toHaveLength(1);
     expect(file.containerVersion.builtInVariable).toHaveLength(2);
 

@@ -75,7 +75,8 @@ function createContainerFile(request: SetupRequest): GtmContainerExport {
   const containerId = request.container.containerId || "0";
   const base = `accounts/${accountId}/containers/${containerId}`;
   const triggerId = "900001";
-  const tagId = "900002";
+  const googleTagId = "900002";
+  const eventTagId = "900003";
   const pattern = scopedUrlPattern([...new Set(navigation.map((item) => item.href))]);
 
   return {
@@ -121,7 +122,29 @@ function createContainerFile(request: SetupRequest): GtmContainerExport {
         {
           accountId,
           containerId,
-          tagId,
+          tagId: googleTagId,
+          name: "Google tag - ConsentFlow",
+          type: "googtag",
+          parameter: [
+            template("tagId", request.measurementId.toUpperCase()),
+            {
+              type: "LIST",
+              key: "configSettingsTable",
+              list: [map([
+                ["parameter", "send_page_view"],
+                ["parameterValue", "true"],
+              ])],
+            },
+          ],
+          firingTriggerId: ["2147479553"],
+          tagFiringOption: "ONCE_PER_EVENT",
+          monitoringMetadata: { type: "MAP", map: [] },
+          consentSettings: { consentStatus: "NOT_SET" },
+        },
+        {
+          accountId,
+          containerId,
+          tagId: eventTagId,
           name: "GA4 Event - navigation_click",
           type: "gaawe",
           parameter: [
