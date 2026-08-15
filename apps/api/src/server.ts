@@ -1,9 +1,20 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createSetupProposal, type SetupRequest } from "@gtm-observability/core";
+import {
+  GoogleIntegrationError,
+  GoogleOAuthSession,
+  GtmDiscoveryClient,
+  googleOAuthConfig,
+} from "./google.js";
 
 const port = Number.parseInt(process.env.PORT ?? "8787", 10);
 const allowedOrigin = process.env.EXTENSION_ORIGIN ?? "*";
 const maximumBodyBytes = 256_000;
+const oauthConfig = googleOAuthConfig();
+const oauthSession = oauthConfig ? new GoogleOAuthSession(oauthConfig) : undefined;
+const discoveryClient = oauthSession
+  ? new GtmDiscoveryClient(() => oauthSession.accessToken())
+  : undefined;
 
 function setCors(response: ServerResponse): void {
   response.setHeader("Access-Control-Allow-Origin", allowedOrigin);
@@ -42,6 +53,101 @@ const server = createServer(async (request, response) => {
 
   if (request.method === "GET" && request.url === "/health") {
     sendJson(response, 200, { status: "ok", service: "gtm-observability-api" });
+    return;
+  }
+
+  const requestUrl = new URL(request.url ?? "/", `http://${request.headers.host ?? "127.0.0.1"}`);
+
+  if (request.method === "GET" && requestUrl.pathname === "/api/google/status") {
+    sendJson(response, 200, {
+      configured: oauthSession !== undefined,
+      connected: oauthSession?.isConnected() ?? false,
+      scope: "read-only",
+    });
+    return;
+  }
+
+  if (request.method === "GET" && requestUrl.pathname === "/api/google/oauth/start") {
+    if (!oauthSession) {
+      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
+      return;
+    }
+    response.writeHead(302, { Location: oauthSession.authorizationUrl() });
+    response.end();
+    return;
+  }
+
+  if (request.method === "GET" && requestUrl.pathname === "/api/google/oauth/callback") {
+    if (!oauthSession) {
+      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
+      return;
+    }
+    const error = requestUrl.searchParams.get("error");
+    const code = requestUrl.searchParams.get("code");
+    const state = requestUrl.searchParams.get("state");
+    if (error || !code || !state) {
+      sendJson(response, 400, { error: error ?? "OAuth callback is missing code or state." });
+      return;
+    }
+    try {
+      await oauthSession.authorize(code, state);
+      sendJson(response, 200, {
+        connected: true,
+        message: "Google Tag Manager connected with read-only access.",
+      });
+    } catch (integrationError) {
+      const status = integrationError instanceof GoogleIntegrationError
+        ? integrationError.status
+        : 502;
+      const message = integrationError instanceof Error
+        ? integrationError.message
+        : "Unable to complete Google authorization.";
+      sendJson(response, status, { error: message });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && requestUrl.pathname === "/api/google/accounts") {
+    if (!discoveryClient) {
+      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
+      return;
+    }
+    try {
+      sendJson(response, 200, { accounts: await discoveryClient.discover() });
+    } catch (integrationError) {
+      const status = integrationError instanceof GoogleIntegrationError
+        ? integrationError.status
+        : 502;
+      const message = integrationError instanceof Error
+        ? integrationError.message
+        : "Unable to discover Google Tag Manager containers.";
+      sendJson(response, status, { error: message });
+    }
+    return;
+  }
+
+  const contextMatch = requestUrl.pathname.match(
+    /^\/api\/google\/accounts\/(\d+)\/containers\/(\d+)\/context$/,
+  );
+  if (request.method === "GET" && contextMatch) {
+    if (!discoveryClient) {
+      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
+      return;
+    }
+    try {
+      const [, accountId = "", containerId = ""] = contextMatch;
+      sendJson(response, 200, {
+        context: await discoveryClient.containerEntityContext(accountId, containerId),
+      });
+    } catch (integrationError) {
+      const status = integrationError instanceof GoogleIntegrationError
+        ? integrationError.status
+        : 502;
+      const message = integrationError instanceof Error
+        ? integrationError.message
+        : "Unable to retrieve the GTM container entity context.";
+      sendJson(response, status, { error: message });
+    }
     return;
   }
 
