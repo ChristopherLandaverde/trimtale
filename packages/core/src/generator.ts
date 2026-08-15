@@ -126,18 +126,18 @@ function createContainerFile(request: SetupRequest): GtmContainerExport {
           type: "gaawe",
           parameter: [
             template("eventName", "navigation_click"),
-            template("measurementId", request.measurementId.toUpperCase()),
+            template("measurementIdOverride", request.measurementId.toUpperCase()),
             {
               type: "LIST",
-              key: "eventParameters",
+              key: "eventSettingsTable",
               list: [
                 map([
-                  ["name", "link_text"],
-                  ["value", "{{Click Text}}"],
+                  ["parameter", "link_text"],
+                  ["parameterValue", "{{Click Text}}"],
                 ]),
                 map([
-                  ["name", "link_url"],
-                  ["value", "{{Click URL}}"],
+                  ["parameter", "link_url"],
+                  ["parameterValue", "{{Click URL}}"],
                 ]),
               ],
             },

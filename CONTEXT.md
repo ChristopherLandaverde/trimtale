@@ -64,6 +64,10 @@ _Avoid_: Analytics property, GTM destination, tracking code
 The practitioner-controlled process of requesting a new Google Analytics account and accepting Google's Terms of Service before the account exists.
 _Avoid_: Automatic account creation, property creation, backend acceptance
 
+**Analytics destination setup**:
+The first-run process that selects or provisions an analytics account, creates its analytics property and web data stream, and yields the measurement ID needed by a tracking setup.
+_Avoid_: GA4 onboarding, account setup, measurement ID creation
+
 **Scenario corpus**:
 A collection of reproducible website, consent, GTM, and destination configurations with known expected outcomes, used to test diagnoses, generated setups, and implementation-confidence calibration.
 _Avoid_: Training data, mock websites, examples

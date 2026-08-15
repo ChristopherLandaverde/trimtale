@@ -46,4 +46,17 @@ describe("generated GTM scope", () => {
     expect(pattern).toContain("https://example\\.test/services");
     expect(pattern).toContain("https://example\\.test/contact");
   });
+
+  it("uses the current GA4 event tag parameter schema", () => {
+    const proposal = createSetupProposal(scenario("valid-header-links").request);
+    const tag = proposal.containerFile.containerVersion.tag[0] as {
+      parameter: Array<{ key?: string; value?: string }>;
+    };
+
+    expect(tag.parameter).toContainEqual(expect.objectContaining({
+      key: "measurementIdOverride",
+      value: "G-ABC1234567",
+    }));
+    expect(tag.parameter).toContainEqual(expect.objectContaining({ key: "eventSettingsTable" }));
+  });
 });

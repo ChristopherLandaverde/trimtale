@@ -437,5 +437,14 @@ describe("read-only GTM discovery", () => {
     const tagBody = JSON.parse(fetcher.mock.calls[2]?.[1]?.body as string);
     expect(tagBody.firingTriggerId).toEqual(["4"]);
     expect(tagBody.type).toBe("gaawe");
+    expect(tagBody.parameter).toContainEqual({
+      type: "template",
+      key: "measurementIdOverride",
+      value: "G-TEST123456",
+    });
+    expect(tagBody.parameter).toContainEqual(expect.objectContaining({
+      type: "list",
+      key: "eventSettingsTable",
+    }));
   });
 });

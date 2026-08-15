@@ -138,9 +138,10 @@ export class GoogleIntegrationError extends Error {
 }
 
 async function responseJson<T>(response: Response): Promise<T> {
-  const value = (await response.json()) as T & { error?: string; error_description?: string };
+  const value = (await response.json()) as T & { error?: unknown; error_description?: unknown };
   if (!response.ok) {
-    const detail = value.error_description ?? value.error ?? `HTTP ${response.status}`;
+    const rawDetail = value.error_description ?? value.error ?? `HTTP ${response.status}`;
+    const detail = typeof rawDetail === "string" ? rawDetail : JSON.stringify(rawDetail);
     throw new GoogleIntegrationError(`Google API request failed: ${detail}`, response.status);
   }
   return value;
@@ -748,23 +749,23 @@ export class GtmDiscoveryClient {
         type: "gaawe",
         parameter: [
           { type: "template", key: "eventName", value: "navigation_click" },
-          { type: "template", key: "measurementId", value: normalizedMeasurementId },
+          { type: "template", key: "measurementIdOverride", value: normalizedMeasurementId },
           {
             type: "list",
-            key: "eventParameters",
+            key: "eventSettingsTable",
             list: [
               {
                 type: "map",
                 map: [
-                  { type: "template", key: "name", value: "link_text" },
-                  { type: "template", key: "value", value: "{{Click Text}}" },
+                  { type: "template", key: "parameter", value: "link_text" },
+                  { type: "template", key: "parameterValue", value: "{{Click Text}}" },
                 ],
               },
               {
                 type: "map",
                 map: [
-                  { type: "template", key: "name", value: "link_url" },
-                  { type: "template", key: "value", value: "{{Click URL}}" },
+                  { type: "template", key: "parameter", value: "link_url" },
+                  { type: "template", key: "parameterValue", value: "{{Click URL}}" },
                 ],
               },
             ],
