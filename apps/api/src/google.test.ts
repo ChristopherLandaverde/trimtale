@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   GoogleOAuthSession,
   GtmDiscoveryClient,
+  GTM_EDIT_CONTAINERS_SCOPE,
   GTM_READONLY_SCOPE,
   googleOAuthConfig,
 } from "./google.js";
@@ -10,6 +11,7 @@ const config = {
   clientId: "client-id",
   clientSecret: "client-secret",
   redirectUri: "http://127.0.0.1:8787/api/google/oauth/callback",
+  containerWritesEnabled: false,
 };
 
 describe("Google OAuth configuration", () => {
@@ -22,6 +24,16 @@ describe("Google OAuth configuration", () => {
         GOOGLE_OAUTH_REDIRECT_URI: config.redirectUri,
       }),
     ).toEqual(config);
+  });
+
+  it("requests container edit access only when explicitly enabled", () => {
+    const session = new GoogleOAuthSession({ ...config, containerWritesEnabled: true });
+    const authorization = new URL(session.authorizationUrl());
+
+    expect(authorization.searchParams.get("scope")?.split(" ")).toEqual([
+      GTM_READONLY_SCOPE,
+      GTM_EDIT_CONTAINERS_SCOPE,
+    ]);
   });
 
   it("requests offline read-only access and rejects a reused state", async () => {
@@ -131,6 +143,44 @@ describe("read-only GTM discovery", () => {
     const client = new GtmDiscoveryClient(async () => "token", fetcher);
 
     await expect(client.containerEntityContext("../accounts", "10")).rejects.toThrow("numeric");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("creates a web container for a validated verification target", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({
+      accountId: "1",
+      containerId: "20",
+      name: "ConsentFlow Verification",
+      path: "accounts/1/containers/20",
+      publicId: "GTM-NEW123",
+      usageContext: ["web"],
+    }));
+    const client = new GtmDiscoveryClient(async () => "token", fetcher);
+
+    const result = await client.createVerificationContainer(
+      "1",
+      "ConsentFlow Verification",
+      "https://consentflow-psi.vercel.app/path",
+    );
+
+    expect(result.publicId).toBe("GTM-NEW123");
+    const [, request] = fetcher.mock.calls[0] ?? [];
+    expect(request?.method).toBe("POST");
+    expect(JSON.parse(request?.body as string)).toEqual({
+      name: "ConsentFlow Verification",
+      usageContext: ["web"],
+      domainName: ["consentflow-psi.vercel.app"],
+      notes: "Disposable verification target created by GTM Observability.",
+    });
+  });
+
+  it("rejects non-HTTPS verification targets before creating a container", async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    const client = new GtmDiscoveryClient(async () => "token", fetcher);
+
+    await expect(
+      client.createVerificationContainer("1", "ConsentFlow Verification", "http://example.test"),
+    ).rejects.toThrow("valid HTTPS URL");
     expect(fetcher).not.toHaveBeenCalled();
   });
 });

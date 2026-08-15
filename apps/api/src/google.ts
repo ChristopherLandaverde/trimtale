@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
 
 export const GTM_READONLY_SCOPE = "https://www.googleapis.com/auth/tagmanager.readonly";
+export const GTM_EDIT_CONTAINERS_SCOPE =
+  "https://www.googleapis.com/auth/tagmanager.edit.containers";
 
 const authorizationEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
 const tokenEndpoint = "https://oauth2.googleapis.com/token";
@@ -11,6 +13,7 @@ export interface GoogleOAuthConfig {
   clientId: string;
   clientSecret: string;
   redirectUri: string;
+  containerWritesEnabled: boolean;
 }
 
 interface GoogleTokenResponse {
@@ -86,7 +89,12 @@ export function googleOAuthConfig(
   const clientSecret = environment.GOOGLE_OAUTH_CLIENT_SECRET?.trim();
   const redirectUri = environment.GOOGLE_OAUTH_REDIRECT_URI?.trim();
   if (!clientId || !clientSecret || !redirectUri) return undefined;
-  return { clientId, clientSecret, redirectUri };
+  return {
+    clientId,
+    clientSecret,
+    redirectUri,
+    containerWritesEnabled: environment.GOOGLE_GTM_CONTAINER_WRITES_ENABLED === "true",
+  };
 }
 
 export class GoogleIntegrationError extends Error {
@@ -126,11 +134,13 @@ export class GoogleOAuthSession {
     const state = randomBytes(32).toString("base64url");
     this.states.set(state, this.now() + stateLifetimeMs);
     const url = new URL(authorizationEndpoint);
+    const scopes = [GTM_READONLY_SCOPE];
+    if (this.config.containerWritesEnabled) scopes.push(GTM_EDIT_CONTAINERS_SCOPE);
     url.search = new URLSearchParams({
       client_id: this.config.clientId,
       redirect_uri: this.config.redirectUri,
       response_type: "code",
-      scope: GTM_READONLY_SCOPE,
+      scope: scopes.join(" "),
       access_type: "offline",
       include_granted_scopes: "true",
       prompt: "consent",
@@ -252,6 +262,45 @@ export class GtmDiscoveryClient {
       this.get<GtmContainerVersion>(`${parent}/versions:live`),
     ]);
     return { container, workspaces, liveVersion };
+  }
+
+  async createVerificationContainer(
+    accountId: string,
+    name: string,
+    domainName: string,
+  ): Promise<GtmContainer> {
+    if (!/^\d+$/.test(accountId)) {
+      throw new GoogleIntegrationError("GTM account ID must be numeric.", 400);
+    }
+    const normalizedName = name.replace(/\s+/g, " ").trim();
+    if (normalizedName.length < 3 || normalizedName.length > 100) {
+      throw new GoogleIntegrationError("Container name must be between 3 and 100 characters.", 400);
+    }
+    let hostname: string;
+    try {
+      const url = new URL(domainName);
+      if (url.protocol !== "https:") throw new Error("HTTPS required");
+      hostname = url.hostname;
+    } catch {
+      throw new GoogleIntegrationError("Verification target must be a valid HTTPS URL.", 400);
+    }
+    const response = await this.fetcher(
+      `${tagManagerEndpoint}/accounts/${accountId}/containers`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${await this.getAccessToken()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: normalizedName,
+          usageContext: ["web"],
+          domainName: [hostname],
+          notes: "Disposable verification target created by GTM Observability.",
+        }),
+      },
+    );
+    return responseJson<GtmContainer>(response);
   }
 
   private async get<Result>(path: string): Promise<Result> {

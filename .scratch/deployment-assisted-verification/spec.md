@@ -57,3 +57,5 @@ Choose verification target
 - A Vercel command creates preview deployments only; it never promotes a deployment to production.
 - Deployment verification uses Vercel's authenticated fetch path so protected previews remain testable.
 - Local builds use a non-production placeholder while live deployment requires an explicit container ID.
+- GTM container creation is available only behind an explicit backend flag and additional narrow OAuth scope.
+- The creation route accepts only a named HTTPS verification target and creates a web container; existing-container mutation and publishing remain unavailable.

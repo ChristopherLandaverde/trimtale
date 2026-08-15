@@ -104,6 +104,21 @@ Register the exact redirect URI in the Google Cloud OAuth client and enable the 
 
 After choosing a disposable container, `GET /api/google/accounts/:accountId/containers/:containerId/context` retrieves its workspaces and live version entity context. This includes the existing tags, triggers, variables, and built-in variables needed to plan an isolated workspace change. It remains read-only.
 
+Container creation is a separate opt-in capability. Add the `tagmanager.edit.containers` scope to the Google Auth Platform client, set `GOOGLE_GTM_CONTAINER_WRITES_ENABLED=true`, restart the API, and authorize again. The backend then permits only this explicit request shape:
+
+```http
+POST /api/google/accounts/:accountId/containers
+Content-Type: application/json
+
+{
+  "name": "ConsentFlow Verification",
+  "verificationTarget": "https://consentflow-psi.vercel.app",
+  "purpose": "verification-target"
+}
+```
+
+The route creates a web container associated with the verification-target hostname. The capability does not update or delete containers, create or publish versions, or modify production deployments. Without the environment flag, the route returns `403` and OAuth continues to request read-only access only.
+
 For an opt-in live smoke check, supply a short-lived token carrying the same read-only scope:
 
 ```bash

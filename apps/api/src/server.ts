@@ -62,7 +62,8 @@ const server = createServer(async (request, response) => {
     sendJson(response, 200, {
       configured: oauthSession !== undefined,
       connected: oauthSession?.isConnected() ?? false,
-      scope: "read-only",
+      scope: oauthConfig?.containerWritesEnabled ? "container-create" : "read-only",
+      containerWritesEnabled: oauthConfig?.containerWritesEnabled ?? false,
     });
     return;
   }
@@ -121,6 +122,54 @@ const server = createServer(async (request, response) => {
       const message = integrationError instanceof Error
         ? integrationError.message
         : "Unable to discover Google Tag Manager containers.";
+      sendJson(response, status, { error: message });
+    }
+    return;
+  }
+
+  const createContainerMatch = requestUrl.pathname.match(
+    /^\/api\/google\/accounts\/(\d+)\/containers$/,
+  );
+  if (request.method === "POST" && createContainerMatch) {
+    if (!discoveryClient || !oauthConfig?.containerWritesEnabled) {
+      sendJson(response, 403, {
+        error: "GTM container creation is disabled on this backend.",
+      });
+      return;
+    }
+    try {
+      const body = (await readJson(request)) as {
+        name?: unknown;
+        verificationTarget?: unknown;
+        purpose?: unknown;
+      };
+      if (body.purpose !== "verification-target") {
+        throw new GoogleIntegrationError(
+          "Container creation requires purpose=verification-target.",
+          400,
+        );
+      }
+      if (typeof body.name !== "string" || typeof body.verificationTarget !== "string") {
+        throw new GoogleIntegrationError(
+          "Container name and verificationTarget are required.",
+          400,
+        );
+      }
+      const [, accountId = ""] = createContainerMatch;
+      sendJson(response, 201, {
+        container: await discoveryClient.createVerificationContainer(
+          accountId,
+          body.name,
+          body.verificationTarget,
+        ),
+      });
+    } catch (integrationError) {
+      const status = integrationError instanceof GoogleIntegrationError
+        ? integrationError.status
+        : 502;
+      const message = integrationError instanceof Error
+        ? integrationError.message
+        : "Unable to create the GTM verification container.";
       sendJson(response, status, { error: message });
     }
     return;
