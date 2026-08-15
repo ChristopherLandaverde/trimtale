@@ -6,6 +6,8 @@ import {
 } from "@gtm-observability/core";
 
 const apiBase = "http://127.0.0.1:8787";
+const measurementStorageKey = "defaultGa4MeasurementId";
+const destinationStorageKey = "defaultGtmDestination";
 let pageUrl = "";
 let navigation: NavigationElement[] = [];
 let proposal: SetupProposal | undefined;
@@ -42,6 +44,21 @@ const googleDestination = byId<HTMLElement>("google-destination");
 const destinationSelect = byId<HTMLSelectElement>("gtm-destination");
 const createGtm = byId<HTMLButtonElement>("create-gtm");
 const connectGoogle = byId<HTMLButtonElement>("connect-google");
+const measurementInput = byId<HTMLInputElement>("measurement-id");
+
+void chrome.storage.local.get([measurementStorageKey]).then((stored) => {
+  if (typeof stored[measurementStorageKey] === "string") {
+    measurementInput.value = stored[measurementStorageKey];
+  }
+});
+measurementInput.addEventListener("change", () => {
+  void chrome.storage.local.set({ [measurementStorageKey]: measurementInput.value.trim().toUpperCase() });
+});
+destinationSelect.addEventListener("change", () => {
+  if (destinationSelect.value) {
+    void chrome.storage.local.set({ [destinationStorageKey]: destinationSelect.value });
+  }
+});
 
 function setStatus(message: string, error = false): void {
   status.textContent = message;
@@ -87,6 +104,11 @@ async function refreshGoogle(): Promise<void> {
       option.textContent = `${destination.accountName} — ${destination.name} (${destination.publicId})`;
       return option;
     }));
+    const stored = await chrome.storage.local.get([destinationStorageKey]);
+    const remembered = stored[destinationStorageKey];
+    if (typeof remembered === "string" && [...destinationSelect.options].some((option) => option.value === remembered)) {
+      destinationSelect.value = remembered;
+    }
     googleDestination.classList.toggle("hidden", destinations.length === 0);
     createGtm.disabled = !state.trackingSetupWritesEnabled || destinations.length === 0;
     googleStatus.textContent = destinations.length === 0
@@ -223,7 +245,7 @@ byId<HTMLButtonElement>("generate").addEventListener("click", async () => {
       body: JSON.stringify({
         intent: byId<HTMLTextAreaElement>("intent").value,
         pageUrl,
-        measurementId: byId<HTMLInputElement>("measurement-id").value.trim(),
+        measurementId: measurementInput.value.trim(),
         navigation: confirmed,
         container: {
           accountId: destination?.accountId ?? "0",
@@ -236,6 +258,12 @@ byId<HTMLButtonElement>("generate").addEventListener("click", async () => {
     const body = (await response.json()) as SetupProposal | { error: string };
     if (!response.ok || "error" in body) throw new Error("error" in body ? body.error : "Generation failed.");
     proposal = body;
+    if (destination) {
+      await chrome.storage.local.set({
+        [measurementStorageKey]: measurementInput.value.trim().toUpperCase(),
+        [destinationStorageKey]: destinationSelect.value,
+      });
+    }
     const checks = byId<HTMLUListElement>("preflight-list");
     checks.replaceChildren(...proposal.preflight.checks.map((check) => {
       const item = document.createElement("li");
@@ -265,7 +293,7 @@ createGtm.addEventListener("click", async () => {
         body: JSON.stringify({
           approval: "create-isolated-tracking-setup",
           workspaceName: `GTM Observability - Navigation - ${new Date().toISOString().slice(0, 19)}`,
-          measurementId: byId<HTMLInputElement>("measurement-id").value.trim(),
+          measurementId: measurementInput.value.trim(),
           linkUrls: proposal.navigation.map((item) => item.href),
         }),
       },

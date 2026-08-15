@@ -29,6 +29,8 @@ let verificationScope = new Map<string, NavigationElement>();
 let overlayHost: HTMLDivElement | undefined;
 let overlayProposal: SetupProposal | undefined;
 const apiBase = "http://127.0.0.1:8787";
+const measurementStorageKey = "defaultGa4MeasurementId";
+const destinationStorageKey = "defaultGtmDestination";
 
 function areaFor(element: Element): NavigationArea {
   if (element.closest("header")) return "header";
@@ -159,21 +161,41 @@ function createOverlay(): HTMLDivElement {
   const query = <T extends Element>(selector: string): T => shadow.querySelector<T>(selector)!;
   const panel = query<HTMLElement>(".panel");
   const status = query<HTMLElement>(".status");
+  const measurementInput = query<HTMLInputElement>(".measurement");
+  const destinationSelect = query<HTMLSelectElement>(".destination");
   let scanned: NavigationElement[] = [];
+
+  void chrome.storage.local.get([measurementStorageKey]).then((stored) => {
+    if (typeof stored[measurementStorageKey] === "string") {
+      measurementInput.value = stored[measurementStorageKey];
+    }
+  });
+  measurementInput.addEventListener("change", () => {
+    void chrome.storage.local.set({ [measurementStorageKey]: measurementInput.value.trim().toUpperCase() });
+  });
+  destinationSelect.addEventListener("change", () => {
+    if (destinationSelect.value) {
+      void chrome.storage.local.set({ [destinationStorageKey]: destinationSelect.value });
+    }
+  });
 
   const refreshGoogle = async (): Promise<void> => {
     try {
       const state = await fetch(`${apiBase}/api/google/status`).then((response) => response.json()) as { connected?: boolean; trackingSetupWritesEnabled?: boolean };
       if (!state.connected) return;
       const body = await fetch(`${apiBase}/api/google/accounts`).then((response) => response.json()) as { accounts?: Array<{ accountId: string; name: string; containers: Array<{ containerId: string; publicId: string; name: string }> }> };
-      const select = query<HTMLSelectElement>(".destination");
       const destinations = (body.accounts ?? []).flatMap((account) => account.containers.map((container) => ({ ...container, accountId: account.accountId, accountName: account.name })));
-      select.replaceChildren(...destinations.map((destination) => {
+      destinationSelect.replaceChildren(...destinations.map((destination) => {
         const option = document.createElement("option");
         option.value = JSON.stringify(destination);
         option.textContent = `${destination.name} (${destination.publicId})`;
         return option;
       }));
+      const stored = await chrome.storage.local.get([destinationStorageKey]);
+      const remembered = stored[destinationStorageKey];
+      if (typeof remembered === "string" && [...destinationSelect.options].some((option) => option.value === remembered)) {
+        destinationSelect.value = remembered;
+      }
       query<HTMLButtonElement>(".create").disabled = !state.trackingSetupWritesEnabled;
       query<HTMLButtonElement>(".connect").textContent = "Refresh Google";
     } catch { /* Connection remains an optional next action. */ }
@@ -219,10 +241,11 @@ function createOverlay(): HTMLDivElement {
     try {
       const selected = new Set([...shadow.querySelectorAll<HTMLInputElement>(".item input:checked")].map((input) => input.dataset.id!));
       const navigation = scanned.filter((item) => selected.has(item.id));
-      const destinationValue = query<HTMLSelectElement>(".destination").value;
+      const destinationValue = destinationSelect.value;
       if (!destinationValue) throw new Error("Connect Google and choose a destination container.");
       const destination = JSON.parse(destinationValue) as { accountId: string; containerId: string; publicId: string; name: string };
-      const response = await fetch(`${apiBase}/api/setups`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ intent: query<HTMLInputElement>(".intent").value, pageUrl: location.href, measurementId: query<HTMLInputElement>(".measurement").value, navigation, container: destination }) });
+      await chrome.storage.local.set({ [measurementStorageKey]: measurementInput.value.trim().toUpperCase(), [destinationStorageKey]: destinationValue });
+      const response = await fetch(`${apiBase}/api/setups`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ intent: query<HTMLInputElement>(".intent").value, pageUrl: location.href, measurementId: measurementInput.value, navigation, container: destination }) });
       const body = await response.json() as SetupProposal | { error: string };
       if (!response.ok || "error" in body) throw new Error("error" in body ? body.error : "Unable to generate setup.");
       overlayProposal = body;

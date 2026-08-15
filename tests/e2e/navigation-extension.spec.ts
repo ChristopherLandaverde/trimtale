@@ -66,6 +66,17 @@ test("discovers, generates, downloads, and verifies navigation tracking", async 
     await site.locator("#gtm-observability-overlay .go").click();
     await expect(site.locator("#gtm-observability-overlay .panel.open")).toBeVisible();
     await expect(site.locator("[data-gtmo-selected=true]")).toHaveCount(5);
+    await site.locator("#gtm-observability-overlay .measurement").fill("G-REMEMBER123");
+    await site.locator("#gtm-observability-overlay .measurement").press("Tab");
+    await worker.evaluate(async () => {
+      const [tab] = await chrome.tabs.query({ url: "http://127.0.0.1:4173/*" });
+      await chrome.tabs.sendMessage(tab.id!, { type: "TOGGLE_OVERLAY" });
+    });
+    await worker.evaluate(async () => {
+      const [tab] = await chrome.tabs.query({ url: "http://127.0.0.1:4173/*" });
+      await chrome.tabs.sendMessage(tab.id!, { type: "TOGGLE_OVERLAY" });
+    });
+    await expect(site.locator("#gtm-observability-overlay .measurement")).toHaveValue("G-REMEMBER123");
     await worker.evaluate(async () => {
       const [tab] = await chrome.tabs.query({ url: "http://127.0.0.1:4173/*" });
       await chrome.tabs.sendMessage(tab.id!, { type: "TOGGLE_OVERLAY" });
