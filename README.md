@@ -158,7 +158,7 @@ GOOGLE_GTM_TRACKING_SETUP_WRITES_ENABLED=true
 GOOGLE_GTM_TRACKING_SETUP_CONTAINER_PATH=accounts/6305900974/containers/261236292
 ```
 
-After the practitioner connects Google, selects the allowlisted destination, confirms discovered navigation scope, and reviews the proposal, the extension's **Create in GTM** button calls `POST /api/google/accounts/:accountId/containers/:containerId/tracking-setups` with `approval=create-isolated-tracking-setup`. The backend creates a fresh isolated workspace and applies the reviewed setup. It retains partial work for evidence and never creates a version or publishes the container. This is the product path; the narrower workspace/entity endpoints remain harness controls.
+Clicking the extension action opens a compact command-bar overlay at the bottom of the current website. The practitioner describes the tracking intent there; discovery expands upward and outlines the selected elements directly on the page. After the practitioner connects Google, selects the allowlisted destination, confirms scope, and reviews the proposal, the overlay's **Create in GTM** button calls `POST /api/google/accounts/:accountId/containers/:containerId/tracking-setups` with `approval=create-isolated-tracking-setup`. The backend creates a fresh isolated workspace and applies the reviewed setup. It retains partial work for evidence and never creates a version or publishes the container. This is the product path; the side panel is retained as a secondary/fallback surface and the narrower workspace/entity endpoints remain harness controls.
 
 For an opt-in live smoke check, supply a short-lived token carrying the same read-only scope:
 

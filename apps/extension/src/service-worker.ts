@@ -1,11 +1,19 @@
 import type { BrowserEvidence } from "@gtm-observability/core";
 
-chrome.runtime.onInstalled.addListener(() => {
-  void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+chrome.action.onClicked.addListener(async (tab) => {
+  if (!tab.id || !tab.url?.startsWith("http")) return;
+  try {
+    await chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_OVERLAY" });
+  } catch {
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content-script.js"] });
+    await chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_OVERLAY" });
+  }
 });
 
-chrome.runtime.onStartup.addListener(() => {
-  void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+chrome.runtime.onMessage.addListener((message: { type?: string }) => {
+  if (message.type === "OPEN_GOOGLE_AUTH") {
+    void chrome.tabs.create({ url: "http://127.0.0.1:8787/api/google/oauth/start" });
+  }
 });
 
 interface PendingEvidence {

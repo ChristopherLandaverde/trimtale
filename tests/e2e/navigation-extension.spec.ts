@@ -56,6 +56,21 @@ test("discovers, generates, downloads, and verifies navigation tracking", async 
     await site.goto("http://127.0.0.1:4173/");
 
     const id = await extensionId(context);
+    const worker = context.serviceWorkers()[0]!;
+    await worker.evaluate(async () => {
+      const [tab] = await chrome.tabs.query({ url: "http://127.0.0.1:4173/*" });
+      await chrome.scripting.executeScript({ target: { tabId: tab.id! }, files: ["content-script.js"] });
+      await chrome.tabs.sendMessage(tab.id!, { type: "TOGGLE_OVERLAY" });
+    });
+    await expect(site.locator("#gtm-observability-overlay .intent")).toBeVisible();
+    await site.locator("#gtm-observability-overlay .go").click();
+    await expect(site.locator("#gtm-observability-overlay .panel.open")).toBeVisible();
+    await expect(site.locator("[data-gtmo-selected=true]")).toHaveCount(5);
+    await worker.evaluate(async () => {
+      const [tab] = await chrome.tabs.query({ url: "http://127.0.0.1:4173/*" });
+      await chrome.tabs.sendMessage(tab.id!, { type: "TOGGLE_OVERLAY" });
+    });
+
     const panel = await context.newPage();
     pages.push(panel);
     await panel.goto(`chrome-extension://${id}/sidepanel.html`);

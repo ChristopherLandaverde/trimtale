@@ -118,6 +118,7 @@ The open policy question is workspace retention: retain by default after the fir
 - The extension now connects Google, loads destination containers, presents the proposed changes, and exposes an explicit **Create in GTM** setup-approval action.
 - `GOOGLE_GTM_TRACKING_SETUP_WRITES_ENABLED` and exact `GOOGLE_GTM_TRACKING_SETUP_CONTAINER_PATH` gate one extension-facing transaction that creates a fresh isolated workspace and its entities without publishing.
 - The deterministic browser test exercises the connected destination and practitioner approval flow without calling Google.
+- The extension action now opens an on-page, bottom-centered command overlay instead of the side panel. Discovery expands the overlay upward and outlines selected links on the website; the side panel remains a secondary/fallback surface.
 
 ## Verification evidence
 
