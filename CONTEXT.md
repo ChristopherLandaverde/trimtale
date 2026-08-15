@@ -16,6 +16,10 @@ _Avoid_: Preview, audit, scan
 The process that turns a tracking intent into a tested Google Tag Manager configuration that a tracking practitioner can review and deploy.
 _Avoid_: Tag creation, AI-generated tag, automatic tagging
 
+**Setup approval**:
+The tracking practitioner's explicit confirmation that a reviewed tracking setup may be created in the selected isolated GTM workspace.
+_Avoid_: Automatic apply, backend approval, agent permission
+
 **Tracking practitioner**:
 A freelancer or agency team member responsible for implementing and verifying tracking on client websites.
 _Avoid_: GTM person, marketer, user

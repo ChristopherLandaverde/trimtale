@@ -16,6 +16,8 @@ const config = {
   workspaceContainerPath: undefined,
   entityWritesEnabled: false,
   entityWorkspacePath: undefined,
+  trackingSetupWritesEnabled: false,
+  trackingSetupContainerPath: undefined,
 };
 
 describe("Google OAuth configuration", () => {
@@ -52,6 +54,13 @@ describe("Google OAuth configuration", () => {
 
   it("uses the edit scope for explicitly enabled entity writes", () => {
     const session = new GoogleOAuthSession({ ...config, entityWritesEnabled: true });
+    const authorization = new URL(session.authorizationUrl());
+
+    expect(authorization.searchParams.get("scope")).toContain(GTM_EDIT_CONTAINERS_SCOPE);
+  });
+
+  it("uses the edit scope for practitioner-approved tracking setup writes", () => {
+    const session = new GoogleOAuthSession({ ...config, trackingSetupWritesEnabled: true });
     const authorization = new URL(session.authorizationUrl());
 
     expect(authorization.searchParams.get("scope")).toContain(GTM_EDIT_CONTAINERS_SCOPE);

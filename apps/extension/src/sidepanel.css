@@ -17,8 +17,10 @@ h2 { font-size: 15px; }
 .card { background: white; border: 1px solid #dde2e8; border-radius: 12px; padding: 14px; display: grid; gap: 11px; box-shadow: 0 2px 8px rgb(23 33 43 / 5%); }
 .hidden { display: none; }
 label { font-size: 12px; font-weight: 700; }
-textarea, input { width: 100%; border: 1px solid #bdc6d0; border-radius: 8px; padding: 10px; font: inherit; background: #fff; }
-textarea:focus, input:focus { outline: 2px solid #a9c0ff; border-color: #2155d9; }
+textarea, input, select { width: 100%; border: 1px solid #bdc6d0; border-radius: 8px; padding: 10px; font: inherit; background: #fff; }
+textarea:focus, input:focus, select:focus { outline: 2px solid #a9c0ff; border-color: #2155d9; }
+#google-destination { display: grid; gap: 7px; }
+#google-destination.hidden { display: none; }
 button { border: 0; border-radius: 8px; padding: 10px 12px; font-weight: 700; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .55; }
 .primary { color: white; background: #2155d9; }
@@ -35,5 +37,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .check-list { padding-left: 20px; margin: 0; font-size: 12px; display: grid; gap: 5px; }
 .warning { border-left: 3px solid #e29a14; background: #fff8e8; padding: 9px; font-size: 12px; }
 .boundary { border-top: 1px solid #e2e6eb; padding-top: 10px; color: #566270; font-size: 12px; }
+.approval-summary { border-left: 3px solid #2155d9; background: #f2f6ff; padding: 9px; font-size: 12px; }
 .result-pass { color: #177245; }
 .result-fail { color: #a52a2a; }

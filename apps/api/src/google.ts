@@ -22,6 +22,8 @@ export interface GoogleOAuthConfig {
   workspaceContainerPath: string | undefined;
   entityWritesEnabled: boolean;
   entityWorkspacePath: string | undefined;
+  trackingSetupWritesEnabled: boolean;
+  trackingSetupContainerPath: string | undefined;
 }
 
 interface GoogleTokenResponse {
@@ -106,6 +108,8 @@ export function googleOAuthConfig(
     workspaceContainerPath: environment.GOOGLE_GTM_WORKSPACE_CONTAINER_PATH?.trim(),
     entityWritesEnabled: environment.GOOGLE_GTM_ENTITY_WRITES_ENABLED === "true",
     entityWorkspacePath: environment.GOOGLE_GTM_ENTITY_WORKSPACE_PATH?.trim(),
+    trackingSetupWritesEnabled: environment.GOOGLE_GTM_TRACKING_SETUP_WRITES_ENABLED === "true",
+    trackingSetupContainerPath: environment.GOOGLE_GTM_TRACKING_SETUP_CONTAINER_PATH?.trim(),
   };
 }
 
@@ -151,6 +155,7 @@ export class GoogleOAuthSession {
       this.config.containerWritesEnabled ||
       this.config.workspaceWritesEnabled ||
       this.config.entityWritesEnabled
+      || this.config.trackingSetupWritesEnabled
     ) {
       scopes.push(GTM_EDIT_CONTAINERS_SCOPE);
     }

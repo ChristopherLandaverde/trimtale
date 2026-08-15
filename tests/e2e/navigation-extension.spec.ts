@@ -29,8 +29,28 @@ test("discovers, generates, downloads, and verifies navigation tracking", async 
     acceptDownloads: true,
   });
   const pages: Page[] = [];
+  let approvedSetup: Record<string, unknown> | undefined;
 
   try {
+    await context.route("http://127.0.0.1:8787/api/google/status", (route) => route.fulfill({
+      json: { configured: true, connected: true, trackingSetupWritesEnabled: true },
+    }));
+    await context.route("http://127.0.0.1:8787/api/google/accounts", (route) => route.fulfill({
+      json: {
+        accounts: [{
+          accountId: "1",
+          name: "Demo account",
+          containers: [{ accountId: "1", containerId: "10", publicId: "GTM-TEST123", name: "Demo container" }],
+        }],
+      },
+    }));
+    await context.route("http://127.0.0.1:8787/api/google/accounts/1/containers/10/tracking-setups", async (route) => {
+      approvedSetup = await route.request().postDataJSON() as Record<string, unknown>;
+      await route.fulfill({
+        status: 201,
+        json: { workspace: { name: "GTM Observability - Navigation - test" }, publishStatus: "not-published" },
+      });
+    });
     const site = await context.newPage();
     pages.push(site);
     await site.goto("http://127.0.0.1:4173/");
@@ -39,6 +59,7 @@ test("discovers, generates, downloads, and verifies navigation tracking", async 
     const panel = await context.newPage();
     pages.push(panel);
     await panel.goto(`chrome-extension://${id}/sidepanel.html`);
+    await expect(panel.getByLabel("Destination container")).toContainText("Demo container");
 
     await panel.getByRole("button", { name: "Discover navigation" }).click();
     await expect(panel.locator("#navigation-list .navigation-item")).toHaveCount(5);
@@ -49,6 +70,13 @@ test("discovers, generates, downloads, and verifies navigation tracking", async 
     await panel.getByRole("button", { name: "Generate GTM file" }).click();
     await expect(panel.getByRole("heading", { name: "Preflight passed" })).toBeVisible();
     await expect(panel.locator("#preflight-list li")).toHaveCount(4);
+
+    await panel.getByRole("button", { name: "Create in GTM" }).click();
+    await expect(panel.locator("#creation-result")).toContainText("Created in unpublished workspace");
+    expect(approvedSetup).toMatchObject({
+      approval: "create-isolated-tracking-setup",
+      measurementId: "G-TEST123456",
+    });
 
     const downloadPromise = panel.waitForEvent("download");
     await panel.getByRole("button", { name: "Download container JSON" }).click();

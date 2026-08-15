@@ -151,6 +151,15 @@ GOOGLE_GTM_ENTITY_WORKSPACE_PATH=accounts/6305900974/containers/261236292/worksp
 
 `POST /api/google/accounts/:accountId/containers/:containerId/workspaces/:workspaceId/navigation-setup` requires `purpose=navigation-tracking-setup`, a GA4-format measurement ID, and 1–50 HTTPS navigation URLs. It enables Click Text and Click URL, creates one scoped link-click trigger, then creates one `navigation_click` GA4 event tag linked to the returned trigger ID. Partial failures retain the workspace for inspection. No rollback, deletion, version, preview, or publish call is made automatically.
 
+The practitioner-facing extension flow uses one separately gated transaction instead of those harness routes:
+
+```text
+GOOGLE_GTM_TRACKING_SETUP_WRITES_ENABLED=true
+GOOGLE_GTM_TRACKING_SETUP_CONTAINER_PATH=accounts/6305900974/containers/261236292
+```
+
+After the practitioner connects Google, selects the allowlisted destination, confirms discovered navigation scope, and reviews the proposal, the extension's **Create in GTM** button calls `POST /api/google/accounts/:accountId/containers/:containerId/tracking-setups` with `approval=create-isolated-tracking-setup`. The backend creates a fresh isolated workspace and applies the reviewed setup. It retains partial work for evidence and never creates a version or publishes the container. This is the product path; the narrower workspace/entity endpoints remain harness controls.
+
 For an opt-in live smoke check, supply a short-lived token carrying the same read-only scope:
 
 ```bash

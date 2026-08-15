@@ -62,12 +62,15 @@ const server = createServer(async (request, response) => {
     sendJson(response, 200, {
       configured: oauthSession !== undefined,
       connected: oauthSession?.isConnected() ?? false,
-      scope: oauthConfig?.workspaceWritesEnabled
-        ? "workspace-write"
+      scope: oauthConfig?.trackingSetupWritesEnabled
+        ? "tracking-setup-write"
+        : oauthConfig?.workspaceWritesEnabled
+          ? "workspace-write"
         : oauthConfig?.containerWritesEnabled ? "container-create" : "read-only",
       containerWritesEnabled: oauthConfig?.containerWritesEnabled ?? false,
       workspaceWritesEnabled: oauthConfig?.workspaceWritesEnabled ?? false,
       entityWritesEnabled: oauthConfig?.entityWritesEnabled ?? false,
+      trackingSetupWritesEnabled: oauthConfig?.trackingSetupWritesEnabled ?? false,
     });
     return;
   }
@@ -98,7 +101,7 @@ const server = createServer(async (request, response) => {
       await oauthSession.authorize(code, state);
       sendJson(response, 200, {
         connected: true,
-        message: "Google Tag Manager connected with read-only access.",
+        message: "Google Tag Manager connected with the configured access.",
       });
     } catch (integrationError) {
       const status = integrationError instanceof GoogleIntegrationError
@@ -322,6 +325,75 @@ const server = createServer(async (request, response) => {
         ? integrationError.message
         : "Unable to apply the navigation tracking setup.";
       sendJson(response, status, { error: message, retention: "retain-for-evidence" });
+    }
+    return;
+  }
+
+  const trackingSetupMatch = requestUrl.pathname.match(
+    /^\/api\/google\/accounts\/(\d+)\/containers\/(\d+)\/tracking-setups$/,
+  );
+  if (request.method === "POST" && trackingSetupMatch) {
+    if (!discoveryClient || !oauthConfig?.trackingSetupWritesEnabled) {
+      sendJson(response, 403, { error: "Practitioner-initiated GTM setup creation is disabled on this backend." });
+      return;
+    }
+    const [, accountId = "", containerId = ""] = trackingSetupMatch;
+    const requestedPath = `accounts/${accountId}/containers/${containerId}`;
+    if (requestedPath !== oauthConfig.trackingSetupContainerPath) {
+      sendJson(response, 403, { error: "This container is not allowlisted for tracking setup creation." });
+      return;
+    }
+    let workspace: Awaited<ReturnType<GtmDiscoveryClient["createIsolatedWorkspace"]>> | undefined;
+    try {
+      const body = (await readJson(request)) as {
+        approval?: unknown;
+        measurementId?: unknown;
+        linkUrls?: unknown;
+        workspaceName?: unknown;
+      };
+      if (
+        body.approval !== "create-isolated-tracking-setup" ||
+        typeof body.measurementId !== "string" ||
+        typeof body.workspaceName !== "string" ||
+        !Array.isArray(body.linkUrls) ||
+        !body.linkUrls.every((url) => typeof url === "string")
+      ) {
+        throw new GoogleIntegrationError(
+          "Setup creation requires explicit approval, workspaceName, measurementId, and string linkUrls.",
+          400,
+        );
+      }
+      workspace = await discoveryClient.createIsolatedWorkspace(
+        accountId,
+        containerId,
+        body.workspaceName,
+      );
+      const setup = await discoveryClient.applyNavigationSetup(
+        accountId,
+        containerId,
+        workspace.workspaceId,
+        body.measurementId,
+        body.linkUrls,
+      );
+      sendJson(response, 201, {
+        workspace,
+        setup,
+        retention: "retain-for-evidence",
+        publishStatus: "not-published",
+      });
+    } catch (integrationError) {
+      const status = integrationError instanceof GoogleIntegrationError
+        ? integrationError.status
+        : 502;
+      const message = integrationError instanceof Error
+        ? integrationError.message
+        : "Unable to create the GTM tracking setup.";
+      sendJson(response, status, {
+        error: message,
+        ...(workspace ? { workspace } : {}),
+        retention: "retain-for-evidence",
+        publishStatus: "not-published",
+      });
     }
     return;
   }

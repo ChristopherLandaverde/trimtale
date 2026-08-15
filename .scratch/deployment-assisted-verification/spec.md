@@ -35,6 +35,7 @@ Choose verification target
 - GTM write access does not imply permission to publish a container version.
 - Preview deployment evidence remains browser verification, not platform confirmation.
 - Provider-specific automation should serve the provider-neutral verification-target workflow.
+- The tracking practitioner initiates every Google-side tracking setup through setup approval in the extension; an agent or terminal session does not act as the practitioner.
 
 ## Friction reduced
 
@@ -64,6 +65,10 @@ Choose verification target
 - No workspace deletion, container-version creation, quick preview, or publishing route exists in this slice.
 - Navigation entity writes have a separate flag and exact workspace-path allowlist.
 - Entity application proceeds in recorded order: built-in variables, scoped trigger, then linked tag; partial failures retain evidence.
+
+## Required interaction boundary
+
+The Chrome extension owns the practitioner workflow. It asks for the tracking intent, discovers and confirms scope, presents the proposed tracking setup, identifies the selected GTM destination, and requests setup approval. Only that explicit extension action may ask the backend to create the isolated workspace and its required entities. Backend credentials and routes are execution mechanisms, not an independent actor.
 
 ## Live integration evidence
 

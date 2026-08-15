@@ -10,6 +10,21 @@ let pageUrl = "";
 let navigation: NavigationElement[] = [];
 let proposal: SetupProposal | undefined;
 const evidence = new Map<string, BrowserEvidence>();
+let googleConnected = false;
+
+interface GoogleStatus {
+  configured: boolean;
+  connected: boolean;
+  trackingSetupWritesEnabled: boolean;
+}
+
+interface GtmDestination {
+  accountId: string;
+  containerId: string;
+  publicId: string;
+  name: string;
+  accountName: string;
+}
 
 function byId<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
@@ -22,10 +37,66 @@ const scopeCard = byId<HTMLElement>("scope-card");
 const configurationCard = byId<HTMLElement>("configuration-card");
 const proposalCard = byId<HTMLElement>("proposal-card");
 const verificationCard = byId<HTMLElement>("verification-card");
+const googleStatus = byId<HTMLParagraphElement>("google-status");
+const googleDestination = byId<HTMLElement>("google-destination");
+const destinationSelect = byId<HTMLSelectElement>("gtm-destination");
+const createGtm = byId<HTMLButtonElement>("create-gtm");
+const connectGoogle = byId<HTMLButtonElement>("connect-google");
 
 function setStatus(message: string, error = false): void {
   status.textContent = message;
   status.classList.toggle("error", error);
+}
+
+function selectedDestination(): GtmDestination | undefined {
+  const option = destinationSelect.selectedOptions[0];
+  if (!option?.value) return undefined;
+  return JSON.parse(option.value) as GtmDestination;
+}
+
+async function refreshGoogle(): Promise<void> {
+  try {
+    const statusResponse = await fetch(`${apiBase}/api/google/status`);
+    const state = await statusResponse.json() as GoogleStatus;
+    if (!state.configured) {
+      googleStatus.textContent = "The local backend needs Google OAuth configuration.";
+      return;
+    }
+    if (!state.connected) {
+      googleConnected = false;
+      connectGoogle.textContent = "Connect Google";
+      googleStatus.textContent = "Connect your Google account to choose a GTM container.";
+      return;
+    }
+    googleConnected = true;
+    connectGoogle.textContent = "Refresh";
+    googleStatus.textContent = "Connected. Loading your GTM containers…";
+    const accountsResponse = await fetch(`${apiBase}/api/google/accounts`);
+    const body = await accountsResponse.json() as {
+      accounts?: Array<{ accountId: string; name: string; containers: Array<Omit<GtmDestination, "accountName">> }>;
+      error?: string;
+    };
+    if (!accountsResponse.ok || !body.accounts) throw new Error(body.error ?? "Unable to load containers.");
+    const destinations = body.accounts.flatMap((account) => account.containers.map((container) => ({
+      ...container,
+      accountName: account.name,
+    })));
+    destinationSelect.replaceChildren(...destinations.map((destination) => {
+      const option = document.createElement("option");
+      option.value = JSON.stringify(destination);
+      option.textContent = `${destination.accountName} — ${destination.name} (${destination.publicId})`;
+      return option;
+    }));
+    googleDestination.classList.toggle("hidden", destinations.length === 0);
+    createGtm.disabled = !state.trackingSetupWritesEnabled || destinations.length === 0;
+    googleStatus.textContent = destinations.length === 0
+      ? "Connected, but no web containers were found."
+      : state.trackingSetupWritesEnabled
+        ? "Connected. You will approve any GTM changes before creation."
+        : "Connected read-only. Setup creation is disabled on the local backend.";
+  } catch (error) {
+    googleStatus.textContent = error instanceof Error ? error.message : "Unable to check Google connection.";
+  }
 }
 
 async function activeTab(): Promise<chrome.tabs.Tab> {
@@ -124,6 +195,14 @@ byId<HTMLButtonElement>("scan").addEventListener("click", async () => {
   }
 });
 
+connectGoogle.addEventListener("click", async () => {
+  if (!googleConnected) {
+    await chrome.tabs.create({ url: `${apiBase}/api/google/oauth/start` });
+    googleStatus.textContent = "Finish Google authorization, then click Connect Google again to refresh.";
+  }
+  await refreshGoogle();
+});
+
 byId<HTMLButtonElement>("toggle-all").addEventListener("click", (event) => {
   const button = event.currentTarget as HTMLButtonElement;
   const inputs = [...document.querySelectorAll<HTMLInputElement>("input[data-navigation-id]")];
@@ -136,6 +215,7 @@ byId<HTMLButtonElement>("generate").addEventListener("click", async () => {
   try {
     const confirmed = selectedNavigation();
     if (confirmed.length === 0) throw new Error("Confirm at least one navigation element.");
+    const destination = selectedDestination();
     setStatus("Generating a scoped GTM setup…");
     const response = await fetch(`${apiBase}/api/setups`, {
       method: "POST",
@@ -146,10 +226,10 @@ byId<HTMLButtonElement>("generate").addEventListener("click", async () => {
         measurementId: byId<HTMLInputElement>("measurement-id").value.trim(),
         navigation: confirmed,
         container: {
-          accountId: "0",
-          containerId: "0",
-          publicId: byId<HTMLInputElement>("container-id").value.trim(),
-          name: "GTM Observability navigation setup",
+          accountId: destination?.accountId ?? "0",
+          containerId: destination?.containerId ?? "0",
+          publicId: destination?.publicId ?? byId<HTMLInputElement>("container-id").value.trim(),
+          name: destination?.name ?? "GTM Observability navigation setup",
         },
       }),
     });
@@ -163,9 +243,41 @@ byId<HTMLButtonElement>("generate").addEventListener("click", async () => {
       return item;
     }));
     proposalCard.classList.remove("hidden");
-    setStatus("Preflight passed. Review the import warning before downloading.");
+    setStatus("Preflight passed. Review exactly what will be created before approving it.");
   } catch (error) {
     setStatus(error instanceof Error ? error.message : "Unable to generate the setup.", true);
+  }
+});
+
+createGtm.addEventListener("click", async () => {
+  try {
+    if (!proposal) throw new Error("Generate and review a setup first.");
+    const destination = selectedDestination();
+    if (!destination) throw new Error("Choose a GTM destination container.");
+    createGtm.disabled = true;
+    const result = byId<HTMLParagraphElement>("creation-result");
+    result.textContent = "Creating an isolated, unpublished GTM workspace…";
+    const response = await fetch(
+      `${apiBase}/api/google/accounts/${destination.accountId}/containers/${destination.containerId}/tracking-setups`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          approval: "create-isolated-tracking-setup",
+          workspaceName: `GTM Observability - Navigation - ${new Date().toISOString().slice(0, 19)}`,
+          measurementId: byId<HTMLInputElement>("measurement-id").value.trim(),
+          linkUrls: proposal.navigation.map((item) => item.href),
+        }),
+      },
+    );
+    const body = await response.json() as { workspace?: { name: string }; error?: string };
+    if (!response.ok) throw new Error(body.error ?? "Unable to create the GTM setup.");
+    result.textContent = `Created in unpublished workspace “${body.workspace?.name ?? "GTM Observability"}”.`;
+    setStatus("GTM setup created. Nothing has been published; continue to Preview and verification.");
+  } catch (error) {
+    byId<HTMLParagraphElement>("creation-result").textContent =
+      error instanceof Error ? error.message : "Unable to create the GTM setup.";
+    createGtm.disabled = false;
   }
 });
 
@@ -200,3 +312,5 @@ chrome.runtime.onMessage.addListener((message: { type?: string; evidence?: Brows
   evidence.set(message.evidence.navigationId, message.evidence);
   renderVerification();
 });
+
+void refreshGoogle();

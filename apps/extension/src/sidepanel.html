@@ -17,6 +17,20 @@
       </header>
 
       <section class="card">
+        <div class="section-heading">
+          <div>
+            <h2>Google Tag Manager</h2>
+            <p id="google-status">Checking connection…</p>
+          </div>
+          <button id="connect-google" class="secondary">Connect Google</button>
+        </div>
+        <div id="google-destination" class="hidden">
+          <label for="gtm-destination">Destination container</label>
+          <select id="gtm-destination"></select>
+        </div>
+      </section>
+
+      <section class="card">
         <label for="intent">What do you want to track?</label>
         <textarea id="intent" rows="3">Track all navigation clicks</textarea>
         <button id="scan" class="primary">Discover navigation</button>
@@ -45,9 +59,16 @@
 
       <section id="proposal-card" class="card hidden">
         <h2>Preflight passed</h2>
+        <p>Review the proposed GTM setup before approving creation.</p>
         <ul id="preflight-list" class="check-list"></ul>
+        <div class="approval-summary">
+          This will create a new isolated workspace, two built-in click variables, one trigger,
+          and one GA4 event tag. It will not publish the container.
+        </div>
+        <button id="create-gtm" class="primary" disabled>Create in GTM</button>
+        <p id="creation-result" class="status" aria-live="polite"></p>
         <div class="warning">
-          Import using <strong>Merge into a new workspace</strong>. Never choose Overwrite.
+          Manual fallback: import using <strong>Merge into a new workspace</strong>. Never choose Overwrite.
         </div>
         <button id="download" class="primary">Download container JSON</button>
         <button id="verify" class="secondary">I imported it — start verification</button>

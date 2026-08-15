@@ -88,17 +88,18 @@ Do not commit a shell command containing expanded credential values.
 - Record every created resource identifier before creating entities.
 - If entity creation partially fails, retain the isolated workspace for inspection rather than deleting evidence automatically.
 - Workspace deletion requires a separate explicit decision after evidence is captured.
+- Do not manually apply GTM entities from a terminal. The tracking practitioner must initiate setup approval from the Chrome extension.
 
 ## Next implementation slice
 
-Implement isolated GTM workspace creation for `ConsentFlow Verification`:
+Exercise the practitioner-controlled extension flow against `ConsentFlow Verification`:
 
-1. Add an explicit workspace-write backend gate separate from container creation.
-2. Create a uniquely named isolated workspace in container `261236292`.
-3. Retrieve and record its base status before applying entities.
-4. Map the generated navigation tracking setup into API-created built-in variables, trigger, and tag.
-5. Run workspace status/compiler checks.
-6. Use quick preview or GTM Preview to obtain browser evidence against the protected Vercel preview.
+1. Start the API with the tracking-setup gate and exact container allowlist.
+2. Reload the unpacked extension and connect Google from the side panel.
+3. Discover and confirm navigation scope on the verification target.
+4. Review the proposed entities and let the practitioner click **Create in GTM**.
+5. Record the newly created workspace and inspect its status.
+6. Use GTM Preview to obtain browser evidence against the protected Vercel preview.
 7. Stop before version creation or publishing.
 
 The open policy question is workspace retention: retain by default after the first real run so failures and evidence remain inspectable.
@@ -113,13 +114,17 @@ The open policy question is workspace retention: retain by default after the fir
 - Live workspace `3` was created as `GTM Observability - Navigation - 20260815T171400Z`.
 - Its baseline status was empty before entity application.
 - Entity writes are implemented behind `GOOGLE_GTM_ENTITY_WRITES_ENABLED` and exact path `GOOGLE_GTM_ENTITY_WORKSPACE_PATH`.
+- Product correction: the live workspace remains empty. Entity application must be wired to an explicit extension action before any real apply occurs.
+- The extension now connects Google, loads destination containers, presents the proposed changes, and exposes an explicit **Create in GTM** setup-approval action.
+- `GOOGLE_GTM_TRACKING_SETUP_WRITES_ENABLED` and exact `GOOGLE_GTM_TRACKING_SETUP_CONTAINER_PATH` gate one extension-facing transaction that creates a fresh isolated workspace and its entities without publishing.
+- The deterministic browser test exercises the connected destination and practitioner approval flow without calling Google.
 
 ## Verification evidence
 
 The latest completion gate passed:
 
 - Strict TypeScript checks across all workspaces.
-- 17 unit/scenario tests across four test files.
+- 22 unit/scenario tests across four test files.
 - Builds for core, API, fixture site, verification target, and extension.
 - Chromium extension E2E.
 
