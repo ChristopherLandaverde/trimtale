@@ -78,6 +78,7 @@ const server = createServer(async (request, response) => {
       analyticsDiscoveryEnabled: oauthConfig?.analyticsDiscoveryEnabled ?? false,
       analyticsAccountProvisioningEnabled:
         oauthConfig?.analyticsAccountProvisioningEnabled ?? false,
+      analyticsSetupWritesEnabled: oauthConfig?.analyticsSetupWritesEnabled ?? false,
     });
     return;
   }
@@ -200,6 +201,57 @@ const server = createServer(async (request, response) => {
       const message = integrationError instanceof Error
         ? integrationError.message
         : "Unable to request an Analytics account provisioning ticket.";
+      sendJson(response, status, { error: message });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && requestUrl.pathname === "/api/google/analytics/setups") {
+    if (!analyticsClient || !oauthConfig?.analyticsSetupWritesEnabled) {
+      sendJson(response, 403, { error: "Google Analytics setup creation is disabled on this backend." });
+      return;
+    }
+    try {
+      const body = (await readJson(request)) as {
+        approval?: unknown;
+        account?: unknown;
+        propertyDisplayName?: unknown;
+        timeZone?: unknown;
+        currencyCode?: unknown;
+        streamDisplayName?: unknown;
+        defaultUri?: unknown;
+      };
+      if (
+        body.approval !== "create-analytics-property-and-web-stream" ||
+        typeof body.account !== "string" ||
+        typeof body.propertyDisplayName !== "string" ||
+        typeof body.timeZone !== "string" ||
+        typeof body.currencyCode !== "string" ||
+        typeof body.streamDisplayName !== "string" ||
+        typeof body.defaultUri !== "string"
+      ) {
+        throw new GoogleIntegrationError(
+          "Analytics setup creation requires explicit approval, account, property settings, and web stream settings.",
+          400,
+        );
+      }
+      sendJson(response, 201, {
+        setup: await analyticsClient.createPropertyWithWebStream(
+          body.account,
+          body.propertyDisplayName,
+          body.timeZone,
+          body.currencyCode,
+          body.streamDisplayName,
+          body.defaultUri,
+        ),
+      });
+    } catch (integrationError) {
+      const status = integrationError instanceof GoogleIntegrationError
+        ? integrationError.status
+        : 502;
+      const message = integrationError instanceof Error
+        ? integrationError.message
+        : "Unable to create the Analytics property and web data stream.";
       sendJson(response, status, { error: message });
     }
     return;

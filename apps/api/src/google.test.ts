@@ -24,6 +24,7 @@ const config = {
   analyticsDiscoveryEnabled: false,
   analyticsAccountProvisioningEnabled: false,
   analyticsProvisioningRedirectUri: undefined,
+  analyticsSetupWritesEnabled: false,
 };
 
 describe("Google OAuth configuration", () => {
@@ -87,6 +88,20 @@ describe("Google OAuth configuration", () => {
       ...config,
       analyticsDiscoveryEnabled: true,
       analyticsAccountProvisioningEnabled: true,
+    });
+    const authorization = new URL(session.authorizationUrl());
+
+    expect(authorization.searchParams.get("scope")?.split(" ")).toEqual([
+      GTM_READONLY_SCOPE,
+      GOOGLE_ANALYTICS_EDIT_SCOPE,
+    ]);
+  });
+
+  it("requests Analytics edit access when property and stream writes are enabled", () => {
+    const session = new GoogleOAuthSession({
+      ...config,
+      analyticsDiscoveryEnabled: true,
+      analyticsSetupWritesEnabled: true,
     });
     const authorization = new URL(session.authorizationUrl());
 
@@ -175,6 +190,68 @@ describe("read-only Google Analytics discovery", () => {
       account: { displayName: "ConsentFlow Verification", regionCode: "US" },
       redirectUri: "http://127.0.0.1:8787/api/google/analytics/provisioning/callback",
     });
+  });
+
+  it("creates a ConsentFlow Analytics property and its web data stream", async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({
+        name: "properties/123",
+        parent: "accounts/1",
+        displayName: "ConsentFlow Verification",
+        timeZone: "America/New_York",
+        currencyCode: "USD",
+      }))
+      .mockResolvedValueOnce(Response.json({
+        name: "properties/123/dataStreams/456",
+        type: "WEB_DATA_STREAM",
+        displayName: "ConsentFlow web",
+        webStreamData: {
+          measurementId: "G-CONSENT123",
+          defaultUri: "https://consentflow-psi.vercel.app/",
+        },
+      }));
+    const client = new AnalyticsDiscoveryClient(async () => "token", fetcher);
+
+    const result = await client.createPropertyWithWebStream(
+      "accounts/1",
+      "ConsentFlow Verification",
+      "America/New_York",
+      "usd",
+      "ConsentFlow web",
+      "https://consentflow-psi.vercel.app",
+    );
+
+    expect(result.webStream.measurementId).toBe("G-CONSENT123");
+    expect(fetcher.mock.calls.map((call) => call[0].toString())).toEqual([
+      "https://analyticsadmin.googleapis.com/v1beta/properties",
+      "https://analyticsadmin.googleapis.com/v1beta/properties/123/dataStreams",
+    ]);
+    expect(JSON.parse(fetcher.mock.calls[0]?.[1]?.body as string)).toEqual({
+      parent: "accounts/1",
+      displayName: "ConsentFlow Verification",
+      timeZone: "America/New_York",
+      currencyCode: "USD",
+    });
+    expect(JSON.parse(fetcher.mock.calls[1]?.[1]?.body as string)).toEqual({
+      type: "WEB_DATA_STREAM",
+      displayName: "ConsentFlow web",
+      webStreamData: { defaultUri: "https://consentflow-psi.vercel.app/" },
+    });
+  });
+
+  it("rejects an unsafe Analytics setup before calling Google", async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    const client = new AnalyticsDiscoveryClient(async () => "token", fetcher);
+
+    await expect(client.createPropertyWithWebStream(
+      "accounts/1",
+      "ConsentFlow Verification",
+      "America/New_York",
+      "USD",
+      "ConsentFlow web",
+      "http://production.example.com",
+    )).rejects.toThrow("valid HTTPS URL");
+    expect(fetcher).not.toHaveBeenCalled();
   });
 });
 

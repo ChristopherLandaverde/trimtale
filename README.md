@@ -185,6 +185,14 @@ GOOGLE_ANALYTICS_PROVISIONING_REDIRECT_URI=http://127.0.0.1:8787/api/google/anal
 
 This mode requests `analytics.edit`. The overlay requires an explicit action before `POST /api/google/analytics/account-provisioning-tickets` requests a ticket. It opens Google's Terms of Service URL; the ticket request does not create an account, and GTM Observability cannot accept the terms for the practitioner. After acceptance, refresh discovery to see the new account. No property or web stream is created by this slice.
 
+GA4 property and web data-stream creation is a separate practitioner-approved capability. Start the backend with:
+
+```text
+GOOGLE_ANALYTICS_SETUP_WRITES_ENABLED=true
+```
+
+This mode also requests `analytics.edit`. The overlay selects an existing accessible Analytics account and reviews the property name, web stream name, HTTPS website URL, reporting time zone, and currency before `POST /api/google/analytics/setups` creates one ordinary Analytics property followed by one web data stream. The returned measurement ID is selected for the tracking setup. If stream creation fails, the newly created property is retained and identified in the error; the backend never deletes an Analytics resource automatically.
+
 For an opt-in live smoke check, supply a short-lived token carrying the same read-only scope:
 
 ```bash

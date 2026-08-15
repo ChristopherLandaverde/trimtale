@@ -30,6 +30,7 @@ test("discovers, generates, downloads, and verifies navigation tracking", async 
   });
   const pages: Page[] = [];
   let approvedSetup: Record<string, unknown> | undefined;
+  let approvedAnalyticsSetup: Record<string, unknown> | undefined;
 
   try {
     await context.route("http://127.0.0.1:8787/api/google/status", (route) => route.fulfill({
@@ -38,6 +39,7 @@ test("discovers, generates, downloads, and verifies navigation tracking", async 
         connected: true,
         trackingSetupWritesEnabled: true,
         analyticsAccountProvisioningEnabled: true,
+        analyticsSetupWritesEnabled: true,
       },
     }));
     await context.route("http://127.0.0.1:8787/api/google/accounts", (route) => route.fulfill({
@@ -67,6 +69,28 @@ test("discovers, generates, downloads, and verifies navigation tracking", async 
         }],
       },
     }));
+    await context.route("http://127.0.0.1:8787/api/google/analytics/setups", async (route) => {
+      approvedAnalyticsSetup = await route.request().postDataJSON() as Record<string, unknown>;
+      await route.fulfill({
+        status: 201,
+        json: {
+          setup: {
+            property: {
+              name: "properties/21",
+              displayName: "ConsentFlow Verification",
+              timeZone: "America/New_York",
+              currencyCode: "USD",
+            },
+            webStream: {
+              name: "properties/21/dataStreams/201",
+              displayName: "ConsentFlow web",
+              measurementId: "G-CONSENT123",
+              defaultUri: "https://consentflow-psi.vercel.app/",
+            },
+          },
+        },
+      });
+    });
     await context.route("http://127.0.0.1:8787/api/google/accounts/1/containers/10/tracking-setups", async (route) => {
       approvedSetup = await route.request().postDataJSON() as Record<string, unknown>;
       await route.fulfill({
@@ -91,6 +115,15 @@ test("discovers, generates, downloads, and verifies navigation tracking", async 
     await expect(site.locator("[data-gtmo-selected=true]")).toHaveCount(5);
     await expect(site.locator("#gtm-observability-overlay .analytics-destination")).toContainText("Demo web");
     await expect(site.locator("#gtm-observability-overlay .provision")).toBeVisible();
+    await expect(site.locator("#gtm-observability-overlay .create-analytics")).toBeVisible();
+    await site.locator("#gtm-observability-overlay .create-analytics").click();
+    await expect(site.locator("#gtm-observability-overlay .measurement")).toHaveValue("G-CONSENT123");
+    expect(approvedAnalyticsSetup).toMatchObject({
+      approval: "create-analytics-property-and-web-stream",
+      account: "accounts/2",
+      propertyDisplayName: "ConsentFlow Verification",
+      streamDisplayName: "ConsentFlow web",
+    });
     await site.locator("#gtm-observability-overlay .measurement").fill("G-REMEMBER123");
     await site.locator("#gtm-observability-overlay .measurement").press("Tab");
     await worker.evaluate(async () => {

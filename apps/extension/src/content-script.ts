@@ -150,6 +150,15 @@ function createOverlay(): HTMLDivElement {
           <label class="field">Country code<input class="analytics-region" value="US" maxlength="2"></label>
         </div>
         <div class="actions provisioning-actions hidden"><button class="provision secondary">Create new Analytics account</button></div>
+        <div class="grid analytics-setup hidden">
+          <label class="field">Analytics account<select class="analytics-account"><option value="">Choose an account</option></select></label>
+          <label class="field">Property name<input class="analytics-property-name" value="ConsentFlow Verification"></label>
+          <label class="field">Web stream name<input class="analytics-stream-name" value="ConsentFlow web"></label>
+          <label class="field">Website URL<input class="analytics-website" value="https://consentflow-psi.vercel.app"></label>
+          <label class="field">Reporting time zone<input class="analytics-time-zone" value="America/New_York"></label>
+          <label class="field">Currency<input class="analytics-currency" value="USD" maxlength="3"></label>
+        </div>
+        <div class="actions analytics-setup-actions hidden"><button class="create-analytics secondary">Create GA4 property and web stream</button></div>
         <div class="actions setup-actions"><button class="connect secondary">Connect Google</button><button class="review-button primary">Review setup</button></div>
         <div class="review hidden"></div>
         <div class="actions approval hidden"><button class="back secondary">Back</button><button class="create primary">Create in GTM</button></div>
@@ -198,7 +207,7 @@ function createOverlay(): HTMLDivElement {
 
   const refreshGoogle = async (): Promise<void> => {
     try {
-      const state = await fetch(`${apiBase}/api/google/status`).then((response) => response.json()) as { connected?: boolean; trackingSetupWritesEnabled?: boolean; analyticsAccountProvisioningEnabled?: boolean };
+      const state = await fetch(`${apiBase}/api/google/status`).then((response) => response.json()) as { connected?: boolean; trackingSetupWritesEnabled?: boolean; analyticsAccountProvisioningEnabled?: boolean; analyticsSetupWritesEnabled?: boolean };
       if (!state.connected) return;
       const body = await fetch(`${apiBase}/api/google/accounts`).then((response) => response.json()) as { accounts?: Array<{ accountId: string; name: string; containers: Array<{ containerId: string; publicId: string; name: string }> }> };
       const destinations = (body.accounts ?? []).flatMap((account) => account.containers.map((container) => ({ ...container, accountId: account.accountId, accountName: account.name })));
@@ -218,9 +227,19 @@ function createOverlay(): HTMLDivElement {
       query<HTMLElement>(".provisioning").classList.toggle("hidden", !state.analyticsAccountProvisioningEnabled);
       query<HTMLElement>(".provisioning-actions").classList.toggle("hidden", !state.analyticsAccountProvisioningEnabled);
       const analyticsBody = await fetch(`${apiBase}/api/google/analytics/destinations`).then((response) => response.json()) as {
-        accounts?: Array<{ displayName: string; properties: Array<{ property: string; displayName: string; webStreams: Array<{ name: string; displayName: string; measurementId: string; defaultUri: string }> }> }>;
+        accounts?: Array<{ account: string; displayName: string; properties: Array<{ property: string; displayName: string; webStreams: Array<{ name: string; displayName: string; measurementId: string; defaultUri: string }> }> }>;
       };
-      const streams = (analyticsBody.accounts ?? []).flatMap((account) => account.properties.flatMap((property) => property.webStreams.map((stream) => ({
+      const analyticsAccounts = analyticsBody.accounts ?? [];
+      const analyticsAccountSelect = query<HTMLSelectElement>(".analytics-account");
+      analyticsAccountSelect.replaceChildren(...analyticsAccounts.map((account) => {
+        const option = document.createElement("option");
+        option.value = account.account;
+        option.textContent = account.displayName;
+        return option;
+      }));
+      query<HTMLElement>(".analytics-setup").classList.toggle("hidden", !state.analyticsSetupWritesEnabled || analyticsAccounts.length === 0);
+      query<HTMLElement>(".analytics-setup-actions").classList.toggle("hidden", !state.analyticsSetupWritesEnabled || analyticsAccounts.length === 0);
+      const streams = analyticsAccounts.flatMap((account) => account.properties.flatMap((property) => property.webStreams.map((stream) => ({
         ...stream,
         property: property.property,
         propertyName: property.displayName,
@@ -297,6 +316,49 @@ function createOverlay(): HTMLDivElement {
       status.textContent = "Accept Google Analytics terms in the new tab, then refresh Google here.";
     } catch (error) {
       status.textContent = error instanceof Error ? error.message : "Unable to provision Analytics account.";
+    }
+  });
+  query<HTMLButtonElement>(".create-analytics").addEventListener("click", async () => {
+    try {
+      const account = query<HTMLSelectElement>(".analytics-account").value;
+      if (!account) throw new Error("Choose an Analytics account first.");
+      status.textContent = "Creating the ConsentFlow Analytics property and web stream…";
+      const response = await fetch(`${apiBase}/api/google/analytics/setups`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          approval: "create-analytics-property-and-web-stream",
+          account,
+          propertyDisplayName: query<HTMLInputElement>(".analytics-property-name").value,
+          streamDisplayName: query<HTMLInputElement>(".analytics-stream-name").value,
+          defaultUri: query<HTMLInputElement>(".analytics-website").value,
+          timeZone: query<HTMLInputElement>(".analytics-time-zone").value,
+          currencyCode: query<HTMLInputElement>(".analytics-currency").value,
+        }),
+      });
+      const body = await response.json() as {
+        setup?: { property: { name: string; displayName: string }; webStream: { name: string; displayName: string; measurementId: string; defaultUri: string } };
+        error?: string;
+      };
+      if (!response.ok || !body.setup) throw new Error(body.error ?? "Unable to create the Analytics setup.");
+      const stream = {
+        ...body.setup.webStream,
+        property: body.setup.property.name,
+        propertyName: body.setup.property.displayName,
+      };
+      const option = document.createElement("option");
+      option.value = JSON.stringify(stream);
+      option.textContent = `${stream.propertyName} — ${stream.displayName} (${stream.measurementId})`;
+      analyticsSelect.append(option);
+      analyticsSelect.value = option.value;
+      measurementInput.value = stream.measurementId;
+      await chrome.storage.local.set({
+        [analyticsStreamStorageKey]: option.value,
+        [measurementStorageKey]: stream.measurementId,
+      });
+      status.textContent = `Created ${stream.measurementId}. It is selected for this tracking setup.`;
+    } catch (error) {
+      status.textContent = error instanceof Error ? error.message : "Unable to create the Analytics setup.";
     }
   });
   query<HTMLButtonElement>(".review-button").addEventListener("click", async () => {

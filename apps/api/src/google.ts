@@ -32,6 +32,7 @@ export interface GoogleOAuthConfig {
   analyticsDiscoveryEnabled: boolean;
   analyticsAccountProvisioningEnabled: boolean;
   analyticsProvisioningRedirectUri: string | undefined;
+  analyticsSetupWritesEnabled: boolean;
 }
 
 interface GoogleTokenResponse {
@@ -123,6 +124,7 @@ export function googleOAuthConfig(
       environment.GOOGLE_ANALYTICS_ACCOUNT_PROVISIONING_ENABLED === "true",
     analyticsProvisioningRedirectUri:
       environment.GOOGLE_ANALYTICS_PROVISIONING_REDIRECT_URI?.trim(),
+    analyticsSetupWritesEnabled: environment.GOOGLE_ANALYTICS_SETUP_WRITES_ENABLED === "true",
   };
 }
 
@@ -172,7 +174,7 @@ export class GoogleOAuthSession {
     ) {
       scopes.push(GTM_EDIT_CONTAINERS_SCOPE);
     }
-    if (this.config.analyticsAccountProvisioningEnabled) {
+    if (this.config.analyticsAccountProvisioningEnabled || this.config.analyticsSetupWritesEnabled) {
       scopes.push(GOOGLE_ANALYTICS_EDIT_SCOPE);
     } else if (this.config.analyticsDiscoveryEnabled) {
       scopes.push(GOOGLE_ANALYTICS_READONLY_SCOPE);
@@ -315,6 +317,24 @@ interface AnalyticsDataStreamResponse {
   nextPageToken?: string;
 }
 
+interface AnalyticsProperty {
+  name?: string;
+  parent?: string;
+  displayName?: string;
+  timeZone?: string;
+  currencyCode?: string;
+}
+
+export interface CreatedAnalyticsSetup {
+  property: {
+    name: string;
+    displayName: string;
+    timeZone: string;
+    currencyCode: string;
+  };
+  webStream: AnalyticsWebStream;
+}
+
 export class AnalyticsDiscoveryClient {
   constructor(
     private readonly getAccessToken: () => Promise<string>,
@@ -389,6 +409,106 @@ export class AnalyticsDiscoveryClient {
     return {
       accountTicketId: result.accountTicketId,
       termsUrl: `https://analytics.google.com/analytics/web/?provisioningSignup=false#/termsofservice/${encodeURIComponent(result.accountTicketId)}`,
+    };
+  }
+
+  async createPropertyWithWebStream(
+    account: string,
+    propertyDisplayName: string,
+    timeZone: string,
+    currencyCode: string,
+    streamDisplayName: string,
+    defaultUri: string,
+  ): Promise<CreatedAnalyticsSetup> {
+    if (!/^accounts\/\d+$/.test(account)) {
+      throw new GoogleIntegrationError("Analytics account must look like accounts/123.", 400);
+    }
+    const normalizedPropertyName = propertyDisplayName.replace(/\s+/g, " ").trim();
+    const normalizedStreamName = streamDisplayName.replace(/\s+/g, " ").trim();
+    if (normalizedPropertyName.length < 3 || normalizedPropertyName.length > 100) {
+      throw new GoogleIntegrationError("Analytics property name must be between 3 and 100 characters.", 400);
+    }
+    if (normalizedStreamName.length < 3 || normalizedStreamName.length > 100) {
+      throw new GoogleIntegrationError("Analytics web stream name must be between 3 and 100 characters.", 400);
+    }
+    const normalizedTimeZone = timeZone.trim();
+    if (!/^[A-Za-z_+-]+(?:\/[A-Za-z0-9_+-]+)+$/.test(normalizedTimeZone)) {
+      throw new GoogleIntegrationError("Analytics time zone must be an IANA name such as America/New_York.", 400);
+    }
+    const normalizedCurrency = currencyCode.trim().toUpperCase();
+    if (!/^[A-Z]{3}$/.test(normalizedCurrency)) {
+      throw new GoogleIntegrationError("Analytics currency must be a three-letter code such as USD.", 400);
+    }
+    let website: URL;
+    try {
+      website = new URL(defaultUri);
+      if (website.protocol !== "https:") throw new Error("HTTPS required");
+    } catch {
+      throw new GoogleIntegrationError("Analytics web stream URL must be a valid HTTPS URL.", 400);
+    }
+
+    const propertyResponse = await this.fetcher(`${analyticsAdminEndpoint}/v1beta/properties`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${await this.getAccessToken()}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        parent: account,
+        displayName: normalizedPropertyName,
+        timeZone: normalizedTimeZone,
+        currencyCode: normalizedCurrency,
+      }),
+    });
+    const property = await responseJson<AnalyticsProperty>(propertyResponse);
+    if (!property.name || !/^properties\/\d+$/.test(property.name)) {
+      throw new GoogleIntegrationError("Google did not return the created Analytics property.", 502);
+    }
+
+    let stream: AnalyticsDataStream;
+    try {
+      const streamResponse = await this.fetcher(
+        `${analyticsAdminEndpoint}/v1beta/${property.name}/dataStreams`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${await this.getAccessToken()}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            type: "WEB_DATA_STREAM",
+            displayName: normalizedStreamName,
+            webStreamData: { defaultUri: website.toString() },
+          }),
+        },
+      );
+      stream = await responseJson<AnalyticsDataStream>(streamResponse);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "unknown Google error";
+      throw new GoogleIntegrationError(
+        `Analytics property ${property.name} was created and retained, but its web data stream failed: ${detail}`,
+        error instanceof GoogleIntegrationError ? error.status : 502,
+      );
+    }
+    if (!stream.name || !stream.webStreamData?.measurementId) {
+      throw new GoogleIntegrationError(
+        `Analytics property ${property.name} was created and retained, but Google did not return a measurement ID.`,
+        502,
+      );
+    }
+    return {
+      property: {
+        name: property.name,
+        displayName: property.displayName ?? normalizedPropertyName,
+        timeZone: property.timeZone ?? normalizedTimeZone,
+        currencyCode: property.currencyCode ?? normalizedCurrency,
+      },
+      webStream: {
+        name: stream.name,
+        displayName: stream.displayName,
+        measurementId: stream.webStreamData.measurementId,
+        defaultUri: stream.webStreamData.defaultUri ?? website.toString(),
+      },
     };
   }
 
