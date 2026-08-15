@@ -60,8 +60,8 @@ Choose verification target
 - Local builds use a non-production placeholder while live deployment requires an explicit container ID.
 - GTM container creation is available only behind an explicit backend flag and additional narrow OAuth scope.
 - The creation route accepts only a named HTTPS verification target and creates a web container; existing-container mutation and publishing remain unavailable.
-- Isolated workspace creation has a separate backend flag and exact-container path allowlist.
-- Workspace creation returns the resource identifier before status inspection or entity writes and retains the workspace for evidence by default.
+- Workspace selection has a separate backend flag and exact-container path allowlist. A clean Default Workspace may be reused only in a product-owned disposable verification container; customer containers reuse a clean GTM Observability workspace or create an isolated workspace when capacity remains.
+- Workspace selection returns the resource identifier and selection reason before entity writes and retains partial work for evidence by default.
 - No workspace deletion, container-version creation, quick preview, or publishing route exists in this slice.
 - Navigation entity writes have a separate flag and exact workspace-path allowlist.
 - Entity application proceeds in recorded order: built-in variables, scoped trigger, then linked tag; partial failures retain evidence.

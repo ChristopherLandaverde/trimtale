@@ -65,6 +65,7 @@ export interface GtmContainer {
   path: string;
   publicId: string;
   usageContext: string[];
+  notes?: string;
 }
 
 export interface GtmAccountDiscovery extends GtmAccount {
@@ -604,6 +605,11 @@ export interface GtmNavigationSetupResult {
   tag: GtmCreatedTag;
 }
 
+export interface GtmWorkspaceSelection {
+  workspace: GtmWorkspace;
+  selection: "reused-default" | "reused-isolated" | "created-isolated";
+}
+
 export class GtmDiscoveryClient {
   constructor(
     private readonly getAccessToken: () => Promise<string>,
@@ -704,6 +710,44 @@ export class GtmDiscoveryClient {
       }),
     });
     return responseJson<GtmWorkspace>(response);
+  }
+
+  async selectTrackingSetupWorkspace(
+    accountId: string,
+    containerId: string,
+    requestedName: string,
+  ): Promise<GtmWorkspaceSelection> {
+    this.validateContainerPath(accountId, containerId);
+    const parent = `/accounts/${accountId}/containers/${containerId}`;
+    const [container, workspaces] = await Promise.all([
+      this.get<GtmContainer>(parent),
+      this.listAll<GtmWorkspace, WorkspaceListResponse>(`${parent}/workspaces`, "workspace"),
+    ]);
+    const isClean = async (workspace: GtmWorkspace): Promise<boolean> => {
+      const status = await this.workspaceStatus(accountId, containerId, workspace.workspaceId);
+      return (status.workspaceChange?.length ?? 0) === 0 && (status.mergeConflict?.length ?? 0) === 0;
+    };
+    const productOwned = container.notes === "Disposable verification target created by GTM Observability.";
+    const defaultWorkspace = workspaces.find((workspace) => workspace.name === "Default Workspace");
+    if (productOwned && defaultWorkspace && await isClean(defaultWorkspace)) {
+      return { workspace: defaultWorkspace, selection: "reused-default" };
+    }
+    const isolatedCandidates = workspaces.filter((workspace) =>
+      workspace.name.startsWith("GTM Observability -"),
+    );
+    for (const workspace of isolatedCandidates) {
+      if (await isClean(workspace)) return { workspace, selection: "reused-isolated" };
+    }
+    if (workspaces.length >= 3) {
+      throw new GoogleIntegrationError(
+        "No clean workspace is available and this container has reached the safe workspace capacity. Reuse or remove a workspace before creating another.",
+        409,
+      );
+    }
+    return {
+      workspace: await this.createIsolatedWorkspace(accountId, containerId, requestedName),
+      selection: "created-isolated",
+    };
   }
 
   async workspaceStatus(

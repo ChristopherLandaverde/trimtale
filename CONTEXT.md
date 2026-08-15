@@ -20,6 +20,10 @@ _Avoid_: Tag creation, AI-generated tag, automatic tagging
 The tracking practitioner's explicit confirmation that a reviewed tracking setup may be created in the selected isolated GTM workspace.
 _Avoid_: Automatic apply, backend approval, agent permission
 
+**Workspace selection**:
+The choice of a clean GTM workspace that preserves ownership and reviewability for a tracking setup without consuming unnecessary workspace capacity.
+_Avoid_: Always create a workspace, use whatever workspace is open
+
 **Tracking practitioner**:
 A freelancer or agency team member responsible for implementing and verifying tracking on client websites.
 _Avoid_: GTM person, marketer, user

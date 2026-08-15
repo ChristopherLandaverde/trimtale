@@ -522,6 +522,7 @@ const server = createServer(async (request, response) => {
       return;
     }
     let workspace: Awaited<ReturnType<GtmDiscoveryClient["createIsolatedWorkspace"]>> | undefined;
+    let workspaceSelection: Awaited<ReturnType<GtmDiscoveryClient["selectTrackingSetupWorkspace"]>>["selection"] | undefined;
     try {
       const body = (await readJson(request)) as {
         approval?: unknown;
@@ -541,11 +542,13 @@ const server = createServer(async (request, response) => {
           400,
         );
       }
-      workspace = await discoveryClient.createIsolatedWorkspace(
+      const selectedWorkspace = await discoveryClient.selectTrackingSetupWorkspace(
         accountId,
         containerId,
         body.workspaceName,
       );
+      workspace = selectedWorkspace.workspace;
+      workspaceSelection = selectedWorkspace.selection;
       const setup = await discoveryClient.applyNavigationSetup(
         accountId,
         containerId,
@@ -555,6 +558,7 @@ const server = createServer(async (request, response) => {
       );
       sendJson(response, 201, {
         workspace,
+        workspaceSelection,
         setup,
         retention: "retain-for-evidence",
         publishStatus: "not-published",
@@ -568,7 +572,7 @@ const server = createServer(async (request, response) => {
         : "Unable to create the GTM tracking setup.";
       sendJson(response, status, {
         error: message,
-        ...(workspace ? { workspace } : {}),
+        ...(workspace ? { workspace, workspaceSelection } : {}),
         retention: "retain-for-evidence",
         publishStatus: "not-published",
       });

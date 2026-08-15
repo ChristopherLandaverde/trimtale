@@ -449,6 +449,78 @@ describe("read-only GTM discovery", () => {
     expect(fetcher.mock.calls.some(([input]) => input.toString().includes("publish"))).toBe(false);
   });
 
+  it("reuses a clean Default Workspace for a product-owned verification container", async () => {
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(input.toString());
+      if (url.pathname.endsWith("/workspaces")) {
+        return Response.json({ workspace: [{
+          path: "accounts/1/containers/20/workspaces/2",
+          accountId: "1",
+          containerId: "20",
+          workspaceId: "2",
+          name: "Default Workspace",
+        }] });
+      }
+      if (url.pathname.endsWith("/status")) return Response.json({});
+      return Response.json({
+        path: "accounts/1/containers/20",
+        accountId: "1",
+        containerId: "20",
+        name: "ConsentFlow Verification",
+        publicId: "GTM-TEST123",
+        usageContext: ["web"],
+        notes: "Disposable verification target created by GTM Observability.",
+      });
+    });
+    const client = new GtmDiscoveryClient(async () => "token", fetcher);
+
+    const result = await client.selectTrackingSetupWorkspace("1", "20", "Unused name");
+
+    expect(result.selection).toBe("reused-default");
+    expect(result.workspace.workspaceId).toBe("2");
+    expect(fetcher.mock.calls.some(([, request]) => request?.method === "POST")).toBe(false);
+  });
+
+  it("reuses a clean GTM Observability workspace for a customer container", async () => {
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(input.toString());
+      if (url.pathname.endsWith("/workspaces")) {
+        return Response.json({ workspace: [
+          { path: "accounts/1/containers/20/workspaces/2", accountId: "1", containerId: "20", workspaceId: "2", name: "Default Workspace" },
+          { path: "accounts/1/containers/20/workspaces/3", accountId: "1", containerId: "20", workspaceId: "3", name: "GTM Observability - Setup" },
+        ] });
+      }
+      if (url.pathname.endsWith("/workspaces/3/status")) return Response.json({});
+      return Response.json({ path: "accounts/1/containers/20", accountId: "1", containerId: "20", name: "Customer", publicId: "GTM-CUSTOMER", usageContext: ["web"] });
+    });
+    const client = new GtmDiscoveryClient(async () => "token", fetcher);
+
+    const result = await client.selectTrackingSetupWorkspace("1", "20", "Unused name");
+
+    expect(result.selection).toBe("reused-isolated");
+    expect(result.workspace.workspaceId).toBe("3");
+  });
+
+  it("stops before workspace creation when capacity is full and no workspace is clean", async () => {
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(input.toString());
+      if (url.pathname.endsWith("/workspaces")) {
+        return Response.json({ workspace: [
+          { path: "accounts/1/containers/20/workspaces/2", accountId: "1", containerId: "20", workspaceId: "2", name: "Default Workspace" },
+          { path: "accounts/1/containers/20/workspaces/3", accountId: "1", containerId: "20", workspaceId: "3", name: "GTM Observability - Existing" },
+          { path: "accounts/1/containers/20/workspaces/4", accountId: "1", containerId: "20", workspaceId: "4", name: "Other work" },
+        ] });
+      }
+      if (url.pathname.endsWith("/status")) return Response.json({ workspaceChange: [{}] });
+      return Response.json({ path: "accounts/1/containers/20", accountId: "1", containerId: "20", name: "Customer", publicId: "GTM-CUSTOMER", usageContext: ["web"] });
+    });
+    const client = new GtmDiscoveryClient(async () => "token", fetcher);
+
+    await expect(client.selectTrackingSetupWorkspace("1", "20", "New workspace"))
+      .rejects.toThrow("safe workspace capacity");
+    expect(fetcher.mock.calls.some(([, request]) => request?.method === "POST")).toBe(false);
+  });
+
   it("applies navigation entities sequentially and links the created trigger", async () => {
     const fetcher = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({
