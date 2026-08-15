@@ -447,4 +447,23 @@ describe("read-only GTM discovery", () => {
       key: "eventSettingsTable",
     }));
   });
+
+  it("completes a retained navigation setup by creating only its missing tag", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      Response.json({ tagId: "5", name: "GA4 Event - navigation_click" }),
+    );
+    const client = new GtmDiscoveryClient(async () => "token", fetcher);
+
+    const tag = await client.createNavigationEventTag("1", "20", "4", "g-test123456", "3");
+
+    expect(tag.tagId).toBe("5");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(fetcher.mock.calls[0]?.[1]?.body as string);
+    expect(body.firingTriggerId).toEqual(["3"]);
+    expect(body.parameter).toContainEqual({
+      type: "template",
+      key: "measurementIdOverride",
+      value: "G-TEST123456",
+    });
+  });
 });

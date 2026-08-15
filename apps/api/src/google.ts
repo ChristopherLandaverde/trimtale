@@ -738,6 +738,36 @@ export class GtmDiscoveryClient {
     });
     const trigger = await responseJson<GtmCreatedTrigger>(triggerResponse);
 
+    const tag = await this.createNavigationEventTag(
+      accountId,
+      containerId,
+      workspaceId,
+      normalizedMeasurementId,
+      trigger.triggerId,
+    );
+    return {
+      builtInVariables: builtInVariables.builtInVariable ?? [],
+      trigger,
+      tag,
+    };
+  }
+
+  async createNavigationEventTag(
+    accountId: string,
+    containerId: string,
+    workspaceId: string,
+    measurementId: string,
+    triggerId: string,
+  ): Promise<GtmCreatedTag> {
+    this.validateContainerPath(accountId, containerId);
+    if (!/^\d+$/.test(workspaceId) || !/^\d+$/.test(triggerId)) {
+      throw new GoogleIntegrationError("GTM workspace and trigger IDs must be numeric.", 400);
+    }
+    const normalizedMeasurementId = measurementId.trim().toUpperCase();
+    if (!/^G-[A-Z0-9]+$/.test(normalizedMeasurementId)) {
+      throw new GoogleIntegrationError("Measurement ID must look like G-XXXXXXXXXX.", 400);
+    }
+    const parent = `/accounts/${accountId}/containers/${containerId}/workspaces/${workspaceId}`;
     const tagResponse = await this.fetcher(`${tagManagerEndpoint}${parent}/tags`, {
       method: "POST",
       headers: {
@@ -771,18 +801,13 @@ export class GtmDiscoveryClient {
             ],
           },
         ],
-        firingTriggerId: [trigger.triggerId],
+        firingTriggerId: [triggerId],
         tagFiringOption: "oncePerEvent",
         monitoringMetadata: { type: "map" },
         consentSettings: { consentStatus: "notSet" },
       }),
     });
-    const tag = await responseJson<GtmCreatedTag>(tagResponse);
-    return {
-      builtInVariables: builtInVariables.builtInVariable ?? [],
-      trigger,
-      tag,
-    };
+    return responseJson<GtmCreatedTag>(tagResponse);
   }
 
   private validateContainerPath(accountId: string, containerId: string): void {
