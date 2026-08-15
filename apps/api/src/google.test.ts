@@ -606,12 +606,21 @@ describe("read-only GTM discovery", () => {
       }));
     const client = new GtmDiscoveryClient(async () => "token", fetcher);
 
-    const trigger = await client.disableNavigationTriggerValidation("1", "20", "4", "3");
+    const trigger = await client.disableNavigationTriggerValidation(
+      "1",
+      "20",
+      "4",
+      "3",
+      ["https://preview.test/#features", "https://preview.test/#contact"],
+    );
 
     expect(trigger.triggerId).toBe("3");
     expect(fetcher.mock.calls[1]?.[1]?.method).toBe("PUT");
     const body = JSON.parse(fetcher.mock.calls[1]?.[1]?.body as string);
     expect(body.checkValidation).toEqual({ type: "boolean", value: "false" });
+    expect(body.autoEventFilter[0].parameter[1].value).toContain(
+      "https://preview\\.test/#features",
+    );
   });
 
   it("completes a retained navigation setup by creating only its missing tag", async () => {

@@ -898,6 +898,7 @@ export class GtmDiscoveryClient {
     containerId: string,
     workspaceId: string,
     triggerId: string,
+    linkUrls: string[],
   ): Promise<GtmCreatedTrigger> {
     this.validateContainerPath(accountId, containerId);
     if (!/^\d+$/.test(workspaceId) || !/^\d+$/.test(triggerId)) {
@@ -908,6 +909,14 @@ export class GtmDiscoveryClient {
     if (trigger.type !== "linkClick") {
       throw new GoogleIntegrationError("Only a link-click trigger can disable navigation validation.", 400);
     }
+    const normalizedLinks = [...new Set(linkUrls.map((link) => {
+      const url = new URL(link);
+      if (url.protocol !== "https:") throw new Error("HTTPS required");
+      return url.toString();
+    }))];
+    if (normalizedLinks.length === 0 || normalizedLinks.length > 50) {
+      throw new GoogleIntegrationError("Provide between 1 and 50 HTTPS navigation URLs.", 400);
+    }
     const response = await this.fetcher(`${tagManagerEndpoint}${path}`, {
       method: "PUT",
       headers: {
@@ -916,6 +925,18 @@ export class GtmDiscoveryClient {
       },
       body: JSON.stringify({
         ...trigger,
+        autoEventFilter: [{
+          type: "matchRegex",
+          parameter: [
+            { type: "template", key: "arg0", value: "{{Click URL}}" },
+            {
+              type: "template",
+              key: "arg1",
+              value: `^(?:${normalizedLinks.map(escapeRegex).join("|")})$`,
+            },
+            { type: "boolean", key: "ignore_case", value: "false" },
+          ],
+        }],
         checkValidation: { type: "boolean", value: "false" },
       }),
     });

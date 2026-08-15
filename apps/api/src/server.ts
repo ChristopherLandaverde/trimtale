@@ -420,10 +420,15 @@ const server = createServer(async (request, response) => {
       return;
     }
     try {
-      const body = (await readJson(request)) as { purpose?: unknown; triggerId?: unknown };
-      if (body.purpose !== "capture-confirmed-link-clicks" || typeof body.triggerId !== "string") {
+      const body = (await readJson(request)) as { purpose?: unknown; triggerId?: unknown; linkUrls?: unknown };
+      if (
+        body.purpose !== "capture-confirmed-link-clicks" ||
+        typeof body.triggerId !== "string" ||
+        !Array.isArray(body.linkUrls) ||
+        !body.linkUrls.every((url) => typeof url === "string")
+      ) {
         throw new GoogleIntegrationError(
-          "Navigation validation update requires purpose=capture-confirmed-link-clicks and triggerId.",
+          "Navigation validation update requires purpose=capture-confirmed-link-clicks, triggerId, and string linkUrls.",
           400,
         );
       }
@@ -433,6 +438,7 @@ const server = createServer(async (request, response) => {
           containerId,
           workspaceId,
           body.triggerId,
+          body.linkUrls,
         ),
         publishStatus: "not-published",
       });
