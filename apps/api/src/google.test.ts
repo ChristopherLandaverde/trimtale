@@ -556,7 +556,7 @@ describe("read-only GTM discovery", () => {
     });
     const triggerBody = JSON.parse(fetcher.mock.calls[2]?.[1]?.body as string);
     expect(triggerBody.type).toBe("linkClick");
-    expect(triggerBody.autoEventFilter[0].parameter[1].value).toContain(
+    expect(triggerBody.filter[0].parameter[1].value).toContain(
       "https://preview\\.test/#features",
     );
     expect(triggerBody.checkValidation).toEqual({ type: "boolean", value: "false" });
@@ -618,7 +618,7 @@ describe("read-only GTM discovery", () => {
     expect(fetcher.mock.calls[1]?.[1]?.method).toBe("PUT");
     const body = JSON.parse(fetcher.mock.calls[1]?.[1]?.body as string);
     expect(body.checkValidation).toEqual({ type: "boolean", value: "false" });
-    expect(body.autoEventFilter[0].parameter[1].value).toContain(
+    expect(body.filter[0].parameter[1].value).toContain(
       "https://preview\\.test/#features",
     );
   });

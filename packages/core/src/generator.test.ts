@@ -40,9 +40,9 @@ describe("generated GTM scope", () => {
   it("limits the trigger to confirmed URLs", () => {
     const proposal = createSetupProposal(scenario("valid-header-links").request);
     const trigger = proposal.containerFile.containerVersion.trigger[0] as {
-      autoEventFilter: Array<{ parameter: Array<{ key?: string; value?: string }> }>;
+      filter: Array<{ parameter: Array<{ key?: string; value?: string }> }>;
     };
-    const pattern = trigger.autoEventFilter[0]?.parameter.find((item) => item.key === "arg1")?.value;
+    const pattern = trigger.filter[0]?.parameter.find((item) => item.key === "arg1")?.value;
     expect(pattern).toContain("https://example\\.test/services");
     expect(pattern).toContain("https://example\\.test/contact");
     expect((trigger as unknown as { checkValidation: { value: string } }).checkValidation.value)

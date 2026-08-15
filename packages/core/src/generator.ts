@@ -104,7 +104,7 @@ function createContainerFile(request: SetupRequest): GtmContainerExport {
           triggerId,
           name: "CE - Navigation Links - Confirmed Scope",
           type: "JUST_LINKS",
-          autoEventFilter: [
+          filter: [
             {
               type: "MATCH_REGEX",
               parameter: [

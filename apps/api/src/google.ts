@@ -813,7 +813,7 @@ export class GtmDiscoveryClient {
       body: JSON.stringify({
         name: "CE - Navigation Links - Confirmed Scope",
         type: "linkClick",
-        autoEventFilter: [{
+        filter: [{
           type: "matchRegex",
           parameter: [
             { type: "template", key: "arg0", value: "{{Click URL}}" },
@@ -925,7 +925,7 @@ export class GtmDiscoveryClient {
       },
       body: JSON.stringify({
         ...trigger,
-        autoEventFilter: [{
+        filter: [{
           type: "matchRegex",
           parameter: [
             { type: "template", key: "arg0", value: "{{Click URL}}" },
