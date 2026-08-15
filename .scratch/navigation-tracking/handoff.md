@@ -49,3 +49,5 @@ Deployment automation can materially reduce time to verified setup by creating a
 The first Vercel slice is implemented and proven with a placeholder container on a protected preview. The next live step is to create a dedicated GTM web container and redeploy the verification target with its real public ID.
 
 Dedicated web-container creation is implemented as an opt-in backend capability using `tagmanager.edit.containers`. It remains disabled until `GOOGLE_GTM_CONTAINER_WRITES_ENABLED=true` is configured and the practitioner authorizes the added scope.
+
+Live validation created `ConsentFlow Verification` (`GTM-PCJ3Q5RK`) and paired it with protected preview `https://consentflow-j98gp45fr-christopherlandaverdes-projects.vercel.app`. The preview installation was verified; production and GTM publishing remain untouched.

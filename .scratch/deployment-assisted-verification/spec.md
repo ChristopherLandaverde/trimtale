@@ -59,3 +59,10 @@ Choose verification target
 - Local builds use a non-production placeholder while live deployment requires an explicit container ID.
 - GTM container creation is available only behind an explicit backend flag and additional narrow OAuth scope.
 - The creation route accepts only a named HTTPS verification target and creates a web container; existing-container mutation and publishing remain unavailable.
+
+## Live integration evidence
+
+- Created dedicated web container `ConsentFlow Verification` (`GTM-PCJ3Q5RK`) in the designated test GTM account.
+- Created protected Vercel preview `https://consentflow-j98gp45fr-christopherlandaverdes-projects.vercel.app`.
+- Authenticated deployment verification confirmed the preview contains the expected container marker, GTM script, and noscript fallback.
+- The production ConsentFlow alias was not changed and no GTM container version was published.
