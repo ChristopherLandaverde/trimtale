@@ -6,9 +6,12 @@ import {
   GoogleOAuthSession,
   AnalyticsDiscoveryClient,
   GtmDiscoveryClient,
+  buildGtmVersionMetadata,
   GOOGLE_ANALYTICS_READONLY_SCOPE,
   GOOGLE_ANALYTICS_EDIT_SCOPE,
   GTM_EDIT_CONTAINERS_SCOPE,
+  GTM_EDIT_CONTAINER_VERSIONS_SCOPE,
+  GTM_PUBLISH_SCOPE,
   GTM_READONLY_SCOPE,
   googleOAuthConfig,
 } from "./google.js";
@@ -29,6 +32,9 @@ const config = {
   analyticsProvisioningRedirectUri: undefined,
   analyticsSetupWritesEnabled: false,
   tokenFile: undefined,
+  versionWritesEnabled: false,
+  publishEnabled: false,
+  publishWorkspacePath: undefined,
 };
 
 describe("Google OAuth configuration", () => {
@@ -75,6 +81,17 @@ describe("Google OAuth configuration", () => {
     const authorization = new URL(session.authorizationUrl());
 
     expect(authorization.searchParams.get("scope")).toContain(GTM_EDIT_CONTAINERS_SCOPE);
+  });
+
+  it("requests separate version and publish scopes only when publishing is enabled", () => {
+    const session = new GoogleOAuthSession({ ...config, versionWritesEnabled: true, publishEnabled: true });
+    const authorization = new URL(session.authorizationUrl());
+
+    expect(authorization.searchParams.get("scope")?.split(" ")).toEqual([
+      GTM_READONLY_SCOPE,
+      GTM_EDIT_CONTAINER_VERSIONS_SCOPE,
+      GTM_PUBLISH_SCOPE,
+    ]);
   });
 
   it("requests read-only Analytics access only when discovery is enabled", () => {
@@ -640,5 +657,69 @@ describe("read-only GTM discovery", () => {
       key: "measurementIdOverride",
       value: "G-TEST123456",
     });
+  });
+
+  it("builds concise human-readable GTM version metadata", () => {
+    expect(buildGtmVersionMetadata({
+      siteName: " ConsentFlow ",
+      eventName: "navigation_click",
+      measurementId: "g-yv879eclrv",
+      navigationLabels: ["Features", "Contact", "Features"],
+      date: "2026-08-15",
+    })).toEqual({
+      name: "ConsentFlow | GA4 navigation_click | 2026-08-15",
+      description: "Initialized G-YV879ECLRV with a Google tag on All Pages. Added navigation_click for confirmed Features and Contact navigation links. Wait for Tags off; Check Validation off. Created by GTM Observability.",
+    });
+  });
+
+  it("creates a reviewed version only from a changed conflict-free workspace", async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ workspaceChange: [{ tag: { tagId: "4" } }] }))
+      .mockResolvedValueOnce(Response.json({
+        containerVersion: {
+          path: "accounts/1/containers/20/versions/2",
+          containerVersionId: "2",
+          fingerprint: "version-fingerprint",
+        },
+        compilerError: false,
+        syncStatus: {},
+        newWorkspacePath: "accounts/1/containers/20/workspaces/5",
+      }));
+    const client = new GtmDiscoveryClient(async () => "token", fetcher);
+    const metadata = buildGtmVersionMetadata({
+      siteName: "ConsentFlow",
+      eventName: "navigation_click",
+      measurementId: "G-YV879ECLRV",
+      navigationLabels: ["Features", "Contact"],
+      date: "2026-08-15",
+    });
+
+    const result = await client.createContainerVersion("1", "20", "4", metadata);
+
+    expect(result.containerVersion?.containerVersionId).toBe("2");
+    expect(fetcher.mock.calls[1]?.[0].toString()).toMatch(/workspaces\/4:create_version$/);
+    expect(JSON.parse(fetcher.mock.calls[1]?.[1]?.body as string)).toEqual({
+      name: metadata.name,
+      notes: metadata.description,
+    });
+  });
+
+  it("publishes only the exact reviewed container-version fingerprint", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({
+      containerVersion: { containerVersionId: "2" },
+      compilerError: false,
+    }));
+    const client = new GtmDiscoveryClient(async () => "token", fetcher);
+
+    const result = await client.publishContainerVersion({
+      path: "accounts/1/containers/20/versions/2",
+      containerVersionId: "2",
+      fingerprint: "version-fingerprint",
+    });
+
+    expect(result.containerVersion?.containerVersionId).toBe("2");
+    const url = new URL(fetcher.mock.calls[0]?.[0].toString() ?? "");
+    expect(url.pathname).toBe("/tagmanager/v2/accounts/1/containers/20/versions/2:publish");
+    expect(url.searchParams.get("fingerprint")).toBe("version-fingerprint");
   });
 });

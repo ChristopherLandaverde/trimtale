@@ -24,6 +24,10 @@ _Avoid_: Automatic apply, backend approval, agent permission
 The choice of a clean GTM workspace that preserves ownership and reviewability for a tracking setup without consuming unnecessary workspace capacity.
 _Avoid_: Always create a workspace, use whatever workspace is open
 
+**Version record**:
+The human-readable GTM history entry that names a reviewed tracking setup and summarizes its measurement destination, event behavior, confirmed scope, and source.
+_Avoid_: Commit message, workspace name, generic published version
+
 **Tracking practitioner**:
 A freelancer or agency team member responsible for implementing and verifying tracking on client websites.
 _Avoid_: GTM person, marketer, user

@@ -164,6 +164,20 @@ Clicking the extension action opens a compact command-bar overlay at the bottom 
 
 The extension remembers the last GA4 measurement ID and GTM destination in `chrome.storage.local` and restores them in both the overlay and fallback side panel. A remembered destination is selected only when it is still returned by the connected Google account, and it remains visible during setup review.
 
+### Guarded GTM version publishing
+
+Publishing is a separately gated capability and requires two additional OAuth scopes: `tagmanager.edit.containerversions` and `tagmanager.publish`. Enable it only for an exact reviewed workspace:
+
+```text
+GOOGLE_GTM_VERSION_WRITES_ENABLED=true
+GOOGLE_GTM_PUBLISH_ENABLED=true
+GOOGLE_GTM_PUBLISH_WORKSPACE_PATH=accounts/6305900974/containers/261236292/workspaces/4
+```
+
+`POST /api/google/accounts/:accountId/containers/:containerId/workspaces/:workspaceId/publish` requires `approval=publish-reviewed-tracking-setup` plus the reviewed site, event, measurement ID, navigation labels, and date. The backend rejects empty or conflicted workspaces, generates a concise version record, creates the version, stops on compiler or synchronization errors, and publishes only the returned version fingerprint. If publication fails after version creation, the version remains unpublished and is returned as recovery evidence.
+
+Version names use `{site} | GA4 {event} | {YYYY-MM-DD}`. Descriptions state the measurement ID, Google tag, event tag, confirmed navigation scope, trigger validation settings, and GTM Observability as the source.
+
 Google Analytics discovery is separately read-only. Enable the Google Analytics Admin API in the OAuth project, add `https://www.googleapis.com/auth/analytics.readonly` to the OAuth client's allowed scopes, and start the backend with:
 
 ```text

@@ -5,6 +5,9 @@ import { dirname } from "node:path";
 export const GTM_READONLY_SCOPE = "https://www.googleapis.com/auth/tagmanager.readonly";
 export const GTM_EDIT_CONTAINERS_SCOPE =
   "https://www.googleapis.com/auth/tagmanager.edit.containers";
+export const GTM_EDIT_CONTAINER_VERSIONS_SCOPE =
+  "https://www.googleapis.com/auth/tagmanager.edit.containerversions";
+export const GTM_PUBLISH_SCOPE = "https://www.googleapis.com/auth/tagmanager.publish";
 export const GOOGLE_ANALYTICS_READONLY_SCOPE =
   "https://www.googleapis.com/auth/analytics.readonly";
 export const GOOGLE_ANALYTICS_EDIT_SCOPE =
@@ -36,6 +39,9 @@ export interface GoogleOAuthConfig {
   analyticsProvisioningRedirectUri: string | undefined;
   analyticsSetupWritesEnabled: boolean;
   tokenFile: string | undefined;
+  versionWritesEnabled: boolean;
+  publishEnabled: boolean;
+  publishWorkspacePath: string | undefined;
 }
 
 interface GoogleTokenResponse {
@@ -130,6 +136,9 @@ export function googleOAuthConfig(
       environment.GOOGLE_ANALYTICS_PROVISIONING_REDIRECT_URI?.trim(),
     analyticsSetupWritesEnabled: environment.GOOGLE_ANALYTICS_SETUP_WRITES_ENABLED === "true",
     tokenFile: environment.GOOGLE_OAUTH_TOKEN_FILE?.trim(),
+    versionWritesEnabled: environment.GOOGLE_GTM_VERSION_WRITES_ENABLED === "true",
+    publishEnabled: environment.GOOGLE_GTM_PUBLISH_ENABLED === "true",
+    publishWorkspacePath: environment.GOOGLE_GTM_PUBLISH_WORKSPACE_PATH?.trim(),
   };
 }
 
@@ -182,6 +191,10 @@ export class GoogleOAuthSession {
     ) {
       scopes.push(GTM_EDIT_CONTAINERS_SCOPE);
     }
+    if (this.config.versionWritesEnabled || this.config.publishEnabled) {
+      scopes.push(GTM_EDIT_CONTAINER_VERSIONS_SCOPE);
+    }
+    if (this.config.publishEnabled) scopes.push(GTM_PUBLISH_SCOPE);
     if (this.config.analyticsAccountProvisioningEnabled || this.config.analyticsSetupWritesEnabled) {
       scopes.push(GOOGLE_ANALYTICS_EDIT_SCOPE);
     } else if (this.config.analyticsDiscoveryEnabled) {
@@ -611,6 +624,60 @@ export interface GtmWorkspaceSelection {
   selection: "reused-default" | "reused-isolated" | "created-isolated";
 }
 
+export interface GtmVersionMetadata {
+  name: string;
+  description: string;
+}
+
+export interface GtmCreateVersionResult {
+  containerVersion?: GtmContainerVersion;
+  syncStatus?: { mergeConflict?: unknown[] };
+  compilerError?: boolean;
+  newWorkspacePath?: string;
+}
+
+export interface GtmPublishResult {
+  containerVersion?: GtmContainerVersion;
+  compilerError?: boolean;
+}
+
+export function buildGtmVersionMetadata(input: {
+  siteName: string;
+  eventName: string;
+  measurementId: string;
+  navigationLabels: string[];
+  date: string;
+}): GtmVersionMetadata {
+  const clean = (value: string): string => value.replace(/\s+/g, " ").trim();
+  const siteName = clean(input.siteName);
+  const eventName = clean(input.eventName);
+  const measurementId = clean(input.measurementId).toUpperCase();
+  const labels = [...new Set(input.navigationLabels.map(clean).filter(Boolean))];
+  if (siteName.length < 2 || siteName.length > 50) {
+    throw new GoogleIntegrationError("Version site name must be between 2 and 50 characters.", 400);
+  }
+  if (!/^[a-z][a-z0-9_]{1,39}$/i.test(eventName)) {
+    throw new GoogleIntegrationError("Version event name must be a valid analytics event name.", 400);
+  }
+  if (!/^G-[A-Z0-9]+$/.test(measurementId)) {
+    throw new GoogleIntegrationError("Measurement ID must look like G-XXXXXXXXXX.", 400);
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) {
+    throw new GoogleIntegrationError("Version date must use YYYY-MM-DD.", 400);
+  }
+  if (labels.length === 0 || labels.length > 20) {
+    throw new GoogleIntegrationError("Provide between 1 and 20 navigation labels.", 400);
+  }
+  const name = `${siteName} | GA4 ${eventName} | ${input.date}`;
+  const description = [
+    `Initialized ${measurementId} with a Google tag on All Pages.`,
+    `Added ${eventName} for confirmed ${labels.join(" and ")} navigation links.`,
+    "Wait for Tags off; Check Validation off.",
+    "Created by GTM Observability.",
+  ].join(" ");
+  return { name, description };
+}
+
 export class GtmDiscoveryClient {
   constructor(
     private readonly getAccessToken: () => Promise<string>,
@@ -941,6 +1008,62 @@ export class GtmDiscoveryClient {
       }),
     });
     return responseJson<GtmCreatedTrigger>(response);
+  }
+
+  async createContainerVersion(
+    accountId: string,
+    containerId: string,
+    workspaceId: string,
+    metadata: GtmVersionMetadata,
+  ): Promise<GtmCreateVersionResult> {
+    this.validateContainerPath(accountId, containerId);
+    if (!/^\d+$/.test(workspaceId)) {
+      throw new GoogleIntegrationError("GTM workspace ID must be numeric.", 400);
+    }
+    const status = await this.workspaceStatus(accountId, containerId, workspaceId);
+    if ((status.mergeConflict?.length ?? 0) > 0) {
+      throw new GoogleIntegrationError("The GTM workspace has merge conflicts and cannot be versioned.", 409);
+    }
+    if ((status.workspaceChange?.length ?? 0) === 0) {
+      throw new GoogleIntegrationError("The GTM workspace has no reviewed changes to version.", 409);
+    }
+    const path = `/accounts/${accountId}/containers/${containerId}/workspaces/${workspaceId}`;
+    const response = await this.fetcher(`${tagManagerEndpoint}${path}:create_version`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${await this.getAccessToken()}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ name: metadata.name, notes: metadata.description }),
+    });
+    const result = await responseJson<GtmCreateVersionResult>(response);
+    if (result.compilerError || (result.syncStatus?.mergeConflict?.length ?? 0) > 0) {
+      throw new GoogleIntegrationError("Google created no publishable version because compilation or synchronization failed.", 409);
+    }
+    if (!result.containerVersion?.path || !result.containerVersion.containerVersionId) {
+      throw new GoogleIntegrationError("Google did not return the created GTM container version.", 502);
+    }
+    return result;
+  }
+
+  async publishContainerVersion(version: GtmContainerVersion): Promise<GtmPublishResult> {
+    if (!version.path || !/^accounts\/\d+\/containers\/\d+\/versions\/\d+$/.test(version.path)) {
+      throw new GoogleIntegrationError("A valid GTM container version path is required for publishing.", 400);
+    }
+    if (!version.fingerprint) {
+      throw new GoogleIntegrationError("The reviewed GTM version fingerprint is required for publishing.", 400);
+    }
+    const url = new URL(`${tagManagerEndpoint}/${version.path}:publish`);
+    url.searchParams.set("fingerprint", version.fingerprint);
+    const response = await this.fetcher(url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${await this.getAccessToken()}` },
+    });
+    const result = await responseJson<GtmPublishResult>(response);
+    if (result.compilerError || !result.containerVersion?.containerVersionId) {
+      throw new GoogleIntegrationError("Google did not return a successfully published GTM version.", 502);
+    }
+    return result;
   }
 
   async createNavigationEventTag(

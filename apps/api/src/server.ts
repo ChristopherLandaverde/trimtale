@@ -5,6 +5,7 @@ import {
   GoogleOAuthSession,
   GtmDiscoveryClient,
   AnalyticsDiscoveryClient,
+  buildGtmVersionMetadata,
   googleOAuthConfig,
 } from "./google.js";
 
@@ -79,6 +80,8 @@ const server = createServer(async (request, response) => {
       analyticsAccountProvisioningEnabled:
         oauthConfig?.analyticsAccountProvisioningEnabled ?? false,
       analyticsSetupWritesEnabled: oauthConfig?.analyticsSetupWritesEnabled ?? false,
+      versionWritesEnabled: oauthConfig?.versionWritesEnabled ?? false,
+      publishEnabled: oauthConfig?.publishEnabled ?? false,
     });
     return;
   }
@@ -654,6 +657,76 @@ const server = createServer(async (request, response) => {
         ...(workspace ? { workspace, workspaceSelection } : {}),
         retention: "retain-for-evidence",
         publishStatus: "not-published",
+      });
+    }
+    return;
+  }
+
+  const publishWorkspaceMatch = requestUrl.pathname.match(
+    /^\/api\/google\/accounts\/(\d+)\/containers\/(\d+)\/workspaces\/(\d+)\/publish$/,
+  );
+  if (request.method === "POST" && publishWorkspaceMatch) {
+    if (!discoveryClient || !oauthConfig?.versionWritesEnabled || !oauthConfig.publishEnabled) {
+      sendJson(response, 403, { error: "GTM version creation and publishing are disabled on this backend." });
+      return;
+    }
+    const [, accountId = "", containerId = "", workspaceId = ""] = publishWorkspaceMatch;
+    const requestedPath = `accounts/${accountId}/containers/${containerId}/workspaces/${workspaceId}`;
+    if (requestedPath !== oauthConfig.publishWorkspacePath) {
+      sendJson(response, 403, { error: "This workspace is not allowlisted for publishing." });
+      return;
+    }
+    let createdVersion: Awaited<ReturnType<GtmDiscoveryClient["createContainerVersion"]>> | undefined;
+    try {
+      const body = (await readJson(request)) as {
+        approval?: unknown;
+        siteName?: unknown;
+        eventName?: unknown;
+        measurementId?: unknown;
+        navigationLabels?: unknown;
+        date?: unknown;
+      };
+      if (
+        body.approval !== "publish-reviewed-tracking-setup" ||
+        typeof body.siteName !== "string" ||
+        typeof body.eventName !== "string" ||
+        typeof body.measurementId !== "string" ||
+        !Array.isArray(body.navigationLabels) ||
+        !body.navigationLabels.every((label) => typeof label === "string") ||
+        typeof body.date !== "string"
+      ) {
+        throw new GoogleIntegrationError(
+          "Publishing requires explicit approval and complete reviewed version metadata.",
+          400,
+        );
+      }
+      const metadata = buildGtmVersionMetadata({
+        siteName: body.siteName,
+        eventName: body.eventName,
+        measurementId: body.measurementId,
+        navigationLabels: body.navigationLabels,
+        date: body.date,
+      });
+      createdVersion = await discoveryClient.createContainerVersion(
+        accountId,
+        containerId,
+        workspaceId,
+        metadata,
+      );
+      const published = await discoveryClient.publishContainerVersion(createdVersion.containerVersion!);
+      sendJson(response, 200, {
+        metadata,
+        createdVersion,
+        published,
+        publishStatus: "published",
+      });
+    } catch (integrationError) {
+      const status = integrationError instanceof GoogleIntegrationError ? integrationError.status : 502;
+      const message = integrationError instanceof Error ? integrationError.message : "Unable to publish the GTM workspace.";
+      sendJson(response, status, {
+        error: message,
+        ...(createdVersion ? { createdVersion } : {}),
+        publishStatus: createdVersion ? "version-created-not-published" : "not-published",
       });
     }
     return;
