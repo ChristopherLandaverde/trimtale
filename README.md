@@ -119,6 +119,29 @@ Content-Type: application/json
 
 The route creates a web container associated with the verification-target hostname. The capability does not update or delete containers, create or publish versions, or modify production deployments. Without the environment flag, the route returns `403` and OAuth continues to request read-only access only.
 
+Isolated workspace creation has its own gate and an exact-container allowlist:
+
+```text
+GOOGLE_GTM_WORKSPACE_WRITES_ENABLED=true
+GOOGLE_GTM_WORKSPACE_CONTAINER_PATH=accounts/6305900974/containers/261236292
+```
+
+With those values configured and OAuth authorized for `tagmanager.edit.containers`, create and inspect only the allowlisted workspace:
+
+```http
+POST /api/google/accounts/6305900974/containers/261236292/workspaces
+Content-Type: application/json
+
+{
+  "name": "GTM Observability - Navigation - 20260815",
+  "purpose": "isolated-verification-workspace"
+}
+
+GET /api/google/accounts/6305900974/containers/261236292/workspaces/:workspaceId/status
+```
+
+The create response records the workspace before any entity writes, with retention set to `retain-for-evidence`. These routes cannot target another container and expose no delete, version-creation, quick-preview, or publish operation.
+
 For an opt-in live smoke check, supply a short-lived token carrying the same read-only scope:
 
 ```bash

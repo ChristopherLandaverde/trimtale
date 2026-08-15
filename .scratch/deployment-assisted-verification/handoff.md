@@ -4,7 +4,7 @@
 
 - Repository: `/home/oppie/projects/gtm-observability`
 - Branch: `feature/google-gtm-integration`
-- Current commit: `074d2a1 Record live verification target pairing`
+- Current commit before the workspace slice: `a778d4f Add deployment integration handoff`
 - Working tree was clean at handoff creation.
 
 Read, in order:
@@ -102,6 +102,14 @@ Implement isolated GTM workspace creation for `ConsentFlow Verification`:
 7. Stop before version creation or publishing.
 
 The open policy question is workspace retention: retain by default after the first real run so failures and evidence remain inspectable.
+
+### Workspace slice progress
+
+- A separate `GOOGLE_GTM_WORKSPACE_WRITES_ENABLED` gate is implemented.
+- `GOOGLE_GTM_WORKSPACE_CONTAINER_PATH` must exactly match the requested container.
+- Creation requires `purpose=isolated-verification-workspace` and returns `retain-for-evidence`.
+- Workspace status inspection is implemented separately so the created identifier is recorded first.
+- Quick preview remains deferred because Google requires the additional `tagmanager.edit.containerversions` scope.
 
 ## Verification evidence
 

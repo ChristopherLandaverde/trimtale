@@ -12,6 +12,8 @@ const config = {
   clientSecret: "client-secret",
   redirectUri: "http://127.0.0.1:8787/api/google/oauth/callback",
   containerWritesEnabled: false,
+  workspaceWritesEnabled: false,
+  workspaceContainerPath: undefined,
 };
 
 describe("Google OAuth configuration", () => {
@@ -28,6 +30,16 @@ describe("Google OAuth configuration", () => {
 
   it("requests container edit access only when explicitly enabled", () => {
     const session = new GoogleOAuthSession({ ...config, containerWritesEnabled: true });
+    const authorization = new URL(session.authorizationUrl());
+
+    expect(authorization.searchParams.get("scope")?.split(" ")).toEqual([
+      GTM_READONLY_SCOPE,
+      GTM_EDIT_CONTAINERS_SCOPE,
+    ]);
+  });
+
+  it("uses the same narrow edit scope for explicitly enabled workspace writes", () => {
+    const session = new GoogleOAuthSession({ ...config, workspaceWritesEnabled: true });
     const authorization = new URL(session.authorizationUrl());
 
     expect(authorization.searchParams.get("scope")?.split(" ")).toEqual([
@@ -182,5 +194,32 @@ describe("read-only GTM discovery", () => {
       client.createVerificationContainer("1", "ConsentFlow Verification", "http://example.test"),
     ).rejects.toThrow("valid HTTPS URL");
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("creates and inspects an isolated workspace without version operations", async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({
+        path: "accounts/1/containers/20/workspaces/3",
+        accountId: "1",
+        containerId: "20",
+        workspaceId: "3",
+        name: "GTM Observability - Navigation - 20260815",
+      }))
+      .mockResolvedValueOnce(Response.json({ workspaceChange: [], mergeConflict: [] }));
+    const client = new GtmDiscoveryClient(async () => "token", fetcher);
+
+    const workspace = await client.createIsolatedWorkspace(
+      "1",
+      "20",
+      "GTM Observability - Navigation - 20260815",
+    );
+    const status = await client.workspaceStatus("1", "20", workspace.workspaceId);
+
+    expect(workspace.workspaceId).toBe("3");
+    expect(status).toEqual({ workspaceChange: [], mergeConflict: [] });
+    expect(fetcher.mock.calls[0]?.[1]?.method).toBe("POST");
+    expect(fetcher.mock.calls[1]?.[0].toString()).toMatch(/\/workspaces\/3\/status$/);
+    expect(fetcher.mock.calls.some(([input]) => input.toString().includes("create_version"))).toBe(false);
+    expect(fetcher.mock.calls.some(([input]) => input.toString().includes("publish"))).toBe(false);
   });
 });

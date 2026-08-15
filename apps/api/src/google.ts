@@ -14,6 +14,8 @@ export interface GoogleOAuthConfig {
   clientSecret: string;
   redirectUri: string;
   containerWritesEnabled: boolean;
+  workspaceWritesEnabled: boolean;
+  workspaceContainerPath: string | undefined;
 }
 
 interface GoogleTokenResponse {
@@ -94,6 +96,8 @@ export function googleOAuthConfig(
     clientSecret,
     redirectUri,
     containerWritesEnabled: environment.GOOGLE_GTM_CONTAINER_WRITES_ENABLED === "true",
+    workspaceWritesEnabled: environment.GOOGLE_GTM_WORKSPACE_WRITES_ENABLED === "true",
+    workspaceContainerPath: environment.GOOGLE_GTM_WORKSPACE_CONTAINER_PATH?.trim(),
   };
 }
 
@@ -135,7 +139,9 @@ export class GoogleOAuthSession {
     this.states.set(state, this.now() + stateLifetimeMs);
     const url = new URL(authorizationEndpoint);
     const scopes = [GTM_READONLY_SCOPE];
-    if (this.config.containerWritesEnabled) scopes.push(GTM_EDIT_CONTAINERS_SCOPE);
+    if (this.config.containerWritesEnabled || this.config.workspaceWritesEnabled) {
+      scopes.push(GTM_EDIT_CONTAINERS_SCOPE);
+    }
     url.search = new URLSearchParams({
       client_id: this.config.clientId,
       redirect_uri: this.config.redirectUri,
@@ -226,6 +232,11 @@ interface WorkspaceListResponse {
   nextPageToken?: string;
 }
 
+export interface GtmWorkspaceStatus {
+  workspaceChange?: unknown[];
+  mergeConflict?: unknown[];
+}
+
 export class GtmDiscoveryClient {
   constructor(
     private readonly getAccessToken: () => Promise<string>,
@@ -301,6 +312,51 @@ export class GtmDiscoveryClient {
       },
     );
     return responseJson<GtmContainer>(response);
+  }
+
+  async createIsolatedWorkspace(
+    accountId: string,
+    containerId: string,
+    name: string,
+  ): Promise<GtmWorkspace> {
+    this.validateContainerPath(accountId, containerId);
+    const normalizedName = name.replace(/\s+/g, " ").trim();
+    if (normalizedName.length < 3 || normalizedName.length > 100) {
+      throw new GoogleIntegrationError("Workspace name must be between 3 and 100 characters.", 400);
+    }
+    const parent = `/accounts/${accountId}/containers/${containerId}`;
+    const response = await this.fetcher(`${tagManagerEndpoint}${parent}/workspaces`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${await this.getAccessToken()}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: normalizedName,
+        description: "Isolated GTM Observability verification workspace. Retain for evidence; do not publish.",
+      }),
+    });
+    return responseJson<GtmWorkspace>(response);
+  }
+
+  async workspaceStatus(
+    accountId: string,
+    containerId: string,
+    workspaceId: string,
+  ): Promise<GtmWorkspaceStatus> {
+    this.validateContainerPath(accountId, containerId);
+    if (!/^\d+$/.test(workspaceId)) {
+      throw new GoogleIntegrationError("GTM workspace ID must be numeric.", 400);
+    }
+    return this.get<GtmWorkspaceStatus>(
+      `/accounts/${accountId}/containers/${containerId}/workspaces/${workspaceId}/status`,
+    );
+  }
+
+  private validateContainerPath(accountId: string, containerId: string): void {
+    if (!/^\d+$/.test(accountId) || !/^\d+$/.test(containerId)) {
+      throw new GoogleIntegrationError("GTM account and container IDs must be numeric.", 400);
+    }
   }
 
   private async get<Result>(path: string): Promise<Result> {

@@ -62,8 +62,11 @@ const server = createServer(async (request, response) => {
     sendJson(response, 200, {
       configured: oauthSession !== undefined,
       connected: oauthSession?.isConnected() ?? false,
-      scope: oauthConfig?.containerWritesEnabled ? "container-create" : "read-only",
+      scope: oauthConfig?.workspaceWritesEnabled
+        ? "workspace-write"
+        : oauthConfig?.containerWritesEnabled ? "container-create" : "read-only",
       containerWritesEnabled: oauthConfig?.containerWritesEnabled ?? false,
+      workspaceWritesEnabled: oauthConfig?.workspaceWritesEnabled ?? false,
     });
     return;
   }
@@ -195,6 +198,74 @@ const server = createServer(async (request, response) => {
       const message = integrationError instanceof Error
         ? integrationError.message
         : "Unable to retrieve the GTM container entity context.";
+      sendJson(response, status, { error: message });
+    }
+    return;
+  }
+
+  const workspaceCollectionMatch = requestUrl.pathname.match(
+    /^\/api\/google\/accounts\/(\d+)\/containers\/(\d+)\/workspaces$/,
+  );
+  if (request.method === "POST" && workspaceCollectionMatch) {
+    if (!discoveryClient || !oauthConfig?.workspaceWritesEnabled) {
+      sendJson(response, 403, { error: "GTM workspace creation is disabled on this backend." });
+      return;
+    }
+    const [, accountId = "", containerId = ""] = workspaceCollectionMatch;
+    const requestedPath = `accounts/${accountId}/containers/${containerId}`;
+    if (requestedPath !== oauthConfig.workspaceContainerPath) {
+      sendJson(response, 403, { error: "This container is not allowlisted for workspace writes." });
+      return;
+    }
+    try {
+      const body = (await readJson(request)) as { name?: unknown; purpose?: unknown };
+      if (body.purpose !== "isolated-verification-workspace" || typeof body.name !== "string") {
+        throw new GoogleIntegrationError(
+          "Workspace creation requires a name and purpose=isolated-verification-workspace.",
+          400,
+        );
+      }
+      sendJson(response, 201, {
+        workspace: await discoveryClient.createIsolatedWorkspace(accountId, containerId, body.name),
+        retention: "retain-for-evidence",
+      });
+    } catch (integrationError) {
+      const status = integrationError instanceof GoogleIntegrationError
+        ? integrationError.status
+        : 502;
+      const message = integrationError instanceof Error
+        ? integrationError.message
+        : "Unable to create the isolated GTM workspace.";
+      sendJson(response, status, { error: message });
+    }
+    return;
+  }
+
+  const workspaceStatusMatch = requestUrl.pathname.match(
+    /^\/api\/google\/accounts\/(\d+)\/containers\/(\d+)\/workspaces\/(\d+)\/status$/,
+  );
+  if (request.method === "GET" && workspaceStatusMatch) {
+    if (!discoveryClient || !oauthConfig?.workspaceWritesEnabled) {
+      sendJson(response, 403, { error: "GTM workspace inspection is disabled on this backend." });
+      return;
+    }
+    const [, accountId = "", containerId = "", workspaceId = ""] = workspaceStatusMatch;
+    const requestedPath = `accounts/${accountId}/containers/${containerId}`;
+    if (requestedPath !== oauthConfig.workspaceContainerPath) {
+      sendJson(response, 403, { error: "This container is not allowlisted for workspace writes." });
+      return;
+    }
+    try {
+      sendJson(response, 200, {
+        status: await discoveryClient.workspaceStatus(accountId, containerId, workspaceId),
+      });
+    } catch (integrationError) {
+      const status = integrationError instanceof GoogleIntegrationError
+        ? integrationError.status
+        : 502;
+      const message = integrationError instanceof Error
+        ? integrationError.message
+        : "Unable to inspect the GTM workspace.";
       sendJson(response, status, { error: message });
     }
     return;

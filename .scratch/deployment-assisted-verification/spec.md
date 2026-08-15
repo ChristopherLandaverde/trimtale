@@ -59,6 +59,9 @@ Choose verification target
 - Local builds use a non-production placeholder while live deployment requires an explicit container ID.
 - GTM container creation is available only behind an explicit backend flag and additional narrow OAuth scope.
 - The creation route accepts only a named HTTPS verification target and creates a web container; existing-container mutation and publishing remain unavailable.
+- Isolated workspace creation has a separate backend flag and exact-container path allowlist.
+- Workspace creation returns the resource identifier before status inspection or entity writes and retains the workspace for evidence by default.
+- No workspace deletion, container-version creation, quick preview, or publishing route exists in this slice.
 
 ## Live integration evidence
 
