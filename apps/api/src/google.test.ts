@@ -5,6 +5,7 @@ import {
   googleIntegrationStatus,
   loadGoogleIntegrationConfig,
 } from "./google.js";
+import { routeApiRequest } from "./app.js";
 
 function jsonResponse(value: unknown): Response {
   return new Response(JSON.stringify(value), {
@@ -90,5 +91,31 @@ describe("GTM discovery", () => {
         authorization: "Bearer ya29.test-token",
       },
     ]);
+  });
+});
+
+describe("GTM discovery API authorization", () => {
+  it("requires an admin bearer token before exposing GTM discovery", async () => {
+    const previous = process.env.GTM_OBSERVABILITY_ADMIN_TOKEN;
+    process.env.GTM_OBSERVABILITY_ADMIN_TOKEN = "admin-secret";
+    try {
+      await expect(
+        routeApiRequest({
+          method: "GET",
+          url: "/api/google/gtm/accounts",
+          headers: new Headers(),
+          readJson: async () => ({}),
+        }),
+      ).resolves.toEqual({
+        status: 401,
+        body: { error: "Admin authorization is required for GTM discovery." },
+      });
+    } finally {
+      if (previous === undefined) {
+        delete process.env.GTM_OBSERVABILITY_ADMIN_TOKEN;
+      } else {
+        process.env.GTM_OBSERVABILITY_ADMIN_TOKEN = previous;
+      }
+    }
   });
 });

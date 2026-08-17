@@ -16,6 +16,7 @@ export async function handleVercelRequest(request: Request): Promise<Response> {
     const result = await routeApiRequest({
       method: request.method,
       url: request.url,
+      headers: request.headers,
       readJson: () => request.json(),
     });
     if (result.status === 204) return new Response(null, { status: 204, headers: corsHeaders() });

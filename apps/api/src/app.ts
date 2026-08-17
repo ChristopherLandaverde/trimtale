@@ -9,6 +9,7 @@ import {
 export interface ApiRouteRequest {
   method?: string | undefined;
   url?: string | undefined;
+  headers?: Headers | undefined;
   readJson: () => Promise<unknown>;
 }
 
@@ -34,6 +35,12 @@ export async function routeApiRequest(request: ApiRouteRequest): Promise<ApiRout
   }
 
   if (method === "GET" && pathname === "/api/google/gtm/accounts") {
+    const adminToken = process.env.GTM_OBSERVABILITY_ADMIN_TOKEN?.trim();
+    const authorization = request.headers?.get("Authorization") ?? "";
+    if (!adminToken || authorization !== `Bearer ${adminToken}`) {
+      return { status: 401, body: { error: "Admin authorization is required for GTM discovery." } };
+    }
+
     try {
       return { status: 200, body: await discoverGtmContainers(loadGoogleIntegrationConfig()) };
     } catch (error) {

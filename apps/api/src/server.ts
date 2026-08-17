@@ -36,6 +36,7 @@ const server = createServer(async (request, response) => {
   const result = await routeApiRequest({
     method: request.method,
     url: request.url,
+    headers: new Headers(request.headers as HeadersInit),
     readJson: () => readJson(request),
   });
   if (result.status === 204) {

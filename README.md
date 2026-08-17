@@ -115,3 +115,5 @@ GTM_OBSERVABILITY_API_BASE=https://your-api.vercel.app npm run build:extension
 ```
 
 This keeps the no-login extension flow usable on a real site such as ConsentFlow while the API runs remotely.
+
+Security and production-publish guardrails are documented in [Security and Publishing Notes](docs/security-and-publishing.md).
