@@ -23,6 +23,10 @@ const configurationCard = byId<HTMLElement>("configuration-card");
 const proposalCard = byId<HTMLElement>("proposal-card");
 const verificationCard = byId<HTMLElement>("verification-card");
 
+byId<HTMLButtonElement>("collapse").addEventListener("click", () => {
+  window.parent.postMessage({ source: "gtm-observability", type: "COLLAPSE_OVERLAY" }, "*");
+});
+
 function setStatus(message: string, error = false): void {
   status.textContent = message;
   status.classList.toggle("error", error);

@@ -15,11 +15,54 @@ interface ScanResponse {
 type ExtensionRequest =
   | { type: "SCAN_NAVIGATION" }
   | { type: "START_VERIFICATION"; navigation: NavigationElement[] }
-  | { type: "GET_EVIDENCE" };
+  | { type: "GET_EVIDENCE" }
+  | { type: "TOGGLE_OVERLAY" };
 
 const analyticsPattern = /(?:google-analytics\.com|analytics\.google\.com)\/g\/collect/i;
 const evidence = new Map<string, BrowserEvidence>();
 let verificationScope = new Map<string, NavigationElement>();
+let overlayHost: HTMLDivElement | undefined;
+let overlayExpanded = false;
+
+function setOverlayExpanded(expanded: boolean): void {
+  if (!overlayHost) return;
+  overlayExpanded = expanded;
+  const root = overlayHost.shadowRoot;
+  root?.querySelector(".orb")?.classList.toggle("hidden", expanded);
+  root?.querySelector(".workspace")?.classList.toggle("open", expanded);
+}
+
+function ensureOverlay(): void {
+  if (overlayHost) return;
+  overlayHost = document.createElement("div");
+  overlayHost.id = "gtm-observability-orb-root";
+  const root = overlayHost.attachShadow({ mode: "open" });
+  root.innerHTML = `
+    <style>
+      :host { all: initial; }
+      .orb, .workspace { position: fixed; right: 24px; z-index: 2147483647; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      .orb { bottom: 24px; width: 58px; height: 58px; border: 1px solid rgba(255,255,255,.26); border-radius: 50%; cursor: pointer; color: white; background: radial-gradient(circle at 34% 27%, #79838d 0 7%, #313840 25%, #11161b 68%, #050709 100%); box-shadow: 0 16px 38px rgba(0,0,0,.34), inset 0 1px 1px rgba(255,255,255,.26); display: grid; place-items: center; transition: transform .18s ease, box-shadow .18s ease; }
+      .orb:hover { transform: translateY(-2px) scale(1.04); box-shadow: 0 19px 44px rgba(0,0,0,.4), 0 0 0 5px rgba(40,211,153,.12), inset 0 1px 1px rgba(255,255,255,.28); }
+      .orb-mark { width: 25px; height: 25px; border-radius: 50%; display: grid; place-items: center; color: #b8ffe6; font: 800 14px/1 Inter, sans-serif; border: 1px solid rgba(184,255,230,.42); background: rgba(22,34,33,.72); }
+      .workspace { bottom: 24px; width: min(390px, calc(100vw - 32px)); height: min(720px, calc(100vh - 48px)); border-radius: 22px; overflow: hidden; opacity: 0; transform: translateY(18px) scale(.94); transform-origin: bottom right; pointer-events: none; background: #f4f6f8; border: 1px solid rgba(255,255,255,.72); box-shadow: 0 28px 80px rgba(0,0,0,.32); transition: opacity .2s ease, transform .2s ease; }
+      .workspace.open { opacity: 1; transform: none; pointer-events: auto; }
+      .workspace iframe { width: 100%; height: 100%; border: 0; background: #f4f6f8; }
+      .hidden { display: none; }
+      @media (max-width: 540px) { .orb { right: 16px; bottom: 16px; } .workspace { inset: 12px; width: auto; height: auto; border-radius: 18px; } }
+    </style>
+    <button class="orb" type="button" aria-label="Open GTM Observability"><span class="orb-mark">G</span></button>
+    <section class="workspace" aria-label="GTM Observability workspace">
+      <iframe src="${chrome.runtime.getURL("sidepanel.html")}" title="GTM Observability"></iframe>
+    </section>`;
+  root.querySelector<HTMLButtonElement>(".orb")?.addEventListener("click", () => setOverlayExpanded(true));
+  document.documentElement.append(overlayHost);
+}
+
+window.addEventListener("message", (event) => {
+  if (event.data?.source === "gtm-observability" && event.data?.type === "COLLAPSE_OVERLAY") {
+    setOverlayExpanded(false);
+  }
+});
 
 function areaFor(element: Element): NavigationArea {
   if (element.closest("header")) return "header";
@@ -126,6 +169,12 @@ if (!window.__gtmObservabilityInstalled) {
   window.__gtmObservabilityInstalled = true;
   chrome.runtime.onMessage.addListener(
     (request: ExtensionRequest, _sender, sendResponse: (response: unknown) => void) => {
+      if (request.type === "TOGGLE_OVERLAY") {
+        ensureOverlay();
+        setOverlayExpanded(!overlayExpanded);
+        sendResponse({ expanded: overlayExpanded });
+        return;
+      }
       if (request.type === "SCAN_NAVIGATION") {
         sendResponse(scanNavigation());
         return;

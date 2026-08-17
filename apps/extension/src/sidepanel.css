@@ -9,7 +9,10 @@
 body { margin: 0; min-width: 330px; }
 main { padding: 16px; display: grid; gap: 14px; }
 .product-header { display: flex; align-items: center; gap: 10px; }
-.mark { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 10px; color: white; background: #2155d9; font-weight: 800; }
+.mark { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; color: #b8ffe6; background: radial-gradient(circle at 34% 27%, #6d7780, #171d22 65%, #07090b); border: 1px solid #59636b; box-shadow: 0 7px 16px rgb(0 0 0 / 24%); font-weight: 800; }
+.product-header > div:nth-child(2) { flex: 1; }
+.close-button { width: 32px; height: 32px; padding: 0; border-radius: 50%; color: #59636b; background: #e7ebee; font-size: 21px; line-height: 1; }
+.close-button:hover { color: #17212b; background: #dce2e6; }
 h1, h2, p { margin: 0; }
 h1 { font-size: 16px; }
 h2 { font-size: 15px; }
