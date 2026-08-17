@@ -107,6 +107,8 @@ The API exposes a separately gated read-only discovery surface for real GTM acco
 
 The extension can also remember manually supplied GA4 Measurement IDs and public GTM Container IDs by hostname after a successful setup generation. Those saved IDs are site configuration, not Google API credentials; OAuth is still required for account discovery or GTM workspace mutation.
 
+The extension detects GTM and GA4 IDs visible on the current page and compares them to the saved or entered site configuration. This confirms page instrumentation signals; it does not prove GTM account ownership or GA4 platform processing.
+
 Ordinary local verification remains credential-free. The optional `GOOGLE_TAG_MANAGER_API_BASE_URL` environment variable exists for disposable integration tests or mocks.
 
 ## Hosted API builds

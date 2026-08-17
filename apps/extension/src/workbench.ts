@@ -15,11 +15,17 @@ const verificationSessionKey = Number.isFinite(targetTabId) ? `verification:${ta
 let pageUrl = "";
 let navigation: NavigationElement[] = [];
 let proposal: SetupProposal | undefined;
+let pageSignals: PageTrackingSignals = { gtmContainers: [], ga4MeasurementIds: [] };
 const evidence = new Map<string, BrowserEvidence>();
 
 interface SiteConfig {
   measurementId: string;
   containerId: string;
+}
+
+interface PageTrackingSignals {
+  gtmContainers: string[];
+  ga4MeasurementIds: string[];
 }
 
 interface DownloadPayload {
@@ -38,6 +44,8 @@ const siteHost = byId<HTMLParagraphElement>("site-host");
 const configState = byId<HTMLElement>("config-state");
 const scopeSummary = byId<HTMLParagraphElement>("scope-summary");
 const configSummary = byId<HTMLParagraphElement>("config-summary");
+const detectedGtm = byId<HTMLElement>("detected-gtm");
+const detectedGa4 = byId<HTMLElement>("detected-ga4");
 const scopeCard = byId<HTMLElement>("scope-card");
 const configurationCard = byId<HTMLElement>("configuration-card");
 const proposalCard = byId<HTMLElement>("proposal-card");
@@ -82,6 +90,44 @@ function setConfigState(config?: SiteConfig): void {
   configSummary.textContent = `Using ${config.containerId.toUpperCase()} and ${config.measurementId.toUpperCase()}.`;
 }
 
+function currentConfig(): SiteConfig {
+  return {
+    measurementId: byId<HTMLInputElement>("measurement-id").value.trim(),
+    containerId: byId<HTMLInputElement>("container-id").value.trim(),
+  };
+}
+
+function describeSignal(ids: string[], configuredId: string): { text: string; className: "match" | "mismatch" | "unknown" } {
+  const normalized = configuredId.trim().toUpperCase();
+  if (ids.length === 0) return { text: "None found", className: "unknown" };
+  if (!normalized) return { text: ids.join(", "), className: "unknown" };
+  return ids.includes(normalized)
+    ? { text: `${normalized} matched`, className: "match" }
+    : { text: `${ids.join(", ")} found`, className: "mismatch" };
+}
+
+function renderTrackingSignals(): void {
+  const containerId = byId<HTMLInputElement>("container-id").value;
+  const measurementId = byId<HTMLInputElement>("measurement-id").value;
+  const gtm = describeSignal(pageSignals.gtmContainers, containerId);
+  const ga4 = describeSignal(pageSignals.ga4MeasurementIds, measurementId);
+  detectedGtm.textContent = gtm.text;
+  detectedGtm.className = gtm.className;
+  detectedGa4.textContent = ga4.text;
+  detectedGa4.className = ga4.className;
+}
+
+function trackingSignalStatus(config: SiteConfig): string {
+  const containerId = config.containerId.toUpperCase();
+  const measurementId = config.measurementId.toUpperCase();
+  const gtmMatched = pageSignals.gtmContainers.includes(containerId);
+  const ga4Matched = pageSignals.ga4MeasurementIds.includes(measurementId);
+  if (gtmMatched && ga4Matched) return "Detected matching GTM and GA4 IDs on this page.";
+  if (gtmMatched) return "Detected matching GTM on this page; GA4 was not visible in page source.";
+  if (pageSignals.gtmContainers.length > 0) return "Detected a different GTM container on this page.";
+  return "No GTM container was visible on this page.";
+}
+
 function siteConfigKey(url: string): string {
   return `${siteConfigPrefix}${new URL(url).hostname}`;
 }
@@ -103,6 +149,7 @@ async function prefillSiteConfig(url: string): Promise<boolean> {
   if (!stored) return false;
   byId<HTMLInputElement>("measurement-id").value = stored.measurementId;
   byId<HTMLInputElement>("container-id").value = stored.containerId;
+  renderTrackingSignals();
   return true;
 }
 
@@ -279,21 +326,25 @@ byId<HTMLButtonElement>("scan").addEventListener("click", async () => {
     const result = (await chrome.tabs.sendMessage(tab.id!, { type: "SCAN_NAVIGATION" })) as {
       pageUrl: string;
       navigation: NavigationElement[];
+      signals?: PageTrackingSignals;
     };
     pageUrl = result.pageUrl;
     navigation = result.navigation;
+    pageSignals = result.signals ?? { gtmContainers: [], ga4MeasurementIds: [] };
     if (navigation.length === 0) throw new Error("No header, navigation, or footer links were found.");
     setSiteContext(pageUrl);
     renderNavigation();
     const foundSiteConfig = await prefillSiteConfig(pageUrl);
+    const savedConfig = foundSiteConfig ? currentConfig() : undefined;
+    renderTrackingSignals();
     scopeCard.classList.remove("hidden");
     configurationCard.classList.remove("hidden");
     proposalCard.classList.add("hidden");
     importCard.classList.add("hidden");
     verificationCard.classList.add("hidden");
     setStatus(
-      foundSiteConfig
-        ? "Loaded saved GTM configuration for this site."
+      savedConfig
+        ? `Loaded saved GTM configuration. ${trackingSignalStatus(savedConfig)}`
         : "Confirm scope, then add the GA4 and GTM IDs.",
     );
     setProgress("configure");
@@ -315,8 +366,7 @@ byId<HTMLButtonElement>("generate").addEventListener("click", async () => {
     const confirmed = selectedNavigation();
     if (confirmed.length === 0) throw new Error("Confirm at least one navigation element.");
     setStatus("Generating a scoped GTM setup…");
-    const measurementId = byId<HTMLInputElement>("measurement-id").value.trim();
-    const containerId = byId<HTMLInputElement>("container-id").value.trim();
+    const { measurementId, containerId } = currentConfig();
     const response = await fetch(`${apiBase}/api/setups`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -341,8 +391,9 @@ byId<HTMLButtonElement>("generate").addEventListener("click", async () => {
       await chrome.storage.local.set({ [proposalSessionKey]: proposal });
     }
     setConfigState({ measurementId, containerId });
+    renderTrackingSignals();
     renderProposal();
-    setStatus("Preflight passed. Download the file, import it with Merge, then connect GTM Preview.");
+    setStatus(`${trackingSignalStatus({ measurementId, containerId })} Download the file, import it with Merge, then connect GTM Preview.`);
   } catch (error) {
     setStatus(error instanceof Error ? error.message : "Unable to generate the setup.", true);
   }
@@ -403,6 +454,7 @@ void (async () => {
     measurementId: proposal.measurementId,
     containerId: proposal.containerFile.containerVersion.container.publicId,
   });
+  renderTrackingSignals();
   renderNavigation();
   scopeCard.classList.remove("hidden");
   configurationCard.classList.remove("hidden");
@@ -423,3 +475,6 @@ void (async () => {
     setStatus("Restored the generated setup for this tab.");
   }
 })();
+
+byId<HTMLInputElement>("measurement-id").addEventListener("input", renderTrackingSignals);
+byId<HTMLInputElement>("container-id").addEventListener("input", renderTrackingSignals);

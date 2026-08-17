@@ -9,6 +9,13 @@ function page(pathname: string): string {
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Northstar Studio${pathname === "/" ? "" : ` — ${pathname.slice(1)}`}</title>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      window.google_tag_manager = { "GTM-TEST123": {} };
+      window.dataLayer.push({ "gtm.start": Date.now(), event: "gtm.js" });
+      window.gtag = function gtag(){ window.dataLayer.push(arguments); };
+      window.gtag("config", "G-TEST123456");
+    </script>
     <style>
       body { margin: 0; font-family: system-ui, sans-serif; color: #17212b; }
       header, footer { display: flex; align-items: center; justify-content: space-between; padding: 20px 8vw; }

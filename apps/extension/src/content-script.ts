@@ -3,6 +3,7 @@ import type { BrowserEvidence, NavigationArea, NavigationElement } from "@gtm-ob
 declare global {
   interface Window {
     __gtmObservabilityInstalled?: boolean;
+    google_tag_manager?: Record<string, unknown>;
   }
 }
 
@@ -10,6 +11,12 @@ interface ScanResponse {
   pageUrl: string;
   title: string;
   navigation: NavigationElement[];
+  signals: PageTrackingSignals;
+}
+
+interface PageTrackingSignals {
+  gtmContainers: string[];
+  ga4MeasurementIds: string[];
 }
 
 type ExtensionRequest =
@@ -20,6 +27,8 @@ type ExtensionRequest =
   | { type: "HIDE_WORKBENCH" };
 
 const analyticsPattern = /(?:google-analytics\.com|analytics\.google\.com)\/g\/collect/i;
+const gtmPattern = /GTM-[A-Z0-9]+/gi;
+const ga4Pattern = /G-[A-Z0-9]+/gi;
 const evidence = new Map<string, BrowserEvidence>();
 let verificationScope = new Map<string, NavigationElement>();
 let workbenchHost: HTMLDivElement | undefined;
@@ -79,7 +88,35 @@ function scanNavigation(): ScanResponse {
     });
   });
 
-  return { pageUrl: location.href, title: document.title, navigation };
+  return { pageUrl: location.href, title: document.title, navigation, signals: trackingSignals() };
+}
+
+function addMatches(target: Set<string>, value: string | null | undefined, pattern: RegExp): void {
+  if (!value) return;
+  for (const match of value.matchAll(pattern)) {
+    target.add(match[0]!.toUpperCase());
+  }
+}
+
+function trackingSignals(): PageTrackingSignals {
+  const gtmContainers = new Set<string>();
+  const ga4MeasurementIds = new Set<string>();
+  for (const script of document.scripts) {
+    addMatches(gtmContainers, script.src, gtmPattern);
+    addMatches(gtmContainers, script.textContent, gtmPattern);
+    addMatches(ga4MeasurementIds, script.src, ga4Pattern);
+    addMatches(ga4MeasurementIds, script.textContent, ga4Pattern);
+  }
+  for (const frame of document.querySelectorAll<HTMLIFrameElement>("noscript iframe[src], iframe[src]")) {
+    addMatches(gtmContainers, frame.src, gtmPattern);
+  }
+  for (const key of Object.keys(window.google_tag_manager ?? {})) {
+    addMatches(gtmContainers, key, gtmPattern);
+  }
+  return {
+    gtmContainers: [...gtmContainers].sort(),
+    ga4MeasurementIds: [...ga4MeasurementIds].sort(),
+  };
 }
 
 function recentAnalyticsRequests(since: number): BrowserEvidence["requests"] {

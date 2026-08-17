@@ -57,6 +57,8 @@ test("discovers, generates, downloads, and verifies navigation tracking", async 
     await expect(panel.locator("#navigation-list .navigation-item")).toHaveCount(5);
     await expect(panel.locator("#site-host")).toHaveText("127.0.0.1");
     await expect(panel.locator("#scope-summary")).toContainText("5 navigation elements found");
+    await expect(panel.locator("#detected-gtm")).toHaveText("GTM-TEST123");
+    await expect(panel.locator("#detected-ga4")).toHaveText("G-TEST123456");
     await expect(panel.locator("#step-configure")).toHaveClass(/active/);
     await expect(panel.locator("#status")).toContainText("Confirm scope");
 
@@ -66,6 +68,9 @@ test("discovers, generates, downloads, and verifies navigation tracking", async 
     await expect(panel.getByRole("heading", { name: "Ready to import" })).toBeVisible();
     await expect(panel.locator("#config-state")).toHaveText("Saved");
     await expect(panel.locator("#config-summary")).toContainText("GTM-TEST123");
+    await expect(panel.locator("#detected-gtm")).toHaveText("GTM-TEST123 matched");
+    await expect(panel.locator("#detected-ga4")).toHaveText("G-TEST123456 matched");
+    await expect(panel.locator("#status")).toContainText("Detected matching GTM and GA4 IDs");
     await expect(panel.locator("#step-import")).toHaveClass(/active/);
     await expect
       .poll(async () => panel.evaluate(() => chrome.storage.local.get("siteConfig:127.0.0.1")))
