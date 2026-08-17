@@ -34,16 +34,52 @@ function byId<T extends HTMLElement>(id: string): T {
 }
 
 const status = byId<HTMLParagraphElement>("status");
+const siteHost = byId<HTMLParagraphElement>("site-host");
+const configState = byId<HTMLElement>("config-state");
+const scopeSummary = byId<HTMLParagraphElement>("scope-summary");
+const configSummary = byId<HTMLParagraphElement>("config-summary");
 const scopeCard = byId<HTMLElement>("scope-card");
 const configurationCard = byId<HTMLElement>("configuration-card");
 const proposalCard = byId<HTMLElement>("proposal-card");
 const importCard = byId<HTMLElement>("import-card");
 const verificationCard = byId<HTMLElement>("verification-card");
 const downloadReportButton = byId<HTMLButtonElement>("download-report");
+const progressSteps = {
+  discover: byId<HTMLElement>("step-discover"),
+  configure: byId<HTMLElement>("step-configure"),
+  import: byId<HTMLElement>("step-import"),
+  verify: byId<HTMLElement>("step-verify"),
+};
 
 function setStatus(message: string, error = false): void {
   status.textContent = message;
   status.classList.toggle("error", error);
+}
+
+function setProgress(active: keyof typeof progressSteps): void {
+  const order = ["discover", "configure", "import", "verify"] as const;
+  const activeIndex = order.indexOf(active);
+  for (const [index, key] of order.entries()) {
+    progressSteps[key].classList.toggle("active", index === activeIndex);
+    progressSteps[key].classList.toggle("done", index < activeIndex);
+  }
+}
+
+function setSiteContext(url: string): void {
+  const parsed = new URL(url);
+  siteHost.textContent = parsed.hostname;
+}
+
+function setConfigState(config?: SiteConfig): void {
+  if (!config) {
+    configState.textContent = "Not configured";
+    configState.classList.remove("ready");
+    configSummary.textContent = "Save the GA4/GTM pair for this site.";
+    return;
+  }
+  configState.textContent = "Saved";
+  configState.classList.add("ready");
+  configSummary.textContent = `Using ${config.containerId.toUpperCase()} and ${config.measurementId.toUpperCase()}.`;
 }
 
 function siteConfigKey(url: string): string {
@@ -63,6 +99,7 @@ async function saveSiteConfig(url: string, config: SiteConfig): Promise<void> {
 
 async function prefillSiteConfig(url: string): Promise<boolean> {
   const stored = await loadSiteConfig(url);
+  setConfigState(stored);
   if (!stored) return false;
   byId<HTMLInputElement>("measurement-id").value = stored.measurementId;
   byId<HTMLInputElement>("container-id").value = stored.containerId;
@@ -98,6 +135,9 @@ function selectedNavigation(): NavigationElement[] {
 function renderNavigation(): void {
   const list = byId<HTMLDivElement>("navigation-list");
   list.replaceChildren();
+  scopeSummary.textContent = navigation.length === 1
+    ? "1 navigation element found."
+    : `${navigation.length} navigation elements found.`;
   for (const item of navigation) {
     const row = document.createElement("label");
     row.className = "navigation-item";
@@ -160,6 +200,7 @@ function renderProposal(): void {
   }));
   proposalCard.classList.remove("hidden");
   importCard.classList.remove("hidden");
+  setProgress("import");
 }
 
 function verificationReport(): string {
@@ -242,6 +283,7 @@ byId<HTMLButtonElement>("scan").addEventListener("click", async () => {
     pageUrl = result.pageUrl;
     navigation = result.navigation;
     if (navigation.length === 0) throw new Error("No header, navigation, or footer links were found.");
+    setSiteContext(pageUrl);
     renderNavigation();
     const foundSiteConfig = await prefillSiteConfig(pageUrl);
     scopeCard.classList.remove("hidden");
@@ -251,9 +293,10 @@ byId<HTMLButtonElement>("scan").addEventListener("click", async () => {
     verificationCard.classList.add("hidden");
     setStatus(
       foundSiteConfig
-        ? `Found ${navigation.length} candidate navigation element(s). Loaded saved GTM configuration for this site.`
-        : `Found ${navigation.length} candidate navigation element(s). Confirm the scope below.`,
+        ? "Loaded saved GTM configuration for this site."
+        : "Confirm scope, then add the GA4 and GTM IDs.",
     );
+    setProgress("configure");
   } catch (error) {
     setStatus(error instanceof Error ? error.message : "Unable to inspect this page.", true);
   }
@@ -297,6 +340,7 @@ byId<HTMLButtonElement>("generate").addEventListener("click", async () => {
     if (proposalSessionKey) {
       await chrome.storage.local.set({ [proposalSessionKey]: proposal });
     }
+    setConfigState({ measurementId, containerId });
     renderProposal();
     setStatus("Preflight passed. Download the file, import it with Merge, then connect GTM Preview.");
   } catch (error) {
@@ -330,6 +374,7 @@ byId<HTMLButtonElement>("verify").addEventListener("click", async () => {
     verificationCard.classList.remove("hidden");
     renderVerification();
     await chrome.tabs.sendMessage(tab.id!, { type: "HIDE_WORKBENCH" });
+    setProgress("verify");
     setStatus("Verification started. Click the confirmed links in the GTM Preview tab.");
   } catch (error) {
     setStatus(error instanceof Error ? error.message : "Unable to start verification.", true);
@@ -351,8 +396,13 @@ void (async () => {
   proposal = storedProposal;
   pageUrl = proposal.pageUrl;
   navigation = proposal.navigation;
+  setSiteContext(pageUrl);
   byId<HTMLInputElement>("measurement-id").value = proposal.measurementId;
   byId<HTMLInputElement>("container-id").value = proposal.containerFile.containerVersion.container.publicId;
+  setConfigState({
+    measurementId: proposal.measurementId,
+    containerId: proposal.containerFile.containerVersion.container.publicId,
+  });
   renderNavigation();
   scopeCard.classList.remove("hidden");
   configurationCard.classList.remove("hidden");
@@ -367,6 +417,7 @@ void (async () => {
     }
     verificationCard.classList.remove("hidden");
     renderVerification();
+    setProgress("verify");
     setStatus("Restored verification state for this tab.");
   } else {
     setStatus("Restored the generated setup for this tab.");

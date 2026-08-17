@@ -8,52 +8,85 @@
   </head>
   <body>
     <main>
-      <header class="product-header">
-        <div class="mark">G</div>
-        <div>
-          <h1>GTM Observability</h1>
-          <p>Evidence-backed tracking setup</p>
+      <header class="product-header surface">
+        <div class="brand-row">
+          <div class="mark">G</div>
+          <div>
+            <h1>GTM Observability</h1>
+            <p id="site-host">Current site</p>
+          </div>
         </div>
+        <span id="config-state" class="state-pill">Not configured</span>
       </header>
 
-      <section class="card">
-        <label for="intent">What do you want to track?</label>
-        <textarea id="intent" rows="3">Track all navigation clicks</textarea>
+      <nav class="progress" aria-label="Setup progress">
+        <span id="step-discover" class="progress-step active">Discover</span>
+        <span id="step-configure" class="progress-step">Configure</span>
+        <span id="step-import" class="progress-step">Import</span>
+        <span id="step-verify" class="progress-step">Verify</span>
+      </nav>
+
+      <section class="surface control-panel">
+        <div class="field-group">
+          <label for="intent">Tracking intent</label>
+          <textarea id="intent" rows="2">Track all navigation clicks</textarea>
+        </div>
         <button id="scan" class="primary">Discover navigation</button>
         <p id="status" class="status" aria-live="polite"></p>
       </section>
 
-      <section id="scope-card" class="card hidden">
+      <section id="scope-card" class="surface hidden">
         <div class="section-heading">
           <div>
             <h2>Confirm scope</h2>
-            <p>Select the navigation elements to include.</p>
+            <p id="scope-summary">Select the navigation elements to include.</p>
           </div>
           <button id="toggle-all" class="link-button">Clear all</button>
         </div>
         <div id="navigation-list" class="navigation-list"></div>
       </section>
 
-      <section id="configuration-card" class="card hidden">
-        <h2>GTM configuration</h2>
-        <label for="measurement-id">GA4 measurement ID</label>
-        <input id="measurement-id" placeholder="G-XXXXXXXXXX" autocomplete="off" />
-        <label for="container-id">GTM container ID</label>
-        <input id="container-id" placeholder="GTM-XXXXXXX" autocomplete="off" />
+      <section id="configuration-card" class="surface hidden">
+        <div class="section-heading">
+          <div>
+            <h2>Site configuration</h2>
+            <p id="config-summary">Save the GA4/GTM pair for this site.</p>
+          </div>
+        </div>
+        <div class="two-field-grid">
+          <div class="field-group">
+            <label for="measurement-id">GA4 measurement ID</label>
+            <input id="measurement-id" placeholder="G-XXXXXXXXXX" autocomplete="off" />
+          </div>
+          <div class="field-group">
+            <label for="container-id">GTM container ID</label>
+            <input id="container-id" placeholder="GTM-XXXXXXX" autocomplete="off" />
+          </div>
+        </div>
         <button id="generate" class="primary">Generate GTM file</button>
       </section>
 
-      <section id="proposal-card" class="card hidden">
-        <h2>Preflight passed</h2>
+      <section id="proposal-card" class="surface hidden">
+        <div class="section-heading">
+          <div>
+            <h2>Ready to import</h2>
+            <p>Preflight checks passed for the selected navigation.</p>
+          </div>
+        </div>
         <ul id="preflight-list" class="check-list"></ul>
-        <div class="warning">
+        <div class="notice">
           Import using <strong>Merge into a new workspace</strong>. Never choose Overwrite.
         </div>
         <button id="download" class="primary">Download container JSON</button>
       </section>
 
-      <section id="import-card" class="card hidden">
-        <h2>GTM import and Preview</h2>
+      <section id="import-card" class="surface hidden">
+        <div class="section-heading">
+          <div>
+            <h2>GTM Preview handoff</h2>
+            <p>Complete these steps in GTM before verification.</p>
+          </div>
+        </div>
         <ol class="step-list">
           <li>Open the target GTM container.</li>
           <li>Create or select a new workspace for this tracking setup.</li>
@@ -62,15 +95,19 @@
           <li>Review the imported navigation click tag, trigger, and click variables.</li>
           <li>Start GTM Preview for this site.</li>
         </ol>
-        <div class="warning">
-          Stop here until GTM Preview is connected to the site tab, then start browser verification.
+        <div class="notice">
+          Connect GTM Preview to this site tab before starting browser verification.
         </div>
         <button id="verify" class="secondary">GTM Preview is connected — start verification</button>
       </section>
 
-      <section id="verification-card" class="card hidden">
-        <h2>Guided verification</h2>
-        <p>Start GTM Preview, then click each confirmed navigation link on the page.</p>
+      <section id="verification-card" class="surface hidden">
+        <div class="section-heading">
+          <div>
+            <h2>Verification results</h2>
+            <p>Reopen this overlay after clicking links to review evidence.</p>
+          </div>
+        </div>
         <dl id="verification-summary" class="summary-grid">
           <div>
             <dt>Passed</dt>
@@ -87,7 +124,7 @@
         </dl>
         <div id="verification-list" class="navigation-list"></div>
         <div class="boundary">
-          <strong>Platform confirmation:</strong> Not independently confirmed from browser evidence.
+          <strong>GA4 platform:</strong> Not independently confirmed from browser evidence.
         </div>
         <button id="download-report" class="secondary" disabled>Download evidence report</button>
       </section>
