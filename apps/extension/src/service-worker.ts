@@ -2,12 +2,30 @@ import type { BrowserEvidence } from "@gtm-observability/core";
 
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab.id || !tab.url?.startsWith("http")) return;
-  try {
-    await chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_OVERLAY" });
-  } catch {
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content-script.js"] });
+  await chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_OVERLAY" });
+});
+
+chrome.commands.onCommand.addListener(async (command) => {
+  if (command !== "toggle-assistant") return;
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab?.id && tab.url?.startsWith("http")) {
     await chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_OVERLAY" });
   }
+});
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== "assistant") return;
+  port.onMessage.addListener((message: { type?: string; requestId?: string; prompt?: string; page?: { title: string; url: string; navigationCount: number } }) => {
+    if (message.type !== "ASSISTANT_REQUEST" || !message.requestId || !message.prompt || !message.page) return;
+    const response = `I inspected ${message.page.title || "this page"}. I found ${message.page.navigationCount} navigation candidate(s). Tell me which user action or outcome matters, and I’ll help turn it into a tracking check.`;
+    const chunks = response.match(/.{1,18}(?:\s|$)/g) ?? [response];
+    chunks.forEach((delta, index) => {
+      setTimeout(() => {
+        port.postMessage({ type: "ASSISTANT_DELTA", requestId: message.requestId, delta });
+        if (index === chunks.length - 1) port.postMessage({ type: "ASSISTANT_DONE", requestId: message.requestId });
+      }, index * 24);
+    });
+  });
 });
 
 interface PendingEvidence {

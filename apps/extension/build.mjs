@@ -8,7 +8,6 @@ await build({
   entryPoints: {
     "service-worker": "src/service-worker.ts",
     "content-script": "src/content-script.ts",
-    "sidepanel": "src/sidepanel.ts",
   },
   bundle: true,
   format: "esm",
@@ -17,6 +16,6 @@ await build({
   sourcemap: true,
 });
 
-for (const file of ["manifest.json", "sidepanel.html", "sidepanel.css"]) {
+for (const file of ["manifest.json"]) {
   await cp(`src/${file}`, `dist/${file}`);
 }
