@@ -1,28 +1,80 @@
-import type { BrowserEvidence } from "@gtm-observability/core";
+import type { BrowserEvidence, NavigationElement } from "@gtm-observability/core";
 
-chrome.action.onClicked.addListener(async (tab) => {
+async function toggleAssistant(tab: chrome.tabs.Tab): Promise<void> {
   if (!tab.id || !tab.url?.startsWith("http")) return;
-  await chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_OVERLAY" });
-});
+  try {
+    await chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_OVERLAY" });
+  } catch {
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content-script.js"] });
+    await chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_OVERLAY" });
+  }
+}
+
+chrome.action.onClicked.addListener(toggleAssistant);
 
 chrome.commands.onCommand.addListener(async (command) => {
   if (command !== "toggle-assistant") return;
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (tab?.id && tab.url?.startsWith("http")) {
-    await chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_OVERLAY" });
-  }
+  if (tab) await toggleAssistant(tab);
 });
 
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== "assistant") return;
-  port.onMessage.addListener((message: { type?: string; requestId?: string; prompt?: string; page?: { title: string; url: string; navigationCount: number } }) => {
+  port.onMessage.addListener((message: {
+    type?: string;
+    requestId?: string;
+    prompt?: string;
+    page?: {
+      title: string;
+      url: string;
+      navigation: NavigationElement[];
+    };
+  }) => {
     if (message.type !== "ASSISTANT_REQUEST" || !message.requestId || !message.prompt || !message.page) return;
-    const response = `I inspected ${message.page.title || "this page"}. I found ${message.page.navigationCount} navigation candidate(s). Tell me which user action or outcome matters, and I’ll help turn it into a tracking check.`;
+    const page = message.page;
+    const normalized = message.prompt.toLowerCase().trim();
+    const navigationIntent = /\b(nav|navigation|menu|header|footer|link|links)\b/.test(normalized);
+    const formIntent = /\b(form|forms|submit|submission|lead)\b/.test(normalized);
+    const phoneIntent = /\b(phone|call|telephone|tel)\b/.test(normalized);
+    const emailIntent = /\b(email|mailto)\b/.test(normalized);
+    let response: string;
+    let actions: Array<{ id: string; label: string }> = [];
+
+    if (navigationIntent) {
+      response = `I found ${page.navigation.length} navigation links. Do you want to track all of them?`;
+      actions = [
+        { id: "track-all-navigation", label: "Track all" },
+        { id: "choose-navigation", label: "Choose links" },
+        { id: "cancel", label: "Cancel" },
+      ];
+    } else if (formIntent) {
+      response = "I understand that as form-submission tracking. That tracking type is not implemented in this build yet.";
+    } else if (phoneIntent) {
+      response = "I understand that as phone-click tracking. That tracking type is not implemented in this build yet.";
+    } else if (emailIntent) {
+      response = "I understand that as email-link tracking. That tracking type is not implemented in this build yet.";
+    } else {
+      response = "What kind of interaction should I track? Try navigation, form, phone, or email.";
+      actions = [
+        { id: "prompt:navigation", label: "Navigation" },
+        { id: "prompt:form", label: "Form" },
+        { id: "prompt:phone", label: "Phone" },
+        { id: "prompt:email", label: "Email" },
+      ];
+    }
     const chunks = response.match(/.{1,18}(?:\s|$)/g) ?? [response];
     chunks.forEach((delta, index) => {
       setTimeout(() => {
+        if (!port.sender) return;
         port.postMessage({ type: "ASSISTANT_DELTA", requestId: message.requestId, delta });
-        if (index === chunks.length - 1) port.postMessage({ type: "ASSISTANT_DONE", requestId: message.requestId });
+        if (index === chunks.length - 1) {
+          port.postMessage({
+            type: "ASSISTANT_DONE",
+            requestId: message.requestId,
+            actions,
+            navigation: page.navigation,
+          });
+        }
       }, index * 24);
     });
   });

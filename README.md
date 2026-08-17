@@ -1,12 +1,14 @@
 # GTM Observability
 
-An intelligent creation, testing, and observability layer for Google Tag Manager.
+A site-aware assistant for setting up and verifying website conversions through conversation.
 
 This project does not replace GTM. GTM remains the configuration, execution, versioning, environment, and publishing layer. This product connects GTM configuration evidence with browser-runtime evidence so teams can detect broken tracking, understand why it broke, test corrections, and deploy verified GTM changes.
 
 ## Product promise
 
-Describe what should be tracked. The system tests the real user journey, explains failures, generates a GTM draft, and continuously verifies that tracking still works.
+Describe what should count as a conversion. The system discovers the relevant website interactions, turns the confirmed intent into a reviewable GTM change, tests the real user journey, and presents evidence that the setup works.
+
+Lead-generation websites are the initial market: qualified form submissions, appointment requests, phone intent, email intent, and primary lead actions. The underlying product model is broader conversion measurement, so purchases, registrations, trials, and subscriptions can be supported later without redefining the product.
 
 ## Core workflow
 

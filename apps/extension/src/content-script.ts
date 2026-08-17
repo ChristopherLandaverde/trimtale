@@ -29,7 +29,12 @@ let frame: HTMLElement | undefined;
 let responseList: HTMLElement | undefined;
 let composer: HTMLTextAreaElement | undefined;
 let port: chrome.runtime.Port | undefined;
+let targetHost: HTMLDivElement | undefined;
+let highlightedNavigation: NavigationElement[] = [];
+let highlightTone: "candidate" | "confirmed" = "candidate";
 const responseNodes = new Map<string, HTMLElement>();
+const navigationByRequest = new Map<string, NavigationElement[]>();
+const requestTimeouts = new Map<string, number>();
 
 function areaFor(element: Element): NavigationArea {
   if (element.closest("header")) return "header";
@@ -115,20 +120,193 @@ function addMessage(copy: string, role: "assistant" | "user", id?: string): HTML
   return message;
 }
 
+function updateTargetHighlights(): void {
+  const shadow = targetHost?.shadowRoot;
+  if (!shadow) return;
+  shadow.querySelectorAll(".target").forEach((node) => node.remove());
+  highlightedNavigation.forEach((item, index) => {
+    const element = document.querySelector<HTMLElement>(item.selector);
+    if (!element || element.getBoundingClientRect().width === 0) return;
+    const bounds = element.getBoundingClientRect();
+    const marker = document.createElement("div");
+    marker.className = `target ${highlightTone}`;
+    marker.style.left = `${Math.max(2, bounds.left - 4)}px`;
+    marker.style.top = `${Math.max(2, bounds.top - 4)}px`;
+    marker.style.width = `${bounds.width + 8}px`;
+    marker.style.height = `${bounds.height + 8}px`;
+    marker.innerHTML = `<span>${highlightTone === "confirmed" ? "✓" : index + 1} ${item.text}</span>`;
+    shadow.append(marker);
+  });
+}
+
+function highlightTargets(navigation: NavigationElement[], tone: "candidate" | "confirmed"): void {
+  highlightedNavigation = navigation;
+  highlightTone = tone;
+  if (!targetHost) {
+    targetHost = document.createElement("div");
+    targetHost.id = "gtm-observability-targets";
+    const shadow = targetHost.attachShadow({ mode: "open" });
+    shadow.innerHTML = `<style>
+      :host { all: initial; pointer-events: none; }
+      .target { position: fixed; z-index: 2147483646; box-sizing: border-box; border: 2px solid #f6c768; border-radius: 9px; background: rgba(246,199,104,.08); box-shadow: 0 0 0 3px rgba(246,199,104,.13), 0 8px 24px rgba(0,0,0,.16); transition: inset .12s ease, border-color .18s ease, background .18s ease; }
+      .target.confirmed { border-color: #8de8bd; background: rgba(141,232,189,.1); box-shadow: 0 0 0 3px rgba(141,232,189,.14), 0 8px 24px rgba(0,0,0,.16); }
+      .target span { position: absolute; left: -2px; bottom: calc(100% + 5px); max-width: 220px; padding: 4px 7px; overflow: hidden; border-radius: 7px; color: #201806; background: #f6c768; box-shadow: 0 5px 16px rgba(0,0,0,.2); font: 600 11px/1.2 Inter, ui-sans-serif, system-ui, sans-serif; text-overflow: ellipsis; white-space: nowrap; }
+      .target.confirmed span { color: #092419; background: #8de8bd; }
+    </style>`;
+    document.documentElement.append(targetHost);
+    window.addEventListener("scroll", updateTargetHighlights, { passive: true });
+    window.addEventListener("resize", updateTargetHighlights, { passive: true });
+  }
+  updateTargetHighlights();
+}
+
+function clearTargetHighlights(): void {
+  highlightedNavigation = [];
+  targetHost?.shadowRoot?.querySelectorAll(".target").forEach((node) => node.remove());
+}
+
+function renderEvidencePath(navigation: NavigationElement[]): void {
+  const path = document.createElement("section");
+  path.className = "evidence-path";
+  path.setAttribute("aria-label", "Tracking evidence path");
+  const stages = [
+    { state: "passed", label: "Intent understood", detail: "Navigation clicks → navigation_click" },
+    { state: "passed", label: "Page inspected", detail: `${navigation.length} matching link${navigation.length === 1 ? "" : "s"} found` },
+    { state: "passed", label: "Targets confirmed", detail: `${navigation.length} highlighted on this page` },
+    { state: "pending", label: "GTM tag", detail: "Not created from chat yet" },
+    { state: "pending", label: "Browser verification", detail: "Runs after the GTM setup is installed" },
+  ];
+  const heading = document.createElement("div");
+  heading.className = "evidence-heading";
+  heading.innerHTML = `<span>Evidence path</span><small>What the assistant used</small>`;
+  path.append(heading);
+  for (const stage of stages) {
+    const row = document.createElement("div");
+    row.className = `evidence-stage ${stage.state}`;
+    row.innerHTML = `<i aria-hidden="true">${stage.state === "passed" ? "✓" : "○"}</i><span><strong>${stage.label}</strong><small>${stage.detail}</small></span>`;
+    path.append(row);
+  }
+  responseList?.append(path);
+  responseList?.scrollTo({ top: responseList.scrollHeight });
+}
+
+function confirmNavigation(navigation: NavigationElement[]): void {
+  highlightTargets(navigation, "confirmed");
+  addMessage(`${navigation.length} navigation link${navigation.length === 1 ? "" : "s"} selected and highlighted on the page.`, "assistant");
+  renderEvidencePath(navigation);
+}
+
+function renderNavigationPicker(navigation: NavigationElement[]): void {
+  highlightTargets(navigation, "candidate");
+  const picker = document.createElement("div");
+  picker.className = "picker";
+  for (const item of navigation) {
+    const label = document.createElement("label");
+    label.className = "pick";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = true;
+    input.dataset.navigationId = item.id;
+    input.addEventListener("change", () => {
+      const selectedIds = new Set([...picker.querySelectorAll<HTMLInputElement>("input:checked")].map((node) => node.dataset.navigationId));
+      highlightTargets(navigation.filter((candidate) => selectedIds.has(candidate.id)), "candidate");
+    });
+    const copy = document.createElement("span");
+    copy.textContent = item.text;
+    const area = document.createElement("small");
+    area.textContent = item.area;
+    label.append(input, copy, area);
+    picker.append(label);
+  }
+  const confirm = document.createElement("button");
+  confirm.className = "quick primary-quick";
+  confirm.textContent = "Confirm selection";
+  confirm.addEventListener("click", () => {
+    const selectedIds = new Set([...picker.querySelectorAll<HTMLInputElement>("input:checked")].map((node) => node.dataset.navigationId));
+    const selected = navigation.filter((item) => selectedIds.has(item.id));
+    if (!selected.length) { addMessage("Choose at least one link.", "assistant"); return; }
+    picker.remove();
+    confirmNavigation(selected);
+  });
+  picker.append(confirm);
+  responseList?.append(picker);
+  responseList?.scrollTo({ top: responseList.scrollHeight });
+}
+
+function handleAssistantAction(actionId: string, requestId: string): void {
+  if (actionId.startsWith("prompt:")) {
+    if (composer) composer.value = actionId.slice("prompt:".length);
+    submitPrompt();
+    return;
+  }
+  if (actionId === "track-all-navigation") {
+    confirmNavigation(navigationByRequest.get(requestId) ?? []);
+    return;
+  }
+  if (actionId === "choose-navigation") {
+    renderNavigationPicker(navigationByRequest.get(requestId) ?? []);
+    return;
+  }
+  if (actionId === "cancel") { clearTargetHighlights(); addMessage("Okay — nothing was selected.", "assistant"); }
+}
+
+function renderQuickActions(
+  requestId: string,
+  actions: Array<{ id: string; label: string }>,
+): void {
+  if (!actions.length) return;
+  const row = document.createElement("div");
+  row.className = "quick-actions";
+  for (const action of actions) {
+    const button = document.createElement("button");
+    button.className = "quick";
+    button.textContent = action.label;
+    button.addEventListener("click", () => {
+      row.remove();
+      handleAssistantAction(action.id, requestId);
+    });
+    row.append(button);
+  }
+  responseList?.append(row);
+  responseList?.scrollTo({ top: responseList.scrollHeight });
+}
+
 function connectAssistant(): chrome.runtime.Port {
   if (port) return port;
   port = chrome.runtime.connect({ name: "assistant" });
-  port.onDisconnect.addListener(() => { port = undefined; });
-  port.onMessage.addListener((message: { type?: string; requestId?: string; delta?: string }) => {
+  port.onDisconnect.addListener(() => {
+    port = undefined;
+    for (const [requestId, node] of responseNodes) {
+      node.classList.remove("streaming");
+      node.textContent = "The assistant connection restarted. Please send that again.";
+      responseNodes.delete(requestId);
+      const timeout = requestTimeouts.get(requestId);
+      if (timeout !== undefined) window.clearTimeout(timeout);
+      requestTimeouts.delete(requestId);
+    }
+  });
+  port.onMessage.addListener((message: {
+    type?: string;
+    requestId?: string;
+    delta?: string;
+    actions?: Array<{ id: string; label: string }>;
+    navigation?: NavigationElement[];
+  }) => {
     if (!message.requestId) return;
     const node = responseNodes.get(message.requestId);
     if (message.type === "ASSISTANT_DELTA" && node && message.delta) {
+      node.classList.remove("streaming");
       node.textContent += message.delta;
       responseList?.scrollTo({ top: responseList.scrollHeight });
     }
     if (message.type === "ASSISTANT_DONE") {
       node?.classList.remove("streaming");
       responseNodes.delete(message.requestId);
+      const timeout = requestTimeouts.get(message.requestId);
+      if (timeout !== undefined) window.clearTimeout(timeout);
+      requestTimeouts.delete(message.requestId);
+      navigationByRequest.set(message.requestId, message.navigation ?? []);
+      renderQuickActions(message.requestId, message.actions ?? []);
     }
   });
   return port;
@@ -140,13 +318,25 @@ function submitPrompt(): void {
   composer!.value = "";
   addMessage(prompt, "user");
   const requestId = crypto.randomUUID();
-  addMessage("", "assistant", requestId);
+  const pending = addMessage("", "assistant", requestId);
+  requestTimeouts.set(requestId, window.setTimeout(() => {
+    if (!responseNodes.has(requestId)) return;
+    pending.classList.remove("streaming");
+    pending.textContent = "The assistant did not respond. Please try again.";
+    responseNodes.delete(requestId);
+    requestTimeouts.delete(requestId);
+    port?.disconnect();
+  }, 8_000));
   const scan = scanNavigation();
   connectAssistant().postMessage({
     type: "ASSISTANT_REQUEST",
     requestId,
     prompt,
-    page: { title: scan.title, url: scan.pageUrl, navigationCount: scan.navigation.length },
+    page: {
+      title: scan.title,
+      url: scan.pageUrl,
+      navigation: scan.navigation,
+    },
   });
   preferences.height = Math.max(preferences.height, 420);
   applyPreferences();
@@ -194,6 +384,26 @@ async function mountOverlay(): Promise<void> {
       .message.bot { align-self: flex-start; color: #e5ebef; background: rgba(41,50,57,.72); border: 1px solid rgba(255,255,255,.06); border-radius: 4px 14px 14px 14px; }
       .message.user { align-self: flex-end; color: #f5fff9; background: #28483d; border-radius: 13px 13px 4px 13px; }
       .message.streaming:empty { width: 64px; height: 16px; background: linear-gradient(100deg, rgba(52,63,71,.6) 20%, rgba(167,243,208,.18) 45%, rgba(52,63,71,.6) 70%); background-size: 220% 100%; animation: shimmer 1.15s linear infinite; }
+      .quick-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+      .quick { padding: 7px 10px; border: 1px solid rgba(167,243,208,.22); border-radius: 10px; color: #dff9ec; background: rgba(40,72,61,.58); font-size: 12px; }
+      .quick:hover { border-color: rgba(167,243,208,.42); background: rgba(47,88,73,.72); }
+      .primary-quick { margin-top: 3px; justify-self: start; }
+      .picker { display: grid; gap: 6px; padding: 9px; border: 1px solid rgba(255,255,255,.09); border-radius: 13px; background: rgba(22,29,34,.62); }
+      .pick { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; padding: 6px; border-radius: 8px; color: #e3eaee; }
+      .pick:hover { background: rgba(255,255,255,.04); }
+      .pick input { accent-color: #8de8bd; }
+      .pick small { color: #87949d; font-size: 10px; text-transform: uppercase; }
+      .evidence-path { display: grid; gap: 0; padding: 11px; border: 1px solid rgba(255,255,255,.1); border-radius: 14px; background: rgba(13,19,23,.66); box-shadow: inset 0 1px 0 rgba(255,255,255,.035); }
+      .evidence-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 0 1px 9px; }
+      .evidence-heading span { color: #f2f7f4; font-weight: 650; }
+      .evidence-heading small { color: #7f8c94; font-size: 10px; }
+      .evidence-stage { position: relative; display: grid; grid-template-columns: 22px 1fr; gap: 7px; min-height: 38px; }
+      .evidence-stage:not(:last-child)::after { content: ""; position: absolute; top: 21px; bottom: -1px; left: 9px; width: 1px; background: rgba(255,255,255,.12); }
+      .evidence-stage i { position: relative; z-index: 1; display: grid; place-items: center; width: 19px; height: 19px; border-radius: 50%; color: #092419; background: #8de8bd; font: 700 11px/1 Inter, sans-serif; }
+      .evidence-stage.pending i { color: #849098; background: #253038; box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
+      .evidence-stage span { display: grid; align-content: start; gap: 1px; padding-bottom: 8px; }
+      .evidence-stage strong { color: #e8efec; font-size: 12px; font-weight: 600; }
+      .evidence-stage small { color: #89969e; font-size: 10px; }
       .composer { margin: 0 12px 12px; padding: 6px 6px 6px 12px; display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 8px; border: 1px solid rgba(255,255,255,.14); border-radius: 15px; background: rgba(31,39,45,.72); box-shadow: inset 0 1px 0 rgba(255,255,255,.035); transition: border-color .16s ease, background .16s ease, box-shadow .16s ease; }
       .composer:focus-within { border-color: rgba(167,243,208,.38); background: rgba(34,43,49,.88); box-shadow: 0 0 0 3px rgba(167,243,208,.06), inset 0 1px 0 rgba(255,255,255,.05); }
       textarea { resize: none; min-height: 38px; max-height: 120px; padding: 8px 0; border: 0; outline: 0; color: white; background: transparent; font: inherit; }
