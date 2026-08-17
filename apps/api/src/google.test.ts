@@ -1,0 +1,136 @@
+import { describe, expect, it, vi } from "vitest";
+import {
+  GoogleOAuthSession,
+  GtmDiscoveryClient,
+  GTM_READONLY_SCOPE,
+  googleOAuthConfig,
+} from "./google.js";
+
+const config = {
+  clientId: "client-id",
+  clientSecret: "client-secret",
+  redirectUri: "http://127.0.0.1:8787/api/google/oauth/callback",
+};
+
+describe("Google OAuth configuration", () => {
+  it("is disabled unless every credential variable is present", () => {
+    expect(googleOAuthConfig({})).toBeUndefined();
+    expect(
+      googleOAuthConfig({
+        GOOGLE_OAUTH_CLIENT_ID: "client-id",
+        GOOGLE_OAUTH_CLIENT_SECRET: "client-secret",
+        GOOGLE_OAUTH_REDIRECT_URI: config.redirectUri,
+      }),
+    ).toEqual(config);
+  });
+
+  it("requests offline read-only access and rejects a reused state", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({
+        access_token: "access-token",
+        expires_in: 3600,
+        refresh_token: "refresh-token",
+        token_type: "Bearer",
+      }),
+    );
+    const session = new GoogleOAuthSession(config, fetcher);
+    const authorization = new URL(session.authorizationUrl());
+    const state = authorization.searchParams.get("state") ?? "";
+
+    expect(authorization.searchParams.get("scope")).toBe(GTM_READONLY_SCOPE);
+    expect(authorization.searchParams.get("access_type")).toBe("offline");
+    await session.authorize("authorization-code", state);
+    await expect(session.authorize("authorization-code", state)).rejects.toThrow("already used");
+    expect(await session.accessToken()).toBe("access-token");
+  });
+});
+
+describe("read-only GTM discovery", () => {
+  it("lists every account and its containers across pages", async () => {
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(input.toString());
+      if (url.pathname.endsWith("/accounts") && !url.searchParams.has("pageToken")) {
+        return Response.json({
+          account: [{ accountId: "1", name: "Agency", path: "accounts/1" }],
+          nextPageToken: "next",
+        });
+      }
+      if (url.pathname.endsWith("/accounts")) {
+        return Response.json({ account: [{ accountId: "2", name: "Client", path: "accounts/2" }] });
+      }
+      const accountId = url.pathname.includes("accounts/1") ? "1" : "2";
+      return Response.json({
+        container: [
+          {
+            accountId,
+            containerId: `${accountId}0`,
+            name: `${accountId} container`,
+            path: `accounts/${accountId}/containers/${accountId}0`,
+            publicId: `GTM-${accountId}`,
+            usageContext: ["WEB"],
+          },
+        ],
+      });
+    });
+    const client = new GtmDiscoveryClient(async () => "token", fetcher);
+
+    const result = await client.discover();
+
+    expect(result).toHaveLength(2);
+    expect(result.map((account) => account.containers[0]?.publicId)).toEqual(["GTM-1", "GTM-2"]);
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  });
+
+  it("retrieves a container's workspaces and live entity context", async () => {
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(input.toString());
+      if (url.pathname.endsWith("/workspaces")) {
+        return Response.json({
+          workspace: [{
+            path: "accounts/1/containers/10/workspaces/100",
+            accountId: "1",
+            containerId: "10",
+            workspaceId: "100",
+            name: "Default Workspace",
+          }],
+        });
+      }
+      if (url.pathname.endsWith("/versions:live")) {
+        return Response.json({
+          containerVersionId: "7",
+          name: "Published setup",
+          tag: [{ tagId: "1" }],
+          trigger: [{ triggerId: "2" }],
+          variable: [],
+          builtInVariable: [{ type: "CLICK_URL" }],
+        });
+      }
+      return Response.json({
+        accountId: "1",
+        containerId: "10",
+        name: "Disposable web container",
+        path: "accounts/1/containers/10",
+        publicId: "GTM-TEST123",
+        usageContext: ["web"],
+      });
+    });
+    const client = new GtmDiscoveryClient(async () => "token", fetcher);
+
+    const result = await client.containerEntityContext("1", "10");
+
+    expect(result.container.publicId).toBe("GTM-TEST123");
+    expect(result.workspaces).toHaveLength(1);
+    expect(result.liveVersion.tag).toHaveLength(1);
+    expect(result.liveVersion.trigger).toHaveLength(1);
+    expect(result.liveVersion.builtInVariable).toHaveLength(1);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+
+  it("rejects malformed container paths before calling Google", async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    const client = new GtmDiscoveryClient(async () => "token", fetcher);
+
+    await expect(client.containerEntityContext("../accounts", "10")).rejects.toThrow("numeric");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+});

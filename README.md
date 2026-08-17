@@ -92,3 +92,26 @@ npm run verify
 - Saves Playwright traces and failure evidence under `test-results/`.
 
 Humans do not need to launch the development services or load the extension to verify changes. Manual Chrome loading is reserved for exploratory product review.
+
+### Read-only Google Tag Manager integration
+
+The API can run a separately gated OAuth flow and discover the connected tracking practitioner's GTM accounts and containers. This lane requests only the `tagmanager.readonly` scope and is disabled unless all three variables are set:
+
+```bash
+GOOGLE_OAUTH_CLIENT_ID=...
+GOOGLE_OAUTH_CLIENT_SECRET=...
+GOOGLE_OAUTH_REDIRECT_URI=http://127.0.0.1:8787/api/google/oauth/callback
+npm run dev:api
+```
+
+Register the exact redirect URI in the Google Cloud OAuth client and enable the Tag Manager API. Then open `http://127.0.0.1:8787/api/google/oauth/start`; after consent, `GET /api/google/accounts` returns each accessible account with its containers. OAuth tokens are held only in backend memory and are lost when the process exits. Ordinary `npm run verify` remains credential-free and never calls Google.
+
+After choosing a disposable container, `GET /api/google/accounts/:accountId/containers/:containerId/context` retrieves its workspaces and live version entity context. This includes the existing tags, triggers, variables, and built-in variables needed to plan an isolated workspace change. It remains read-only.
+
+For an opt-in live smoke check, supply a short-lived token carrying the same read-only scope:
+
+```bash
+GOOGLE_GTM_ACCESS_TOKEN=... npm run test:google
+```
+
+This command only lists accounts and containers. It is intentionally separate from `npm run verify`.

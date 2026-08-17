@@ -2,14 +2,18 @@
 
 ## Current state
 
-The first autonomous vertical slice is implemented:
+The first autonomous vertical slice and the first read-only Google integration slice are implemented:
 
 - Chrome side-panel extension discovers and confirms navigation scope.
 - Local API validates the request and generates a partial GTM container file.
 - Guided verification correlates a confirmed click with an observed GA4-style request.
 - Browser verification remains separate from platform confirmation.
 - A deterministic fixture site and Playwright-managed Chromium exercise the workflow without human browser operation.
-- `npm run verify` passes type checks, seven unit/scenario tests, builds, and the extension E2E test.
+- Backend-only Google OAuth requests `tagmanager.readonly`, keeps tokens in memory, refreshes expired access tokens, and protects callbacks with one-time state.
+- The Google integration discovers every accessible account and container across paginated API responses.
+- A selected disposable container's workspaces and live version entity context can be retrieved read-only.
+- `npm run test:google` is an explicit-credential live smoke lane; ordinary verification never calls Google.
+- `npm run verify` passes type checks, ten unit/scenario tests, builds, and the extension E2E test.
 
 ## Start here
 
@@ -28,13 +32,12 @@ The generated file matches the documented GTM entity/export shape but has not ye
 
 ## Recommended next slice
 
-Add a separately gated real-Google integration lane:
+Continue the separately gated real-Google integration lane:
 
-1. Configure Google OAuth behind environment variables.
-2. Add read-only GTM account/container discovery.
-3. Retrieve a disposable container's current entity context.
-4. Import or create the generated setup in an isolated workspace.
-5. Run GTM Preview and capture browser evidence.
-6. Delete or retain the disposable workspace according to an explicit test policy.
+1. Define an explicit disposable-workspace retention/deletion policy.
+2. Add the minimum write scopes needed to create an isolated workspace only when that flow begins.
+3. Create the generated setup in that isolated workspace.
+4. Run GTM Preview and capture browser evidence.
+5. Delete or retain the disposable workspace according to the test policy.
 
 Keep the local harness deterministic and credential-free. Do not make ordinary verification depend on Google availability.

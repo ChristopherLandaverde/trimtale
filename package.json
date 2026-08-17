@@ -11,6 +11,7 @@
     "build": "npm run build --workspace @gtm-observability/core && npm run build --workspace @gtm-observability/api && npm run build --workspace @gtm-observability/fixture-site && npm run build --workspace @gtm-observability/extension",
     "check": "npm run typecheck --workspaces --if-present",
     "test": "vitest run",
+    "test:google": "tsx apps/api/src/google.integration.ts",
     "test:e2e": "npm run build && playwright test",
     "verify": "npm run check && npm test && npm run test:e2e",
     "dev:api": "npm run dev --workspace @gtm-observability/api",
