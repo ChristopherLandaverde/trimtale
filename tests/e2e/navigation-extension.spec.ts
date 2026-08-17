@@ -1,85 +1,39 @@
-import { expect, test, chromium, type BrowserContext, type Page, type TestInfo } from "@playwright/test";
-import { readFile, mkdtemp, rm } from "node:fs/promises";
+import { expect, test, chromium } from "@playwright/test";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-async function extensionId(context: BrowserContext): Promise<string> {
-  let [worker] = context.serviceWorkers();
-  worker ??= await context.waitForEvent("serviceworker");
-  return new URL(worker.url()).host;
-}
-
-async function saveFailureScreenshots(testInfo: TestInfo, pages: Page[]): Promise<void> {
-  if (testInfo.status === testInfo.expectedStatus) return;
-  await Promise.all(
-    pages.map(async (page, index) => {
-      if (page.isClosed()) return;
-      await page.screenshot({ path: testInfo.outputPath(`page-${index}.png`), fullPage: true });
-    }),
-  );
-}
-
-test("discovers, generates, downloads, and verifies navigation tracking", async ({}, testInfo) => {
+test("mounts and streams through the floating tracking assistant", async () => {
   const profile = await mkdtemp(join(tmpdir(), "gtm-observability-"));
   const extensionPath = resolve("apps/extension/dist");
   const context = await chromium.launchPersistentContext(profile, {
     channel: "chromium",
     headless: true,
     args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
-    acceptDownloads: true,
   });
-  const pages: Page[] = [];
 
   try {
     const site = await context.newPage();
-    pages.push(site);
     await site.goto("http://127.0.0.1:4173/");
 
-    const id = await extensionId(context);
-    const panel = await context.newPage();
-    pages.push(panel);
-    await panel.goto(`chrome-extension://${id}/sidepanel.html`);
+    const root = site.locator("#gtm-observability-root");
+    const assistant = root.locator("section.assistant");
+    await expect(root).toBeAttached();
+    await expect(assistant).toHaveClass(/collapsed/);
 
-    await panel.getByRole("button", { name: "Discover navigation" }).click();
-    await expect(panel.locator("#navigation-list .navigation-item")).toHaveCount(5);
-    await expect(panel.locator("#status")).toContainText("Found 5 candidate");
+    await root.getByRole("button", { name: "Open tracking assistant" }).click();
+    await expect(assistant).not.toHaveClass(/collapsed/);
+    await expect(root.getByText("What do you want to track on this page?")).toBeVisible();
 
-    await panel.getByLabel("GA4 measurement ID").fill("G-TEST123456");
-    await panel.getByLabel("GTM container ID").fill("GTM-TEST123");
-    await panel.getByRole("button", { name: "Generate GTM file" }).click();
-    await expect(panel.getByRole("heading", { name: "Preflight passed" })).toBeVisible();
-    await expect(panel.locator("#preflight-list li")).toHaveCount(4);
+    await root.getByLabel("Tracking request").fill("Track clicks on the primary navigation");
+    await root.getByRole("button", { name: "Send request" }).click();
+    await expect(root.getByText("Track clicks on the primary navigation")).toBeVisible();
+    await expect(root.getByText(/I found 5 navigation candidate/)).toBeVisible();
 
-    const downloadPromise = panel.waitForEvent("download");
-    await panel.getByRole("button", { name: "Download container JSON" }).click();
-    const download = await downloadPromise;
-    const downloadPath = await download.path();
-    expect(downloadPath).not.toBeNull();
-    const file = JSON.parse(await readFile(downloadPath!, "utf8")) as {
-      exportFormatVersion: number;
-      containerVersion: { tag: unknown[]; trigger: unknown[]; builtInVariable: unknown[] };
-    };
-    expect(file.exportFormatVersion).toBe(2);
-    expect(file.containerVersion.tag).toHaveLength(1);
-    expect(file.containerVersion.trigger).toHaveLength(1);
-    expect(file.containerVersion.builtInVariable).toHaveLength(2);
-
-    await panel.getByRole("button", { name: "I imported it — start verification" }).click();
-    await expect(panel.getByRole("heading", { name: "Guided verification" })).toBeVisible();
-
-    await site.bringToFront();
-    await site.getByRole("link", { name: "Services" }).click({ noWaitAfter: true });
-
-    const servicesResult = panel
-      .locator("#verification-list .navigation-item")
-      .filter({ hasText: "Services" });
-    await expect(servicesResult.locator(".area")).toHaveText("passed");
-    await expect(servicesResult).toContainText("Observed 1 matching GA4 request");
-    await expect(panel.locator(".boundary")).toContainText("Not independently confirmed");
-
-  } catch (error) {
-    await saveFailureScreenshots(testInfo, pages);
-    throw error;
+    await root.getByRole("button", { name: "Collapse assistant" }).click();
+    await expect(assistant).toHaveClass(/collapsed/);
+    await site.reload();
+    await expect(site.locator("#gtm-observability-root section.assistant")).toHaveClass(/collapsed/);
   } finally {
     await context.close();
     await rm(profile, { recursive: true, force: true });
