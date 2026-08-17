@@ -16,7 +16,8 @@
     "dev:api": "npm run dev --workspace @gtm-observability/api",
     "dev:fixture": "npm run dev --workspace @gtm-observability/fixture-site",
     "build:extension": "npm run build --workspace @gtm-observability/extension",
-    "build:extension:prod": "GTM_OBSERVABILITY_API_BASE=https://gtm-observability.vercel.app npm run build --workspace @gtm-observability/extension"
+    "build:extension:prod": "GTM_OBSERVABILITY_API_BASE=https://gtm-observability.vercel.app GTM_OBSERVABILITY_EXTENSION_OUTDIR=prod-dist npm run build --workspace @gtm-observability/extension",
+    "watch:extension:prod": "GTM_OBSERVABILITY_API_BASE=https://gtm-observability.vercel.app GTM_OBSERVABILITY_EXTENSION_OUTDIR=prod-dist npm run build --workspace @gtm-observability/extension -- --watch"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",

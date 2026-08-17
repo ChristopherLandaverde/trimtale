@@ -15,7 +15,7 @@ The first autonomous vertical slice is implemented:
   - `GET /api/google/gtm/accounts`
   - `GOOGLE_OAUTH_ACCESS_TOKEN` is required before real GTM discovery can run.
 - The API routing is shared by the local Node server and the Vercel Function entrypoints under `api/`.
-- Extension builds can target a hosted API by setting `GTM_OBSERVABILITY_API_BASE`.
+- Extension builds can target a hosted API by setting `GTM_OBSERVABILITY_API_BASE`. The production testing build writes to `apps/extension/prod-dist`; the local E2E build writes to `apps/extension/dist`.
 - Guided verification now produces a local JSON evidence report with per-link browser verdicts and the platform-confirmation boundary.
 - The extension action opens a persistent workbench tab. It passes the source tab id into the workbench so discovery and verification stay bound to the site the practitioner opened the extension from.
 - The workbench includes a GTM import and Preview checklist before guided verification starts.

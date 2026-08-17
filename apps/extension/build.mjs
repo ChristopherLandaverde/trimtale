@@ -1,37 +1,85 @@
+import { watch } from "node:fs";
 import { build } from "esbuild";
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 
 const apiBase = process.env.GTM_OBSERVABILITY_API_BASE ?? "http://127.0.0.1:18787";
 const apiOrigin = new URL(apiBase).origin;
+const outdir = process.env.GTM_OBSERVABILITY_EXTENSION_OUTDIR ?? "dist";
+const shouldWatch = process.argv.includes("--watch");
+let building = false;
+let pending = false;
 
-await rm("dist", { recursive: true, force: true });
-await mkdir("dist", { recursive: true });
+async function buildExtension() {
+  if (building) {
+    pending = true;
+    return;
+  }
+  building = true;
 
-await build({
-  entryPoints: {
-    "service-worker": "src/service-worker.ts",
-    "content-script": "src/content-script.ts",
-    "workbench": "src/workbench.ts",
-  },
-  bundle: true,
-  format: "esm",
-  target: "chrome120",
-  outdir: "dist",
-  sourcemap: true,
-  define: {
-    __GTM_OBSERVABILITY_API_BASE__: JSON.stringify(apiBase),
-  },
-});
+  try {
+    await rm(outdir, { recursive: true, force: true });
+    await mkdir(outdir, { recursive: true });
 
-const manifest = JSON.parse(await readFile("src/manifest.json", "utf8"));
-manifest.host_permissions = [
-  `${apiOrigin}/*`,
-  "http://127.0.0.1:14173/*",
-  "*://*.google-analytics.com/*",
-  "*://analytics.google.com/*",
-];
-await writeFile("dist/manifest.json", `${JSON.stringify(manifest, null, 2)}\n`);
+    await build({
+      entryPoints: {
+        "service-worker": "src/service-worker.ts",
+        "content-script": "src/content-script.ts",
+        "workbench": "src/workbench.ts",
+      },
+      bundle: true,
+      format: "esm",
+      target: "chrome120",
+      outdir,
+      sourcemap: true,
+      define: {
+        __GTM_OBSERVABILITY_API_BASE__: JSON.stringify(apiBase),
+      },
+    });
 
-for (const file of ["workbench.html", "workbench.css"]) {
-  await cp(`src/${file}`, `dist/${file}`);
+    const manifest = JSON.parse(await readFile("src/manifest.json", "utf8"));
+    manifest.host_permissions = [
+      `${apiOrigin}/*`,
+      "http://127.0.0.1:14173/*",
+      "*://*.google-analytics.com/*",
+      "*://analytics.google.com/*",
+    ];
+    await writeFile(`${outdir}/manifest.json`, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    for (const file of ["workbench.html", "workbench.css"]) {
+      await cp(`src/${file}`, `${outdir}/${file}`);
+    }
+    console.log(`Built extension in ${outdir} for ${apiBase}`);
+  } finally {
+    building = false;
+    if (pending) {
+      pending = false;
+      await buildExtension();
+    }
+  }
+}
+
+await buildExtension();
+
+if (shouldWatch) {
+  console.log(`Watching extension source and rebuilding ${outdir}...`);
+  let timeout;
+  const watchedFiles = [
+    "src/content-script.ts",
+    "src/manifest.json",
+    "src/service-worker.ts",
+    "src/workbench.css",
+    "src/workbench.html",
+    "src/workbench.ts",
+  ];
+  for (const file of watchedFiles) {
+    watch(file, () => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        void buildExtension().catch((error) => {
+          console.error(error);
+          process.exitCode = 1;
+        });
+      }, 100);
+    });
+  }
 }

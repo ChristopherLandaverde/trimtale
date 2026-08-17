@@ -52,6 +52,8 @@ For the current production API, build with:
 npm run build:extension:prod
 ```
 
+Load `apps/extension/prod-dist` in Chrome for production-style testing. The local deterministic harness uses `apps/extension/dist`, so `prod-dist` remains stable when `npm run verify` rebuilds local artifacts.
+
 ## Vercel pre-publish checklist
 
 Before promoting a Vercel deployment to production:

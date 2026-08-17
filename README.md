@@ -121,7 +121,15 @@ For the current production API, use:
 npm run build:extension:prod
 ```
 
-This keeps the no-login extension flow usable on a real site such as ConsentFlow while the API runs remotely.
+That command writes to `apps/extension/prod-dist`, which is the folder to load as an unpacked Chrome extension for production-style testing. Local verification still uses `apps/extension/dist`.
+
+During product testing, keep this running to rebuild `prod-dist` whenever extension source files change:
+
+```bash
+npm run watch:extension:prod
+```
+
+Chrome may still require clicking Reload for the unpacked extension on `chrome://extensions`, but you do not need to choose the extension folder again.
 
 Security and production-publish guardrails are documented in [Security and Publishing Notes](docs/security-and-publishing.md).
 

@@ -9,6 +9,7 @@ Status: merged to `main` and deployed to production
 - Latest merged adjustment commit: `c6f0288`
 - Production API: `https://gtm-observability.vercel.app`
 - Extension production build command: `npm run build:extension:prod`
+- Extension production watch command: `npm run watch:extension:prod`
 
 ## Completed
 
@@ -23,6 +24,7 @@ Status: merged to `main` and deployed to production
 - The workbench includes a GTM import and Preview checklist before browser verification can start.
 - Read-only GTM discovery paginates account and container results with `nextPageToken`.
 - Production extension build points at the exact production API origin.
+- Production extension builds write to `apps/extension/prod-dist`, separate from local E2E builds in `apps/extension/dist`.
 - Security and publishing guardrails are documented.
 
 ## Remaining Human Acceptance Test
@@ -35,7 +37,7 @@ This is the remaining validation step that requires access outside the local har
    npm run build:extension:prod
    ```
 
-2. Load `apps/extension/dist` as an unpacked Chrome extension.
+2. Load `apps/extension/prod-dist` as an unpacked Chrome extension.
 3. Open the live ConsentFlow site.
 4. Use the extension workbench tab to discover and confirm navigation scope.
 5. Generate and download the GTM container JSON.
