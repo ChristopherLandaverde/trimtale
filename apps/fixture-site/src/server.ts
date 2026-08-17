@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 
-const port = Number.parseInt(process.env.FIXTURE_PORT ?? "4173", 10);
+const port = Number.parseInt(process.env.FIXTURE_PORT ?? "14173", 10);
 
 function page(pathname: string): string {
   return `<!doctype html>

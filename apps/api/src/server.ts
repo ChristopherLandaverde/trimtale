@@ -1,13 +1,19 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createSetupProposal, type SetupRequest } from "@gtm-observability/core";
+import {
+  discoverGtmContainers,
+  GoogleIntegrationDisabledError,
+  googleIntegrationStatus,
+  loadGoogleIntegrationConfig,
+} from "./google.js";
 
-const port = Number.parseInt(process.env.PORT ?? "8787", 10);
+const port = Number.parseInt(process.env.PORT ?? "18787", 10);
 const allowedOrigin = process.env.EXTENSION_ORIGIN ?? "*";
 const maximumBodyBytes = 256_000;
 
 function setCors(response: ServerResponse): void {
   response.setHeader("Access-Control-Allow-Origin", allowedOrigin);
-  response.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  response.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
   response.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   response.setHeader("Vary", "Origin");
 }
@@ -42,6 +48,25 @@ const server = createServer(async (request, response) => {
 
   if (request.method === "GET" && request.url === "/health") {
     sendJson(response, 200, { status: "ok", service: "gtm-observability-api" });
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/api/google/status") {
+    sendJson(response, 200, googleIntegrationStatus(loadGoogleIntegrationConfig()));
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/api/google/gtm/accounts") {
+    try {
+      sendJson(response, 200, await discoverGtmContainers(loadGoogleIntegrationConfig()));
+    } catch (error) {
+      if (error instanceof GoogleIntegrationDisabledError) {
+        sendJson(response, 503, { error: error.message });
+        return;
+      }
+      const message = error instanceof Error ? error.message : "Unable to discover GTM containers.";
+      sendJson(response, 502, { error: message });
+    }
     return;
   }
 

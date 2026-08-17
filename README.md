@@ -81,6 +81,8 @@ npm install
 npm run verify
 ```
 
+The local harness uses `http://127.0.0.1:18787` for the API and `http://127.0.0.1:14173` for the fixture site.
+
 `npm run verify` is the agent-owned completion gate. It:
 
 - Runs strict TypeScript checks.
@@ -92,3 +94,12 @@ npm run verify
 - Saves Playwright traces and failure evidence under `test-results/`.
 
 Humans do not need to launch the development services or load the extension to verify changes. Manual Chrome loading is reserved for exploratory product review.
+
+## Real Google integration lane
+
+The API exposes a separately gated read-only discovery surface for real GTM accounts and containers:
+
+- `GET /api/google/status` reports whether Google discovery is enabled.
+- `GET /api/google/gtm/accounts` lists accessible GTM accounts and containers only when `GOOGLE_OAUTH_ACCESS_TOKEN` is set.
+
+Ordinary local verification remains credential-free. The optional `GOOGLE_TAG_MANAGER_API_BASE_URL` environment variable exists for disposable integration tests or mocks.

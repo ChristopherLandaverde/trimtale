@@ -5,7 +5,7 @@ import type {
 } from "./types.js";
 
 function isAnalyticsRequest(url: string): boolean {
-  return /(?:(?:google-analytics\.com|analytics\.google\.com)|127\.0\.0\.1:4173)\/g\/collect/i.test(url);
+  return /(?:(?:google-analytics\.com|analytics\.google\.com)|127\.0\.0\.1:14173)\/g\/collect/i.test(url);
 }
 
 export function evaluateEvidence(

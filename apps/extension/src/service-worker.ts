@@ -41,7 +41,7 @@ chrome.webRequest.onBeforeRequest.addListener(
     urls: [
       "*://*.google-analytics.com/g/collect*",
       "*://analytics.google.com/g/collect*",
-      "http://127.0.0.1:4173/g/collect*",
+      "http://127.0.0.1:14173/g/collect*",
     ],
   },
 );

@@ -9,7 +9,12 @@ The first autonomous vertical slice is implemented:
 - Guided verification correlates a confirmed click with an observed GA4-style request.
 - Browser verification remains separate from platform confirmation.
 - A deterministic fixture site and Playwright-managed Chromium exercise the workflow without human browser operation.
-- `npm run verify` passes type checks, seven unit/scenario tests, builds, and the extension E2E test.
+- The local harness uses API port `18787` and fixture port `14173` to avoid common dev-server collisions.
+- A gated read-only Google integration foundation is in place:
+  - `GET /api/google/status`
+  - `GET /api/google/gtm/accounts`
+  - `GOOGLE_OAUTH_ACCESS_TOKEN` is required before real GTM discovery can run.
+- `npm run verify` passes type checks, ten unit/scenario tests, builds, and the extension E2E test.
 
 ## Start here
 
@@ -28,13 +33,12 @@ The generated file matches the documented GTM entity/export shape but has not ye
 
 ## Recommended next slice
 
-Add a separately gated real-Google integration lane:
+Continue the separately gated real-Google integration lane:
 
-1. Configure Google OAuth behind environment variables.
-2. Add read-only GTM account/container discovery.
-3. Retrieve a disposable container's current entity context.
-4. Import or create the generated setup in an isolated workspace.
-5. Run GTM Preview and capture browser evidence.
-6. Delete or retain the disposable workspace according to an explicit test policy.
+1. Exchange a user OAuth authorization code for an access token instead of relying on an externally supplied token.
+2. Retrieve a disposable container's current entity context.
+3. Import or create the generated setup in an isolated workspace.
+4. Run GTM Preview and capture browser evidence.
+5. Delete or retain the disposable workspace according to an explicit test policy.
 
 Keep the local harness deterministic and credential-free. Do not make ordinary verification depend on Google availability.

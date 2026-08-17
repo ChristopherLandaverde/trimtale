@@ -33,7 +33,7 @@ test("discovers, generates, downloads, and verifies navigation tracking", async 
   try {
     const site = await context.newPage();
     pages.push(site);
-    await site.goto("http://127.0.0.1:4173/");
+    await site.goto("http://127.0.0.1:14173/");
 
     const id = await extensionId(context);
     const panel = await context.newPage();
