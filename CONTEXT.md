@@ -80,6 +80,10 @@ _Avoid_: AI confidence, success probability, platform confidence
 Evidence from an analytics or advertising destination that it received or processed tracking data. It remains separate from implementation confidence because browser evidence cannot prove every platform-side outcome.
 _Avoid_: Browser verification, guaranteed attribution, delivery confidence
 
+**Evidence path**:
+The ordered evidence connecting an observed interaction to its tracking configuration and destination outcome, showing where measurement succeeded, remains unconfirmed, or failed.
+_Avoid_: Agent reasoning, activity log, chain of thought
+
 **Scenario corpus**:
 A collection of reproducible website, consent, GTM, and destination configurations with known expected outcomes, used to test diagnoses, generated setups, and implementation-confidence calibration.
 _Avoid_: Training data, mock websites, examples

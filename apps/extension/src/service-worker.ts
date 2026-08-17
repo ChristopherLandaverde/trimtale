@@ -1,4 +1,4 @@
-import type { BrowserEvidence } from "@gtm-observability/core";
+import type { BrowserEvidence, NavigationElement } from "@gtm-observability/core";
 
 async function toggleAssistant(tab: chrome.tabs.Tab): Promise<void> {
   if (!tab.id || !tab.url?.startsWith("http")) return;
@@ -27,7 +27,7 @@ chrome.runtime.onConnect.addListener((port) => {
     page?: {
       title: string;
       url: string;
-      navigation: Array<{ id: string; text: string; area: string }>;
+      navigation: NavigationElement[];
     };
   }) => {
     if (message.type !== "ASSISTANT_REQUEST" || !message.requestId || !message.prompt || !message.page) return;

@@ -32,7 +32,12 @@ test("mounts and streams through the floating tracking assistant", async () => {
     await root.getByRole("button", { name: "Choose links" }).click();
     await expect(root.locator(".pick")).toHaveCount(5);
     await root.getByRole("button", { name: "Confirm selection" }).click();
-    await expect(root.getByText("5 navigation links selected.")).toBeVisible();
+    await expect(root.getByText("5 navigation links selected and highlighted on the page.")).toBeVisible();
+    await expect(root.getByRole("region", { name: "Tracking evidence path" })).toBeVisible();
+    await expect(root.getByText("Navigation clicks → navigation_click")).toBeVisible();
+    await expect(root.getByText("Not created from chat yet")).toBeVisible();
+    await expect(site.locator("#gtm-observability-targets")).toBeAttached();
+    await expect(site.locator("#gtm-observability-targets").locator(".target.confirmed")).toHaveCount(5);
 
     await root.getByRole("button", { name: "Collapse assistant" }).click();
     await expect(assistant).toHaveClass(/collapsed/);
