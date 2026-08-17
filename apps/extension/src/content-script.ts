@@ -188,31 +188,87 @@ function showWorkbench(tabId: number): void {
     :host {
       all: initial;
       position: fixed;
-      inset: 16px 16px auto auto;
+      inset: 0;
       z-index: 2147483647;
-      width: min(420px, calc(100vw - 32px));
-      height: min(760px, calc(100vh - 32px));
-      border: 1px solid rgb(189 198 208);
-      border-radius: 10px;
-      overflow: hidden;
-      box-shadow: 0 18px 56px rgb(23 33 43 / 24%);
-      background: white;
+      pointer-events: none;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
     :host([hidden]) {
       display: none;
     }
+    button {
+      all: initial;
+      position: fixed;
+      right: 18px;
+      top: 50%;
+      width: 38px;
+      height: 38px;
+      margin-top: -19px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgb(47 62 75);
+      border-radius: 999px;
+      color: white;
+      background: rgb(31 41 55);
+      box-shadow: 0 10px 28px rgb(15 23 42 / 28%);
+      cursor: pointer;
+      pointer-events: auto;
+    }
+    button::before {
+      content: "";
+      width: 17px;
+      height: 12px;
+      border-top: 2px solid white;
+      border-bottom: 2px solid white;
+      box-shadow: 0 5px 0 white;
+    }
+    button::after {
+      content: "";
+      position: absolute;
+      right: 8px;
+      top: 8px;
+      width: 5px;
+      height: 5px;
+      border-radius: 999px;
+      background: rgb(96 165 250);
+    }
     iframe {
+      position: fixed;
+      top: min(18vh, 132px);
+      right: min(5vw, 72px);
       display: block;
-      width: 100%;
-      height: 100%;
+      width: min(646px, calc(100vw - 96px));
+      height: min(640px, calc(100vh - 72px));
       border: 0;
-      background: white;
+      border-radius: 12px;
+      background: transparent;
+      box-shadow: 0 24px 80px rgb(15 23 42 / 24%);
+      pointer-events: auto;
+    }
+    iframe[hidden] {
+      display: none;
+    }
+    @media (max-width: 720px) {
+      iframe {
+        inset: 16px 16px auto 16px;
+        width: calc(100vw - 32px);
+        height: min(680px, calc(100vh - 32px));
+      }
+      button {
+        right: 14px;
+      }
     }
   `;
+  const launcher = document.createElement("button");
+  launcher.type = "button";
+  launcher.title = "Toggle GTM Observability";
   const frame = document.createElement("iframe");
   frame.title = "GTM Observability workbench";
   frame.src = chrome.runtime.getURL(`workbench.html?tabId=${tabId}&embedded=1`);
-  shadow.append(style, frame);
+  launcher.addEventListener("click", () => {
+    frame.hidden = !frame.hidden;
+  });
+  shadow.append(style, launcher, frame);
   document.documentElement.append(host);
   workbenchHost = host;
 }

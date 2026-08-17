@@ -8,31 +8,35 @@
   </head>
   <body>
     <main>
-      <header class="product-header surface">
-        <div class="brand-row">
-          <div class="mark">G</div>
+      <section class="command-shell">
+        <header class="product-header">
           <div>
-            <h1>GTM Observability</h1>
-            <p id="site-host">Current site</p>
+            <span class="eyebrow">GTM Observability</span>
+            <h1 id="command-title">What do you need?</h1>
           </div>
-        </div>
-        <span id="config-state" class="state-pill">Detecting</span>
-      </header>
+          <span id="config-state" class="state-pill">Detecting</span>
+        </header>
 
-      <nav class="progress" aria-label="Setup progress">
-        <span id="step-discover" class="progress-step active">Discover</span>
-        <span id="step-configure" class="progress-step">Configure</span>
-        <span id="step-import" class="progress-step">Import</span>
-        <span id="step-verify" class="progress-step">Verify</span>
-      </nav>
-
-      <section class="surface control-panel">
-        <div class="field-group">
-          <label for="intent">Tracking intent</label>
-          <textarea id="intent" rows="2">Track all navigation clicks</textarea>
+        <div class="site-row">
+          <span class="site-dot"></span>
+          <p id="site-host">Current site</p>
         </div>
-        <button id="scan" class="primary">Discover navigation</button>
-        <p id="status" class="status" aria-live="polite"></p>
+
+        <nav class="progress" aria-label="Setup progress">
+          <span id="step-discover" class="progress-step active">Discover</span>
+          <span id="step-configure" class="progress-step">Configure</span>
+          <span id="step-import" class="progress-step">Import</span>
+          <span id="step-verify" class="progress-step">Verify</span>
+        </nav>
+
+        <div class="control-panel">
+          <div class="field-group">
+            <label for="intent">Tracking intent</label>
+            <textarea id="intent" rows="2">Track all navigation clicks</textarea>
+          </div>
+          <button id="scan" class="primary">Discover navigation</button>
+          <p id="status" class="status" aria-live="polite"></p>
+        </div>
       </section>
 
       <section id="scope-card" class="surface hidden">
