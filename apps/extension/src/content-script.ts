@@ -30,6 +30,8 @@ let responseList: HTMLElement | undefined;
 let composer: HTMLTextAreaElement | undefined;
 let port: chrome.runtime.Port | undefined;
 const responseNodes = new Map<string, HTMLElement>();
+const navigationByRequest = new Map<string, NavigationElement[]>();
+const requestTimeouts = new Map<string, number>();
 
 function areaFor(element: Element): NavigationArea {
   if (element.closest("header")) return "header";
@@ -115,20 +117,111 @@ function addMessage(copy: string, role: "assistant" | "user", id?: string): HTML
   return message;
 }
 
+function renderNavigationPicker(navigation: NavigationElement[]): void {
+  const picker = document.createElement("div");
+  picker.className = "picker";
+  for (const item of navigation) {
+    const label = document.createElement("label");
+    label.className = "pick";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = true;
+    input.dataset.navigationId = item.id;
+    const copy = document.createElement("span");
+    copy.textContent = item.text;
+    const area = document.createElement("small");
+    area.textContent = item.area;
+    label.append(input, copy, area);
+    picker.append(label);
+  }
+  const confirm = document.createElement("button");
+  confirm.className = "quick primary-quick";
+  confirm.textContent = "Confirm selection";
+  confirm.addEventListener("click", () => {
+    const count = picker.querySelectorAll<HTMLInputElement>("input:checked").length;
+    addMessage(count ? `${count} navigation link${count === 1 ? "" : "s"} selected.` : "Choose at least one link.", "assistant");
+    if (count) picker.remove();
+  });
+  picker.append(confirm);
+  responseList?.append(picker);
+  responseList?.scrollTo({ top: responseList.scrollHeight });
+}
+
+function handleAssistantAction(actionId: string, requestId: string): void {
+  if (actionId.startsWith("prompt:")) {
+    if (composer) composer.value = actionId.slice("prompt:".length);
+    submitPrompt();
+    return;
+  }
+  if (actionId === "track-all-navigation") {
+    const count = navigationByRequest.get(requestId)?.length ?? 0;
+    addMessage(`All ${count} navigation links selected.`, "assistant");
+    return;
+  }
+  if (actionId === "choose-navigation") {
+    renderNavigationPicker(navigationByRequest.get(requestId) ?? []);
+    return;
+  }
+  if (actionId === "cancel") addMessage("Okay — nothing was selected.", "assistant");
+}
+
+function renderQuickActions(
+  requestId: string,
+  actions: Array<{ id: string; label: string }>,
+): void {
+  if (!actions.length) return;
+  const row = document.createElement("div");
+  row.className = "quick-actions";
+  for (const action of actions) {
+    const button = document.createElement("button");
+    button.className = "quick";
+    button.textContent = action.label;
+    button.addEventListener("click", () => {
+      row.remove();
+      handleAssistantAction(action.id, requestId);
+    });
+    row.append(button);
+  }
+  responseList?.append(row);
+  responseList?.scrollTo({ top: responseList.scrollHeight });
+}
+
 function connectAssistant(): chrome.runtime.Port {
   if (port) return port;
   port = chrome.runtime.connect({ name: "assistant" });
-  port.onDisconnect.addListener(() => { port = undefined; });
-  port.onMessage.addListener((message: { type?: string; requestId?: string; delta?: string }) => {
+  port.onDisconnect.addListener(() => {
+    port = undefined;
+    for (const [requestId, node] of responseNodes) {
+      node.classList.remove("streaming");
+      node.textContent = "The assistant connection restarted. Please send that again.";
+      responseNodes.delete(requestId);
+      const timeout = requestTimeouts.get(requestId);
+      if (timeout !== undefined) window.clearTimeout(timeout);
+      requestTimeouts.delete(requestId);
+    }
+  });
+  port.onMessage.addListener((message: {
+    type?: string;
+    requestId?: string;
+    delta?: string;
+    actions?: Array<{ id: string; label: string }>;
+    navigation?: NavigationElement[];
+  }) => {
     if (!message.requestId) return;
     const node = responseNodes.get(message.requestId);
     if (message.type === "ASSISTANT_DELTA" && node && message.delta) {
+      node.classList.remove("streaming");
       node.textContent += message.delta;
       responseList?.scrollTo({ top: responseList.scrollHeight });
     }
     if (message.type === "ASSISTANT_DONE") {
       node?.classList.remove("streaming");
       responseNodes.delete(message.requestId);
+      const timeout = requestTimeouts.get(message.requestId);
+      if (timeout !== undefined) window.clearTimeout(timeout);
+      requestTimeouts.delete(message.requestId);
+      navigationByRequest.set(message.requestId, message.navigation ?? []);
+      renderQuickActions(message.requestId, message.actions ?? []);
     }
   });
   return port;
@@ -140,13 +233,25 @@ function submitPrompt(): void {
   composer!.value = "";
   addMessage(prompt, "user");
   const requestId = crypto.randomUUID();
-  addMessage("", "assistant", requestId);
+  const pending = addMessage("", "assistant", requestId);
+  requestTimeouts.set(requestId, window.setTimeout(() => {
+    if (!responseNodes.has(requestId)) return;
+    pending.classList.remove("streaming");
+    pending.textContent = "The assistant did not respond. Please try again.";
+    responseNodes.delete(requestId);
+    requestTimeouts.delete(requestId);
+    port?.disconnect();
+  }, 8_000));
   const scan = scanNavigation();
   connectAssistant().postMessage({
     type: "ASSISTANT_REQUEST",
     requestId,
     prompt,
-    page: { title: scan.title, url: scan.pageUrl, navigationCount: scan.navigation.length },
+    page: {
+      title: scan.title,
+      url: scan.pageUrl,
+      navigation: scan.navigation.map(({ id, text, area }) => ({ id, text, area })),
+    },
   });
   preferences.height = Math.max(preferences.height, 420);
   applyPreferences();
@@ -194,6 +299,15 @@ async function mountOverlay(): Promise<void> {
       .message.bot { align-self: flex-start; color: #e5ebef; background: rgba(41,50,57,.72); border: 1px solid rgba(255,255,255,.06); border-radius: 4px 14px 14px 14px; }
       .message.user { align-self: flex-end; color: #f5fff9; background: #28483d; border-radius: 13px 13px 4px 13px; }
       .message.streaming:empty { width: 64px; height: 16px; background: linear-gradient(100deg, rgba(52,63,71,.6) 20%, rgba(167,243,208,.18) 45%, rgba(52,63,71,.6) 70%); background-size: 220% 100%; animation: shimmer 1.15s linear infinite; }
+      .quick-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+      .quick { padding: 7px 10px; border: 1px solid rgba(167,243,208,.22); border-radius: 10px; color: #dff9ec; background: rgba(40,72,61,.58); font-size: 12px; }
+      .quick:hover { border-color: rgba(167,243,208,.42); background: rgba(47,88,73,.72); }
+      .primary-quick { margin-top: 3px; justify-self: start; }
+      .picker { display: grid; gap: 6px; padding: 9px; border: 1px solid rgba(255,255,255,.09); border-radius: 13px; background: rgba(22,29,34,.62); }
+      .pick { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; padding: 6px; border-radius: 8px; color: #e3eaee; }
+      .pick:hover { background: rgba(255,255,255,.04); }
+      .pick input { accent-color: #8de8bd; }
+      .pick small { color: #87949d; font-size: 10px; text-transform: uppercase; }
       .composer { margin: 0 12px 12px; padding: 6px 6px 6px 12px; display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 8px; border: 1px solid rgba(255,255,255,.14); border-radius: 15px; background: rgba(31,39,45,.72); box-shadow: inset 0 1px 0 rgba(255,255,255,.035); transition: border-color .16s ease, background .16s ease, box-shadow .16s ease; }
       .composer:focus-within { border-color: rgba(167,243,208,.38); background: rgba(34,43,49,.88); box-shadow: 0 0 0 3px rgba(167,243,208,.06), inset 0 1px 0 rgba(255,255,255,.05); }
       textarea { resize: none; min-height: 38px; max-height: 120px; padding: 8px 0; border: 0; outline: 0; color: white; background: transparent; font: inherit; }

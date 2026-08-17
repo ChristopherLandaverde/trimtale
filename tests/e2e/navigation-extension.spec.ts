@@ -25,10 +25,14 @@ test("mounts and streams through the floating tracking assistant", async () => {
     await expect(assistant).not.toHaveClass(/collapsed/);
     await expect(root.getByText("What do you want to track on this page?")).toBeVisible();
 
-    await root.getByLabel("Tracking request").fill("Track clicks on the primary navigation");
+    await root.getByLabel("Tracking request").fill("navigation");
     await root.getByRole("button", { name: "Send request" }).click();
-    await expect(root.getByText("Track clicks on the primary navigation")).toBeVisible();
-    await expect(root.getByText(/I found 5 navigation candidate/)).toBeVisible();
+    await expect(root.getByText("navigation", { exact: true })).toBeVisible();
+    await expect(root.getByText(/I found 5 navigation links/)).toBeVisible();
+    await root.getByRole("button", { name: "Choose links" }).click();
+    await expect(root.locator(".pick")).toHaveCount(5);
+    await root.getByRole("button", { name: "Confirm selection" }).click();
+    await expect(root.getByText("5 navigation links selected.")).toBeVisible();
 
     await root.getByRole("button", { name: "Collapse assistant" }).click();
     await expect(assistant).toHaveClass(/collapsed/);
