@@ -125,4 +125,4 @@ This keeps the no-login extension flow usable on a real site such as ConsentFlow
 
 Security and production-publish guardrails are documented in [Security and Publishing Notes](docs/security-and-publishing.md).
 
-The current pre-merge runbook is in [Pre-Merge Checklist](docs/pre-merge-checklist.md).
+The current release status and remaining human acceptance test are in [Current Release Status](docs/pre-merge-checklist.md).

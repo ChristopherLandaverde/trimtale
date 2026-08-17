@@ -1,14 +1,16 @@
-# Pre-Merge Checklist
+# Current Release Status
 
-Status: ready for human GTM acceptance test
+Status: merged to `main` and deployed to production
 
 ## Branch
 
-- Branch: `codex/no-login-gtm-setup`
+- Merged branch: `codex/no-login-gtm-setup`
+- Current branch: `main`
+- Latest merged adjustment commit: `c6f0288`
 - Production API: `https://gtm-observability.vercel.app`
 - Extension production build command: `npm run build:extension:prod`
 
-## Completed without GTM credentials
+## Completed
 
 - Local deterministic verification passes with `npm run verify`.
 - Production API is deployed on Vercel.
@@ -16,13 +18,15 @@ Status: ready for human GTM acceptance test
 - `GET /api/google/status` reports Google integration disabled unless server credentials are configured.
 - `GET /api/google/gtm/accounts` rejects unauthenticated access.
 - `POST /api/setups` generates a GTM-compatible navigation-click setup.
-- Chrome extension opens a persistent browser-action workbench tab, not a side panel.
+- Chrome extension opens a persistent browser-action workbench tab, not a side panel and not an auto-closing popup.
+- The workbench is bound to the source tab that opened it, preventing accidental scans of another HTTP tab.
+- Read-only GTM discovery paginates account and container results with `nextPageToken`.
 - Production extension build points at the exact production API origin.
 - Security and publishing guardrails are documented.
 
-## Human acceptance test
+## Remaining Human Acceptance Test
 
-This is the only remaining pre-merge step that requires access outside the local harness:
+This is the remaining validation step that requires access outside the local harness:
 
 1. Build the production extension artifact:
 
@@ -40,6 +44,6 @@ This is the only remaining pre-merge step that requires access outside the local
 9. Download the browser-verification evidence report.
 10. Confirm no browser-only result is presented as GA4 platform confirmation.
 
-## Merge boundary
+## Issue Boundary
 
-Do not merge until the human acceptance test passes or any discovered GTM-import issue is filed under `.scratch/navigation-tracking/issues/`.
+If the human acceptance test finds a GTM-import or ConsentFlow-specific issue, file it under `.scratch/navigation-tracking/issues/` before changing the implementation.

@@ -17,6 +17,9 @@ The first autonomous vertical slice is implemented:
 - The API routing is shared by the local Node server and the Vercel Function entrypoints under `api/`.
 - Extension builds can target a hosted API by setting `GTM_OBSERVABILITY_API_BASE`.
 - Guided verification now produces a local JSON evidence report with per-link browser verdicts and the platform-confirmation boundary.
+- The extension action opens a persistent workbench tab. It passes the source tab id into the workbench so discovery and verification stay bound to the site the practitioner opened the extension from.
+- Read-only GTM discovery follows Google `nextPageToken` pagination for both account and container lists.
+- The branch has been fast-forward merged into `main` and deployed to `https://gtm-observability.vercel.app`.
 - `npm run verify` passes type checks, eleven unit/scenario tests, builds, and the extension E2E test.
 
 ## Start here
@@ -36,14 +39,15 @@ The generated file matches the documented GTM entity/export shape but has not ye
 
 ## Recommended next slice
 
-Continue the separately gated real-Google integration lane:
+Validate the merged no-login flow on the real GTM-installed ConsentFlow site, then continue the separately gated real-Google integration lane:
 
-1. Link/deploy the Vercel API project and build an extension pointed at that hosted API.
+1. Build the production extension with `npm run build:extension:prod`.
 2. Use ConsentFlow as the real GTM-installed proving ground for the no-login import/preview workflow.
-3. Exchange a user OAuth authorization code for an access token instead of relying on an externally supplied token.
-4. Retrieve a disposable container's current entity context.
-5. Import or create the generated setup in an isolated workspace.
-6. Run GTM Preview and capture browser evidence.
-7. Delete or retain the disposable workspace according to an explicit test policy.
+3. Import the generated file with Merge into a new GTM workspace and run Preview.
+4. Exchange a user OAuth authorization code for an access token instead of relying on an externally supplied token.
+5. Retrieve a disposable container's current entity context.
+6. Import or create the generated setup in an isolated workspace.
+7. Run GTM Preview and capture browser evidence.
+8. Delete or retain the disposable workspace according to an explicit test policy.
 
 Keep the local harness deterministic and credential-free. Do not make ordinary verification depend on Google availability.
