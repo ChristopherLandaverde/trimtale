@@ -1,11 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { createSetupProposal, type SetupRequest } from "@gtm-observability/core";
-import {
-  discoverGtmContainers,
-  GoogleIntegrationDisabledError,
-  googleIntegrationStatus,
-  loadGoogleIntegrationConfig,
-} from "./google.js";
+import { routeApiRequest } from "./app.js";
 
 const port = Number.parseInt(process.env.PORT ?? "18787", 10);
 const allowedOrigin = process.env.EXTENSION_ORIGIN ?? "*";
@@ -39,50 +33,18 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
 }
 
 const server = createServer(async (request, response) => {
-  if (request.method === "OPTIONS") {
+  const result = await routeApiRequest({
+    method: request.method,
+    url: request.url,
+    readJson: () => readJson(request),
+  });
+  if (result.status === 204) {
     setCors(response);
     response.writeHead(204);
     response.end();
     return;
   }
-
-  if (request.method === "GET" && request.url === "/health") {
-    sendJson(response, 200, { status: "ok", service: "gtm-observability-api" });
-    return;
-  }
-
-  if (request.method === "GET" && request.url === "/api/google/status") {
-    sendJson(response, 200, googleIntegrationStatus(loadGoogleIntegrationConfig()));
-    return;
-  }
-
-  if (request.method === "GET" && request.url === "/api/google/gtm/accounts") {
-    try {
-      sendJson(response, 200, await discoverGtmContainers(loadGoogleIntegrationConfig()));
-    } catch (error) {
-      if (error instanceof GoogleIntegrationDisabledError) {
-        sendJson(response, 503, { error: error.message });
-        return;
-      }
-      const message = error instanceof Error ? error.message : "Unable to discover GTM containers.";
-      sendJson(response, 502, { error: message });
-    }
-    return;
-  }
-
-  if (request.method === "POST" && request.url === "/api/setups") {
-    try {
-      const body = (await readJson(request)) as SetupRequest;
-      const proposal = createSetupProposal(body);
-      sendJson(response, 201, proposal);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to create setup.";
-      sendJson(response, 400, { error: message });
-    }
-    return;
-  }
-
-  sendJson(response, 404, { error: "Not found." });
+  sendJson(response, result.status, result.body);
 });
 
 server.listen(port, "127.0.0.1", () => {

@@ -103,3 +103,15 @@ The API exposes a separately gated read-only discovery surface for real GTM acco
 - `GET /api/google/gtm/accounts` lists accessible GTM accounts and containers only when `GOOGLE_OAUTH_ACCESS_TOKEN` is set.
 
 Ordinary local verification remains credential-free. The optional `GOOGLE_TAG_MANAGER_API_BASE_URL` environment variable exists for disposable integration tests or mocks.
+
+## Hosted API builds
+
+The API routes can run locally through `apps/api/src/server.ts` or on Vercel through the root `api/[...path].ts` function entrypoint.
+
+The extension points at the local API by default. To build it against a hosted API, set `GTM_OBSERVABILITY_API_BASE`:
+
+```bash
+GTM_OBSERVABILITY_API_BASE=https://your-api.vercel.app npm run build:extension
+```
+
+This keeps the no-login extension flow usable on a real site such as ConsentFlow while the API runs remotely.

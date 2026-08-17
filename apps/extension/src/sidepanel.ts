@@ -5,7 +5,9 @@ import {
   type SetupProposal,
 } from "@gtm-observability/core";
 
-const apiBase = "http://127.0.0.1:18787";
+declare const __GTM_OBSERVABILITY_API_BASE__: string;
+
+const apiBase = __GTM_OBSERVABILITY_API_BASE__;
 let pageUrl = "";
 let navigation: NavigationElement[] = [];
 let proposal: SetupProposal | undefined;
