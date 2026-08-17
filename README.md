@@ -53,6 +53,10 @@ Connect GTM
 
 The `mockups/` directory contains the observability overview, container audit, live debugger, automated test, scheduled journeys, incident diagnosis, and GTM change-review screens.
 
+## Product plan
+
+The `docs/product-plan/` directory describes the staged path from the navigation-tracking MVP to a full GTM and GA4 observability product, including architecture, agent design, weekly scans, and go-to-market timing.
+
 ## Navigation tracking MVP
 
 The first implemented vertical slice is a Chrome extension plus a small local backend:
