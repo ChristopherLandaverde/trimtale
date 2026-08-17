@@ -1,12 +1,27 @@
 # Product Plan
 
-This folder describes how GTM Observability should grow from the current navigation-tracking MVP into a full GTM and GA4 observability product.
+This folder describes how GTM Observability should grow from the current navigation-tracking MVP into a conversion setup, debugging, and observability product.
 
 The core thesis:
 
 > Agencies and marketing teams do not only need a faster way to create GTM tags. They need a reliable way to know whether tracking still works after websites, campaigns, consent banners, and GTM containers change.
 
 ## Product shape
+
+The launch wedge is lead-generation websites, not every possible analytics use case. The durable domain is conversion measurement: the product distinguishes browser-visible interactions from the business outcomes they are intended to represent.
+
+The customer should experience one continuous conversation:
+
+```text
+Define what counts as a conversion
+    -> discover relevant website interactions
+    -> confirm scope
+    -> implement
+    -> verify
+    -> present evidence
+```
+
+The existing injected assistant is the product surface for this workflow. Its current interaction and visual design should remain stable while conversion capabilities are added; new technical capabilities should appear inside the existing conversation rather than introduce another customer-facing layer.
 
 GTM Observability has three layers:
 
@@ -21,9 +36,10 @@ GTM Observability has three layers:
 
 The agent UX is the delight layer. The recurring scans and evidence history are the retention layer.
 
+These are product capabilities, not three separate interfaces. Internally, the browser overlay, extension service worker, backend, shared tracking logic, and GTM integration remain separate security and reliability boundaries. Customers should not need a proprietary SDK for browser-observable conversion setup and verification.
+
 ## Documents
 
 - [Build Stages](./build-stages.md) - MVP-to-full-product sequence.
 - [Technical Architecture](./technical-architecture.md) - System components and agent/workflow design.
 - [Go-To-Market Timing](./go-to-market.md) - When to build the website, market, sell, and narrow positioning.
-
