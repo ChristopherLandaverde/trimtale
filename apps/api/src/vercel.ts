@@ -1,4 +1,4 @@
-import { routeApiRequest } from "../apps/api/src/app.js";
+import { routeApiRequest } from "./app.js";
 
 const allowedOrigin = process.env.EXTENSION_ORIGIN ?? "*";
 
@@ -11,7 +11,7 @@ function corsHeaders(): HeadersInit {
   };
 }
 
-async function handle(request: Request): Promise<Response> {
+export async function handleVercelRequest(request: Request): Promise<Response> {
   try {
     const result = await routeApiRequest({
       method: request.method,
@@ -25,7 +25,3 @@ async function handle(request: Request): Promise<Response> {
     return Response.json({ error: "Internal server error." }, { status: 500, headers: corsHeaders() });
   }
 }
-
-export const GET = handle;
-export const POST = handle;
-export const OPTIONS = handle;

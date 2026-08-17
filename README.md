@@ -106,7 +106,7 @@ Ordinary local verification remains credential-free. The optional `GOOGLE_TAG_MA
 
 ## Hosted API builds
 
-The API routes can run locally through `apps/api/src/server.ts` or on Vercel through the root `api/[...path].ts` function entrypoint.
+The API routes can run locally through `apps/api/src/server.ts` or on Vercel through explicit root `api/` function entrypoints.
 
 The extension points at the local API by default. To build it against a hosted API, set `GTM_OBSERVABILITY_API_BASE`:
 
