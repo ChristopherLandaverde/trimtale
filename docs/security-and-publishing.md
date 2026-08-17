@@ -23,7 +23,7 @@ It must not send full page HTML, cookies, local/session storage, form values, or
 
 The extension stores the inferred or advanced-fallback GA4 Measurement ID and public GTM Container ID in `chrome.storage.local` by site hostname after a successful setup generation. These values are identifiers for repeat setup convenience; they must not be treated as GTM API credentials or proof of GTM account access.
 
-The extension may read current-page DOM markup, script URLs, inline script text, iframe URLs, performance resource URLs, dataLayer entries, and runtime GTM globals to detect visible `GTM-` and `G-` identifiers. Only normalized IDs are returned to the workbench. This detection should be treated as page instrumentation evidence only.
+The extension may read current-page DOM markup, script URLs, inline script text, iframe URLs, performance resource URLs, dataLayer entries, and runtime GTM globals to detect visible `GTM-` IDs and valid GA4 Measurement IDs. Only normalized IDs are returned to the workbench. This detection should be treated as page instrumentation evidence only.
 
 ## Google integration controls
 
@@ -35,6 +35,10 @@ The extension may read current-page DOM markup, script URLs, inline script text,
 - `GOOGLE_OAUTH_ACCESS_TOKEN`: Google OAuth access token used server-side for read-only GTM discovery
 
 Do not configure `GOOGLE_OAUTH_ACCESS_TOKEN` in production unless `GTM_OBSERVABILITY_ADMIN_TOKEN` is also set and known only to trusted operators.
+
+`POST /api/google/gtm/resolve-site` is the narrower extension-facing read path. It accepts the page URL and page-detected GTM/GA4 signals, matches a visible public GTM ID to an accessible container, reads that container's live published version, and returns valid GA4 Measurement IDs found in the container configuration. It requires `GOOGLE_OAUTH_ACCESS_TOKEN` plus either `GTM_OBSERVABILITY_ADMIN_TOKEN` or `GTM_OBSERVABILITY_EXTENSION_TOKEN`.
+
+`GTM_OBSERVABILITY_EXTENSION_TOKEN` may be bundled into an unpacked extension build for internal testing. Treat it as a temporary bridge, not a long-term end-user authentication model. A production multi-user version should replace that token with user-scoped OAuth/session authorization so users can resolve only the GTM containers they are allowed to access.
 
 ## Extension host permissions
 
@@ -71,6 +75,7 @@ Before promoting a Vercel deployment to production:
 - Verify `POST /api/setups` on the deployment with a disposable request.
 - Confirm `.env*` and `.vercel` remain ignored and uncommitted.
 - Confirm `GOOGLE_OAUTH_ACCESS_TOKEN` is absent unless an operator-only `GTM_OBSERVABILITY_ADMIN_TOKEN` is configured.
+- If enabling extension-based GTM resolution, configure `GTM_OBSERVABILITY_EXTENSION_TOKEN` on the API and build the extension with the same value.
 - Build any distributable extension artifact with the production API origin.
 
 ## Publishing boundary

@@ -30,6 +30,20 @@ export interface GtmDiscoveryResult {
   containers: GtmContainerSummary[];
 }
 
+export interface GtmSiteResolutionRequest {
+  pageUrl: string;
+  detected?: {
+    gtmContainers?: string[];
+    ga4MeasurementIds?: string[];
+  };
+}
+
+export interface GtmSiteResolutionResult {
+  matchedBy: "detected-container" | "none";
+  container?: GtmContainerSummary;
+  measurementIds: string[];
+}
+
 interface TagManagerAccountResponse {
   account?: Array<Partial<GtmAccountSummary>>;
   nextPageToken?: string;
@@ -44,6 +58,8 @@ type Fetch = typeof fetch;
 
 const accessTokenEnv = "GOOGLE_OAUTH_ACCESS_TOKEN";
 const defaultBaseUrl = "https://tagmanager.googleapis.com";
+const gtmPublicIdPattern = /\bGTM-[A-Z0-9]+\b/gi;
+const ga4MeasurementIdPattern = /\bG-(?=[A-Z0-9]*\d)[A-Z0-9]{8,15}\b/gi;
 
 export function loadGoogleIntegrationConfig(
   env: NodeJS.ProcessEnv = process.env,
@@ -167,4 +183,50 @@ export async function discoverGtmContainers(
   ).flat();
 
   return { accounts, containers };
+}
+
+function normalizedUnique(values: Array<string | undefined>, pattern: RegExp): string[] {
+  const ids = new Set<string>();
+  for (const value of values) {
+    if (!value) continue;
+    for (const match of value.matchAll(pattern)) {
+      ids.add(match[0]!.toUpperCase());
+    }
+  }
+  return [...ids].sort();
+}
+
+function extractMeasurementIds(value: unknown): string[] {
+  return normalizedUnique([JSON.stringify(value)], ga4MeasurementIdPattern);
+}
+
+export async function resolveGtmSite(
+  config: GoogleIntegrationConfig,
+  request: GtmSiteResolutionRequest,
+  fetchImpl: Fetch = fetch,
+): Promise<GtmSiteResolutionResult> {
+  const detectedContainers = normalizedUnique(request.detected?.gtmContainers ?? [], gtmPublicIdPattern);
+  if (detectedContainers.length === 0) {
+    return { matchedBy: "none", measurementIds: [] };
+  }
+
+  const discovery = await discoverGtmContainers(config, fetchImpl);
+  const matchedContainer = discovery.containers.find((container) =>
+    detectedContainers.includes(container.publicId.toUpperCase()),
+  );
+  if (!matchedContainer) {
+    return { matchedBy: "none", measurementIds: [] };
+  }
+
+  const liveVersion = await getJson<unknown>(
+    fetchImpl,
+    config,
+    `/tagmanager/v2/${matchedContainer.path}/versions:live`,
+  );
+
+  return {
+    matchedBy: "detected-container",
+    container: matchedContainer,
+    measurementIds: extractMeasurementIds(liveVersion),
+  };
 }

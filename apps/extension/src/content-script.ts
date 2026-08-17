@@ -29,7 +29,7 @@ type ExtensionRequest =
 
 const analyticsPattern = /(?:google-analytics\.com|analytics\.google\.com)\/g\/collect/i;
 const gtmPattern = /GTM-[A-Z0-9]+/gi;
-const ga4Pattern = /G-[A-Z0-9]+/gi;
+const ga4Pattern = /\bG-(?=[A-Z0-9]*\d)[A-Z0-9]{8,15}\b/gi;
 const evidence = new Map<string, BrowserEvidence>();
 let verificationScope = new Map<string, NavigationElement>();
 let workbenchHost: HTMLDivElement | undefined;

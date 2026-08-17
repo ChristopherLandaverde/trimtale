@@ -104,10 +104,11 @@ The API exposes a separately gated read-only discovery surface for real GTM acco
 
 - `GET /api/google/status` reports whether Google discovery is enabled.
 - `GET /api/google/gtm/accounts` lists accessible GTM accounts and containers only when `GOOGLE_OAUTH_ACCESS_TOKEN` is set server-side and the caller provides the configured admin bearer token.
+- `POST /api/google/gtm/resolve-site` accepts the page URL plus page-detected GTM/GA4 signals, matches the visible public GTM container against connected GTM containers, reads the live published container version, and returns GA4 Measurement IDs found in that container. This route accepts the admin bearer token or the narrower `GTM_OBSERVABILITY_EXTENSION_TOKEN`.
 
 The extension remembers GA4 Measurement IDs and public GTM Container IDs by hostname after a successful setup generation. Those saved IDs are site configuration, not Google API credentials; OAuth is still required for account discovery or GTM workspace mutation.
 
-The extension detects GTM and GA4 IDs visible on the current page, auto-fills the inferred site configuration, and compares detected IDs to saved configuration. Advanced manual fallback exists for operators, but the primary product path does not require users to type container or measurement IDs. Page detection confirms instrumentation signals; it does not prove GTM account ownership or GA4 platform processing.
+The extension detects GTM and valid GA4 Measurement IDs visible on the current page, auto-fills the inferred site configuration, and compares detected IDs to saved configuration. When a GTM container is visible but GA4 is only configured inside GTM, the extension can call the protected site resolver to infer the GA4 Measurement ID from the connected live GTM container. Advanced manual fallback exists for operators, but the primary product path does not require users to type container or measurement IDs. Page detection confirms instrumentation signals; it does not prove GTM account ownership or GA4 platform processing.
 
 Ordinary local verification remains credential-free. The optional `GOOGLE_TAG_MANAGER_API_BASE_URL` environment variable exists for disposable integration tests or mocks.
 
@@ -120,6 +121,8 @@ The extension points at the local API by default. To build it against a hosted A
 ```bash
 GTM_OBSERVABILITY_API_BASE=https://your-api.vercel.app npm run build:extension
 ```
+
+To let the unpacked extension call the protected GTM site resolver, set the same `GTM_OBSERVABILITY_EXTENSION_TOKEN` in the API environment and at extension build time. This is a temporary internal bridge until the product has user-scoped OAuth/session auth in front of the resolver.
 
 For the current production API, use:
 

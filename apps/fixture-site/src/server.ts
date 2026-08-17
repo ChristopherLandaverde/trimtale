@@ -43,7 +43,7 @@ function page(pathname: string): string {
         <a href="/contact">Contact</a>
       </nav>
     </header>
-    <main>
+    <main ${gtmOnly ? `data-copy-signals="G-ANALYSIS G-AUDITING G-45"` : ""}>
       <h1>Lead-generation websites for growing teams.</h1>
       <p>This deterministic fixture represents a small agency website.</p>
     </main>
