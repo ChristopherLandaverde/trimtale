@@ -91,6 +91,7 @@ The local harness uses `http://127.0.0.1:18787` for the API and `http://127.0.0.
 - Starts the local services.
 - Launches Playwright's managed Chromium with the extension preloaded.
 - Exercises discovery, generation, download validation, and guided browser verification.
+- Validates the browser-verification evidence report download.
 - Saves Playwright traces and failure evidence under `test-results/`.
 
 Humans do not need to launch the development services or load the extension to verify changes. Manual Chrome loading is reserved for exploratory product review.

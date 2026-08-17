@@ -24,6 +24,7 @@ const scopeCard = byId<HTMLElement>("scope-card");
 const configurationCard = byId<HTMLElement>("configuration-card");
 const proposalCard = byId<HTMLElement>("proposal-card");
 const verificationCard = byId<HTMLElement>("verification-card");
+const downloadReportButton = byId<HTMLButtonElement>("download-report");
 
 function setStatus(message: string, error = false): void {
   status.textContent = message;
@@ -82,8 +83,10 @@ function renderVerification(): void {
   if (!proposal) return;
   const list = byId<HTMLDivElement>("verification-list");
   list.replaceChildren();
+  const counts = { passed: 0, failed: 0, incomplete: 0 };
   for (const item of proposal.navigation) {
     const verdict = evaluateEvidence(item, evidence.get(item.id));
+    counts[verdict.status] += 1;
     const row = document.createElement("div");
     row.className = "navigation-item";
     const icon = document.createElement("span");
@@ -101,6 +104,55 @@ function renderVerification(): void {
     row.append(icon, copy, state);
     list.append(row);
   }
+  byId<HTMLElement>("summary-passed").textContent = counts.passed.toString();
+  byId<HTMLElement>("summary-failed").textContent = counts.failed.toString();
+  byId<HTMLElement>("summary-pending").textContent = counts.incomplete.toString();
+  downloadReportButton.disabled = evidence.size === 0;
+}
+
+function verificationReport(): string {
+  if (!proposal) return "";
+  const generatedAt = new Date().toISOString();
+  const rows = proposal.navigation.map((item) => {
+    const itemEvidence = evidence.get(item.id);
+    const verdict = evaluateEvidence(item, itemEvidence);
+    return {
+      id: item.id,
+      text: item.text,
+      href: item.href,
+      area: item.area,
+      status: verdict.status,
+      browserVerification: verdict.browserVerification,
+      platformConfirmation: verdict.platformConfirmation,
+      clickedAt: itemEvidence?.clickedAt,
+      observedRequests: itemEvidence?.requests ?? [],
+      checks: verdict.checks,
+    };
+  });
+  const summary = rows.reduce(
+    (counts, row) => {
+      counts[row.status] += 1;
+      return counts;
+    },
+    { passed: 0, failed: 0, incomplete: 0 },
+  );
+
+  return JSON.stringify(
+    {
+      reportType: "gtm-observability-browser-verification",
+      generatedAt,
+      setupId: proposal.id,
+      pageUrl: proposal.pageUrl,
+      eventName: proposal.eventName,
+      measurementId: proposal.measurementId,
+      summary,
+      platformConfirmation: "unverified",
+      boundary: "Browser evidence does not independently confirm GA4 platform processing.",
+      navigation: rows,
+    },
+    null,
+    2,
+  );
 }
 
 byId<HTMLButtonElement>("scan").addEventListener("click", async () => {
@@ -178,6 +230,17 @@ byId<HTMLButtonElement>("download").addEventListener("click", () => {
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = `gtm-navigation-${new URL(proposal.pageUrl).hostname}.json`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+});
+
+downloadReportButton.addEventListener("click", () => {
+  if (!proposal || evidence.size === 0) return;
+  const blob = new Blob([verificationReport()], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `gtm-verification-${new URL(proposal.pageUrl).hostname}.json`;
   anchor.click();
   URL.revokeObjectURL(url);
 });

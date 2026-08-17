@@ -16,7 +16,8 @@ The first autonomous vertical slice is implemented:
   - `GOOGLE_OAUTH_ACCESS_TOKEN` is required before real GTM discovery can run.
 - The API routing is shared by the local Node server and the Vercel Function entrypoints under `api/`.
 - Extension builds can target a hosted API by setting `GTM_OBSERVABILITY_API_BASE`.
-- `npm run verify` passes type checks, ten unit/scenario tests, builds, and the extension E2E test.
+- Guided verification now produces a local JSON evidence report with per-link browser verdicts and the platform-confirmation boundary.
+- `npm run verify` passes type checks, eleven unit/scenario tests, builds, and the extension E2E test.
 
 ## Start here
 

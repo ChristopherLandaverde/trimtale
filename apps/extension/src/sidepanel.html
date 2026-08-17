@@ -56,10 +56,25 @@
       <section id="verification-card" class="card hidden">
         <h2>Guided verification</h2>
         <p>Start GTM Preview, then click each confirmed navigation link on the page.</p>
+        <dl id="verification-summary" class="summary-grid">
+          <div>
+            <dt>Passed</dt>
+            <dd id="summary-passed">0</dd>
+          </div>
+          <div>
+            <dt>Failed</dt>
+            <dd id="summary-failed">0</dd>
+          </div>
+          <div>
+            <dt>Pending</dt>
+            <dd id="summary-pending">0</dd>
+          </div>
+        </dl>
         <div id="verification-list" class="navigation-list"></div>
         <div class="boundary">
           <strong>Platform confirmation:</strong> Not independently confirmed from browser evidence.
         </div>
+        <button id="download-report" class="secondary" disabled>Download evidence report</button>
       </section>
     </main>
     <script type="module" src="sidepanel.js"></script>

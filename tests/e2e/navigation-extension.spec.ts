@@ -75,7 +75,24 @@ test("discovers, generates, downloads, and verifies navigation tracking", async 
       .filter({ hasText: "Services" });
     await expect(servicesResult.locator(".area")).toHaveText("passed");
     await expect(servicesResult).toContainText("Observed 1 matching GA4 request");
+    await expect(panel.locator("#summary-passed")).toHaveText("1");
+    await expect(panel.locator("#summary-pending")).toHaveText("4");
     await expect(panel.locator(".boundary")).toContainText("Not independently confirmed");
+
+    const reportPromise = panel.waitForEvent("download");
+    await panel.getByRole("button", { name: "Download evidence report" }).click();
+    const report = await reportPromise;
+    const reportPath = await report.path();
+    expect(reportPath).not.toBeNull();
+    const evidenceReport = JSON.parse(await readFile(reportPath!, "utf8")) as {
+      reportType: string;
+      summary: { passed: number; incomplete: number };
+      platformConfirmation: string;
+    };
+    expect(evidenceReport.reportType).toBe("gtm-observability-browser-verification");
+    expect(evidenceReport.summary.passed).toBe(1);
+    expect(evidenceReport.summary.incomplete).toBe(4);
+    expect(evidenceReport.platformConfirmation).toBe("unverified");
 
   } catch (error) {
     await saveFailureScreenshots(testInfo, pages);
