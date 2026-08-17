@@ -124,3 +124,5 @@ npm run build:extension:prod
 This keeps the no-login extension flow usable on a real site such as ConsentFlow while the API runs remotely.
 
 Security and production-publish guardrails are documented in [Security and Publishing Notes](docs/security-and-publishing.md).
+
+The current pre-merge runbook is in [Pre-Merge Checklist](docs/pre-merge-checklist.md).
