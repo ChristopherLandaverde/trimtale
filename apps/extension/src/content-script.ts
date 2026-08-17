@@ -15,11 +15,14 @@ interface ScanResponse {
 type ExtensionRequest =
   | { type: "SCAN_NAVIGATION" }
   | { type: "START_VERIFICATION"; navigation: NavigationElement[] }
-  | { type: "GET_EVIDENCE" };
+  | { type: "GET_EVIDENCE" }
+  | { type: "TOGGLE_WORKBENCH"; tabId: number }
+  | { type: "HIDE_WORKBENCH" };
 
 const analyticsPattern = /(?:google-analytics\.com|analytics\.google\.com)\/g\/collect/i;
 const evidence = new Map<string, BrowserEvidence>();
 let verificationScope = new Map<string, NavigationElement>();
+let workbenchHost: HTMLDivElement | undefined;
 
 function areaFor(element: Element): NavigationArea {
   if (element.closest("header")) return "header";
@@ -86,6 +89,49 @@ function recentAnalyticsRequests(since: number): BrowserEvidence["requests"] {
     .map((entry) => ({ url: entry.name, observedAt: new Date().toISOString() }));
 }
 
+function showWorkbench(tabId: number): void {
+  if (workbenchHost) {
+    workbenchHost.hidden = !workbenchHost.hidden;
+    return;
+  }
+
+  const host = document.createElement("div");
+  host.id = "gtm-observability-workbench-host";
+  const shadow = host.attachShadow({ mode: "open" });
+  const style = document.createElement("style");
+  style.textContent = `
+    :host {
+      all: initial;
+      position: fixed;
+      inset: 16px 16px auto auto;
+      z-index: 2147483647;
+      width: min(420px, calc(100vw - 32px));
+      height: min(760px, calc(100vh - 32px));
+      border: 1px solid rgb(189 198 208);
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 18px 56px rgb(23 33 43 / 24%);
+      background: white;
+    }
+    :host([hidden]) {
+      display: none;
+    }
+    iframe {
+      display: block;
+      width: 100%;
+      height: 100%;
+      border: 0;
+      background: white;
+    }
+  `;
+  const frame = document.createElement("iframe");
+  frame.title = "GTM Observability workbench";
+  frame.src = chrome.runtime.getURL(`workbench.html?tabId=${tabId}&embedded=1`);
+  shadow.append(style, frame);
+  document.documentElement.append(host);
+  workbenchHost = host;
+}
+
 document.addEventListener(
   "click",
   (event) => {
@@ -138,6 +184,16 @@ if (!window.__gtmObservabilityInstalled) {
       }
       if (request.type === "GET_EVIDENCE") {
         sendResponse({ evidence: [...evidence.values()] });
+        return;
+      }
+      if (request.type === "TOGGLE_WORKBENCH") {
+        showWorkbench(request.tabId);
+        sendResponse({ visible: Boolean(workbenchHost) });
+        return;
+      }
+      if (request.type === "HIDE_WORKBENCH") {
+        if (workbenchHost) workbenchHost.hidden = true;
+        sendResponse({ visible: false });
       }
     },
   );

@@ -4,7 +4,7 @@
   "description": "Generate and verify evidence-backed GTM navigation tracking.",
   "version": "0.1.0",
   "minimum_chrome_version": "120",
-  "permissions": ["activeTab", "scripting", "storage", "webRequest"],
+  "permissions": ["activeTab", "downloads", "scripting", "storage", "webRequest"],
   "host_permissions": [
     "http://127.0.0.1:18787/*",
     "http://127.0.0.1:14173/*",
@@ -17,5 +17,11 @@
   },
   "action": {
     "default_title": "Open GTM Observability"
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["workbench.html", "workbench.js", "workbench.css"],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }

@@ -19,7 +19,7 @@ Status: merged to `main` and deployed to production
 - `GET /api/google/status` reports Google integration disabled unless server credentials are configured.
 - `GET /api/google/gtm/accounts` rejects unauthenticated access.
 - `POST /api/setups` generates a GTM-compatible navigation-click setup.
-- Chrome extension opens a persistent browser-action workbench tab, not a side panel and not an auto-closing popup.
+- Chrome extension opens an in-page browser-action workbench overlay, not a side panel, new tab, or auto-closing popup.
 - The workbench is bound to the source tab that opened it, preventing accidental scans of another HTTP tab.
 - The workbench includes a GTM import and Preview checklist before browser verification can start.
 - The workbench remembers manually entered GA4 Measurement IDs and public GTM Container IDs per site hostname after successful generation.
@@ -40,7 +40,7 @@ This is the remaining validation step that requires access outside the local har
 
 2. Load `apps/extension/prod-dist` as an unpacked Chrome extension.
 3. Open the live ConsentFlow site.
-4. Use the extension workbench tab to discover and confirm navigation scope.
+4. Use the extension workbench overlay to discover and confirm navigation scope.
 5. Generate and download the GTM container JSON.
 6. In the ConsentFlow GTM container, import the file using **Merge into a new workspace**.
 7. Start GTM Preview for ConsentFlow.

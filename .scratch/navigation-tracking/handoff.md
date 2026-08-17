@@ -4,7 +4,7 @@
 
 The first autonomous vertical slice is implemented:
 
-- Chrome extension workbench tab discovers and confirms navigation scope.
+- Chrome extension workbench overlay discovers and confirms navigation scope.
 - Local API validates the request and generates a partial GTM container file.
 - Guided verification correlates a confirmed click with an observed GA4-style request.
 - Browser verification remains separate from platform confirmation.
@@ -17,7 +17,7 @@ The first autonomous vertical slice is implemented:
 - The API routing is shared by the local Node server and the Vercel Function entrypoints under `api/`.
 - Extension builds can target a hosted API by setting `GTM_OBSERVABILITY_API_BASE`. The production testing build writes to `apps/extension/prod-dist`; the local E2E build writes to `apps/extension/dist`.
 - Guided verification now produces a local JSON evidence report with per-link browser verdicts and the platform-confirmation boundary.
-- The extension action opens a persistent workbench tab. It passes the source tab id into the workbench so discovery and verification stay bound to the site the practitioner opened the extension from.
+- The extension action opens an in-page workbench overlay. It passes the source tab id into the workbench so discovery and verification stay bound to the site the practitioner opened the extension from.
 - The workbench includes a GTM import and Preview checklist before guided verification starts.
 - Read-only GTM discovery follows Google `nextPageToken` pagination for both account and container lists.
 - The branch has been fast-forward merged into `main` and deployed to `https://gtm-observability.vercel.app`.

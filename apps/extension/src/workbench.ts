@@ -10,6 +10,8 @@ declare const __GTM_OBSERVABILITY_API_BASE__: string;
 const apiBase = __GTM_OBSERVABILITY_API_BASE__;
 const targetTabId = Number.parseInt(new URLSearchParams(location.search).get("tabId") ?? "", 10);
 const siteConfigPrefix = "siteConfig:";
+const proposalSessionKey = Number.isFinite(targetTabId) ? `proposal:${targetTabId}` : "";
+const verificationSessionKey = Number.isFinite(targetTabId) ? `verification:${targetTabId}` : "";
 let pageUrl = "";
 let navigation: NavigationElement[] = [];
 let proposal: SetupProposal | undefined;
@@ -18,6 +20,11 @@ const evidence = new Map<string, BrowserEvidence>();
 interface SiteConfig {
   measurementId: string;
   containerId: string;
+}
+
+interface DownloadPayload {
+  filename: string;
+  content: string;
 }
 
 function byId<T extends HTMLElement>(id: string): T {
@@ -143,6 +150,18 @@ function renderVerification(): void {
   downloadReportButton.disabled = evidence.size === 0;
 }
 
+function renderProposal(): void {
+  if (!proposal) return;
+  const checks = byId<HTMLUListElement>("preflight-list");
+  checks.replaceChildren(...proposal.preflight.checks.map((check) => {
+    const item = document.createElement("li");
+    item.textContent = check;
+    return item;
+  }));
+  proposalCard.classList.remove("hidden");
+  importCard.classList.remove("hidden");
+}
+
 function verificationReport(): string {
   if (!proposal) return "";
   const generatedAt = new Date().toISOString();
@@ -186,6 +205,29 @@ function verificationReport(): string {
     null,
     2,
   );
+}
+
+async function downloadJson(filename: string, content: string): Promise<void> {
+  (window as Window & { __gtmObservabilityLastDownload?: DownloadPayload }).__gtmObservabilityLastDownload = {
+    filename,
+    content,
+  };
+
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "DOWNLOAD_JSON", filename, content }) as
+      | { downloadId: number }
+      | { error: string };
+    if ("downloadId" in response) return;
+    if (response?.error) setStatus(response.error, true);
+  } catch {
+    // Fall back to a browser-initiated download when the service worker is unavailable.
+  }
+
+  const url = `data:application/json;charset=utf-8,${encodeURIComponent(content)}`;
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
 }
 
 byId<HTMLButtonElement>("scan").addEventListener("click", async () => {
@@ -252,14 +294,10 @@ byId<HTMLButtonElement>("generate").addEventListener("click", async () => {
     if (!response.ok || "error" in body) throw new Error("error" in body ? body.error : "Generation failed.");
     proposal = body;
     await saveSiteConfig(pageUrl, { measurementId, containerId });
-    const checks = byId<HTMLUListElement>("preflight-list");
-    checks.replaceChildren(...proposal.preflight.checks.map((check) => {
-      const item = document.createElement("li");
-      item.textContent = check;
-      return item;
-    }));
-    proposalCard.classList.remove("hidden");
-    importCard.classList.remove("hidden");
+    if (proposalSessionKey) {
+      await chrome.storage.local.set({ [proposalSessionKey]: proposal });
+    }
+    renderProposal();
     setStatus("Preflight passed. Download the file, import it with Merge, then connect GTM Preview.");
   } catch (error) {
     setStatus(error instanceof Error ? error.message : "Unable to generate the setup.", true);
@@ -268,24 +306,15 @@ byId<HTMLButtonElement>("generate").addEventListener("click", async () => {
 
 byId<HTMLButtonElement>("download").addEventListener("click", () => {
   if (!proposal) return;
-  const blob = new Blob([JSON.stringify(proposal.containerFile, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `gtm-navigation-${new URL(proposal.pageUrl).hostname}.json`;
-  anchor.click();
-  URL.revokeObjectURL(url);
+  void downloadJson(
+    `gtm-navigation-${new URL(proposal.pageUrl).hostname}.json`,
+    JSON.stringify(proposal.containerFile, null, 2),
+  );
 });
 
 downloadReportButton.addEventListener("click", () => {
   if (!proposal || evidence.size === 0) return;
-  const blob = new Blob([verificationReport()], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `gtm-verification-${new URL(proposal.pageUrl).hostname}.json`;
-  anchor.click();
-  URL.revokeObjectURL(url);
+  void downloadJson(`gtm-verification-${new URL(proposal.pageUrl).hostname}.json`, verificationReport());
 });
 
 byId<HTMLButtonElement>("verify").addEventListener("click", async () => {
@@ -295,8 +324,12 @@ byId<HTMLButtonElement>("verify").addEventListener("click", async () => {
     await ensureContentScript(tab.id!);
     await chrome.tabs.sendMessage(tab.id!, { type: "START_VERIFICATION", navigation: proposal.navigation });
     evidence.clear();
+    if (verificationSessionKey) {
+      await chrome.storage.local.set({ [verificationSessionKey]: true });
+    }
     verificationCard.classList.remove("hidden");
     renderVerification();
+    await chrome.tabs.sendMessage(tab.id!, { type: "HIDE_WORKBENCH" });
     setStatus("Verification started. Click the confirmed links in the GTM Preview tab.");
   } catch (error) {
     setStatus(error instanceof Error ? error.message : "Unable to start verification.", true);
@@ -308,3 +341,34 @@ chrome.runtime.onMessage.addListener((message: { type?: string; evidence?: Brows
   evidence.set(message.evidence.navigationId, message.evidence);
   renderVerification();
 });
+
+void (async () => {
+  if (!proposalSessionKey || !verificationSessionKey) return;
+  const stored = await chrome.storage.local.get([proposalSessionKey, verificationSessionKey]);
+  const storedProposal = stored[proposalSessionKey] as SetupProposal | undefined;
+  if (!storedProposal) return;
+
+  proposal = storedProposal;
+  pageUrl = proposal.pageUrl;
+  navigation = proposal.navigation;
+  byId<HTMLInputElement>("measurement-id").value = proposal.measurementId;
+  byId<HTMLInputElement>("container-id").value = proposal.containerFile.containerVersion.container.publicId;
+  renderNavigation();
+  scopeCard.classList.remove("hidden");
+  configurationCard.classList.remove("hidden");
+  renderProposal();
+
+  if (stored[verificationSessionKey]) {
+    const result = await chrome.runtime.sendMessage({ type: "GET_TAB_EVIDENCE", tabId: targetTabId }) as {
+      evidence?: BrowserEvidence[];
+    };
+    for (const item of result.evidence ?? []) {
+      evidence.set(item.navigationId, item);
+    }
+    verificationCard.classList.remove("hidden");
+    renderVerification();
+    setStatus("Restored verification state for this tab.");
+  } else {
+    setStatus("Restored the generated setup for this tab.");
+  }
+})();

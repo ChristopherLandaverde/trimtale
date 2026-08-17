@@ -42,6 +42,8 @@ The extension manifest is generated at build time. It includes:
 - the local fixture origin for deterministic development checks
 - Google Analytics collection hosts used for browser evidence observation
 
+The extension requests the `downloads` permission only to save the generated GTM container JSON and browser-verification evidence report from the embedded workbench.
+
 Do not add wildcard Vercel host permissions. Build hosted extension artifacts with:
 
 ```bash

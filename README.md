@@ -72,6 +72,8 @@ Discover navigation
 
 The implementation deliberately distinguishes browser verification from GA4 platform confirmation. See [the feature specification](.scratch/navigation-tracking/spec.md) for the supported path and exclusions.
 
+The Chrome extension action opens the workbench as an overlay on the current site so practitioners can stay on the page they are configuring.
+
 ### Development
 
 Requirements: Node.js 22+ and npm 10+.

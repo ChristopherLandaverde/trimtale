@@ -1,5 +1,5 @@
 import { expect, test, chromium, type BrowserContext, type Page, type TestInfo } from "@playwright/test";
-import { readFile, mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -35,21 +35,21 @@ test("discovers, generates, downloads, and verifies navigation tracking", async 
     pages.push(site);
     await site.goto("http://127.0.0.1:14173/");
 
-    const id = await extensionId(context);
-    const workbenchPromise = context.waitForEvent("page");
+    await extensionId(context);
     await context.serviceWorkers()[0]!.evaluate(async () => {
       const [tab] = await chrome.tabs.query({ url: "http://127.0.0.1:14173/*" });
       if (!tab?.id) throw new Error("Fixture tab not found.");
-      await chrome.tabs.create({ url: chrome.runtime.getURL(`workbench.html?tabId=${tab.id}`) });
+      try {
+        await chrome.tabs.sendMessage(tab.id, { type: "GET_EVIDENCE" });
+      } catch {
+        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content-script.js"] });
+      }
+      await chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_WORKBENCH", tabId: tab.id });
     });
-    const panel = await workbenchPromise;
-    pages.push(panel);
-    await panel.waitForLoadState("domcontentloaded");
-    const workbenchUrl = new URL(panel.url());
-    expect(workbenchUrl.protocol).toBe("chrome-extension:");
-    expect(workbenchUrl.host).toBe(id);
-    expect(workbenchUrl.pathname).toBe("/workbench.html");
-    expect(Number.parseInt(workbenchUrl.searchParams.get("tabId") ?? "", 10)).toBeGreaterThan(0);
+    await expect(site.locator("#gtm-observability-workbench-host")).toBeAttached();
+    await expect.poll(() => site.frames().some((frame) => frame.url().includes("workbench.html"))).toBe(true);
+    let panel = site.frames().find((frame) => frame.url().includes("workbench.html"));
+    if (!panel) throw new Error("Workbench frame not found.");
 
     await panel.getByRole("button", { name: "Discover navigation" }).click();
     await expect(panel.locator("#navigation-list .navigation-item")).toHaveCount(5);
@@ -72,12 +72,12 @@ test("discovers, generates, downloads, and verifies navigation tracking", async 
     await expect(panel.locator("#import-card")).toContainText("Merge");
     await expect(panel.locator("#import-card")).toContainText("Do not select Overwrite");
 
-    const downloadPromise = panel.waitForEvent("download");
     await panel.getByRole("button", { name: "Download container JSON" }).click();
-    const download = await downloadPromise;
-    const downloadPath = await download.path();
-    expect(downloadPath).not.toBeNull();
-    const file = JSON.parse(await readFile(downloadPath!, "utf8")) as {
+    const containerPayload = await panel.evaluate(() => (
+      window as Window & { __gtmObservabilityLastDownload?: { filename: string; content: string } }
+    ).__gtmObservabilityLastDownload);
+    expect(containerPayload?.filename).toBe("gtm-navigation-127.0.0.1.json");
+    const file = JSON.parse(containerPayload!.content) as {
       exportFormatVersion: number;
       containerVersion: { tag: unknown[]; trigger: unknown[]; builtInVariable: unknown[] };
     };
@@ -86,11 +86,32 @@ test("discovers, generates, downloads, and verifies navigation tracking", async 
     expect(file.containerVersion.trigger).toHaveLength(1);
     expect(file.containerVersion.builtInVariable).toHaveLength(2);
 
-    await panel.getByRole("button", { name: "GTM Preview is connected — start verification" }).click();
-    await expect(panel.getByRole("heading", { name: "Guided verification" })).toBeVisible();
+    await panel.evaluate(() => {
+      document.getElementById("verify")?.click();
+    });
+    await expect
+      .poll(async () => panel.locator("#verification-card").evaluate((element) => !element.classList.contains("hidden")))
+      .toBe(true);
+    await expect(site.locator("#gtm-observability-workbench-host")).toBeHidden();
 
     await site.bringToFront();
     await site.getByRole("link", { name: "Services" }).click({ noWaitAfter: true });
+    await expect(site).toHaveURL("http://127.0.0.1:14173/services");
+
+    await context.serviceWorkers()[0]!.evaluate(async () => {
+      const [tab] = await chrome.tabs.query({ url: "http://127.0.0.1:14173/*" });
+      if (!tab?.id) throw new Error("Fixture tab not found.");
+      try {
+        await chrome.tabs.sendMessage(tab.id, { type: "GET_EVIDENCE" });
+      } catch {
+        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content-script.js"] });
+      }
+      await chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_WORKBENCH", tabId: tab.id });
+    });
+    await expect(site.locator("#gtm-observability-workbench-host")).toBeVisible();
+    await expect.poll(() => site.frames().some((frame) => frame.url().includes("workbench.html"))).toBe(true);
+    panel = site.frames().find((frame) => frame.url().includes("workbench.html"));
+    if (!panel) throw new Error("Restored workbench frame not found.");
 
     const servicesResult = panel
       .locator("#verification-list .navigation-item")
@@ -101,12 +122,12 @@ test("discovers, generates, downloads, and verifies navigation tracking", async 
     await expect(panel.locator("#summary-pending")).toHaveText("4");
     await expect(panel.locator(".boundary")).toContainText("Not independently confirmed");
 
-    const reportPromise = panel.waitForEvent("download");
     await panel.getByRole("button", { name: "Download evidence report" }).click();
-    const report = await reportPromise;
-    const reportPath = await report.path();
-    expect(reportPath).not.toBeNull();
-    const evidenceReport = JSON.parse(await readFile(reportPath!, "utf8")) as {
+    const reportPayload = await panel.evaluate(() => (
+      window as Window & { __gtmObservabilityLastDownload?: { filename: string; content: string } }
+    ).__gtmObservabilityLastDownload);
+    expect(reportPayload?.filename).toBe("gtm-verification-127.0.0.1.json");
+    const evidenceReport = JSON.parse(reportPayload!.content) as {
       reportType: string;
       summary: { passed: number; incomplete: number };
       platformConfirmation: string;
