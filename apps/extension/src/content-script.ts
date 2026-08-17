@@ -3,6 +3,7 @@ import type { BrowserEvidence, NavigationArea, NavigationElement } from "@gtm-ob
 declare global {
   interface Window {
     __gtmObservabilityInstalled?: boolean;
+    dataLayer?: unknown[];
     google_tag_manager?: Record<string, unknown>;
   }
 }
@@ -40,6 +41,19 @@ function areaFor(element: Element): NavigationArea {
   return "unknown";
 }
 
+function isVisible(element: HTMLElement): boolean {
+  const style = getComputedStyle(element);
+  const rect = element.getBoundingClientRect();
+  return (
+    !element.hidden &&
+    element.getAttribute("aria-hidden") !== "true" &&
+    style.display !== "none" &&
+    style.visibility !== "hidden" &&
+    rect.width > 0 &&
+    rect.height > 0
+  );
+}
+
 function cssEscape(value: string): string {
   return CSS.escape(value);
 }
@@ -63,16 +77,20 @@ function stableId(selector: string, href: string): string {
 }
 
 function scanNavigation(): ScanResponse {
-  const candidates = [
+  const scopedCandidates = [
     ...document.querySelectorAll<HTMLAnchorElement>(
       "header a[href], nav a[href], [role='navigation'] a[href], footer a[href]",
     ),
   ];
+  const candidates = scopedCandidates.length > 0
+    ? scopedCandidates
+    : [...document.querySelectorAll<HTMLAnchorElement>("a[href]")];
   const seen = new Set<string>();
   const navigation: NavigationElement[] = [];
 
   candidates.forEach((anchor, index) => {
-    if (!anchor.href || anchor.hidden || anchor.getAttribute("aria-hidden") === "true") return;
+    if (!anchor.href || !isVisible(anchor) || anchor.closest("#gtm-observability-workbench-host")) return;
+    if (!anchor.innerText.trim() && !anchor.getAttribute("aria-label")) return;
     const selector = selectorFor(anchor, index);
     const key = `${selector}\u0000${anchor.href}`;
     if (seen.has(key)) return;
@@ -94,13 +112,30 @@ function scanNavigation(): ScanResponse {
 function addMatches(target: Set<string>, value: string | null | undefined, pattern: RegExp): void {
   if (!value) return;
   for (const match of value.matchAll(pattern)) {
-    target.add(match[0]!.toUpperCase());
+    const id = match[0]!.toUpperCase();
+    if (id === "GTM-OBSERVABILITY") continue;
+    target.add(id);
+  }
+}
+
+function scanElementAttributes(
+  gtmContainers: Set<string>,
+  ga4MeasurementIds: Set<string>,
+): void {
+  for (const element of document.querySelectorAll<HTMLElement>("body *")) {
+    if (element.closest("#gtm-observability-workbench-host")) continue;
+    for (const attribute of element.getAttributeNames()) {
+      const value = element.getAttribute(attribute);
+      addMatches(gtmContainers, value, gtmPattern);
+      addMatches(ga4MeasurementIds, value, ga4Pattern);
+    }
   }
 }
 
 function trackingSignals(): PageTrackingSignals {
   const gtmContainers = new Set<string>();
   const ga4MeasurementIds = new Set<string>();
+  scanElementAttributes(gtmContainers, ga4MeasurementIds);
   for (const script of document.scripts) {
     addMatches(gtmContainers, script.src, gtmPattern);
     addMatches(gtmContainers, script.textContent, gtmPattern);
@@ -109,6 +144,19 @@ function trackingSignals(): PageTrackingSignals {
   }
   for (const frame of document.querySelectorAll<HTMLIFrameElement>("noscript iframe[src], iframe[src]")) {
     addMatches(gtmContainers, frame.src, gtmPattern);
+  }
+  for (const resource of performance.getEntriesByType("resource")) {
+    addMatches(gtmContainers, resource.name, gtmPattern);
+    addMatches(ga4MeasurementIds, resource.name, ga4Pattern);
+  }
+  for (const entry of window.dataLayer ?? []) {
+    try {
+      const serialized = JSON.stringify(entry);
+      addMatches(gtmContainers, serialized, gtmPattern);
+      addMatches(ga4MeasurementIds, serialized, ga4Pattern);
+    } catch {
+      // Ignore unserializable dataLayer entries.
+    }
   }
   for (const key of Object.keys(window.google_tag_manager ?? {})) {
     addMatches(gtmContainers, key, gtmPattern);

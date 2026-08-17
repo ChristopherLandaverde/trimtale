@@ -203,3 +203,34 @@ test("detects GTM-only pages without asking for manual IDs", async ({}, testInfo
     await rm(profile, { recursive: true, force: true });
   }
 });
+
+test("finds loose page navigation and DOM-visible GTM signals", async ({}, testInfo) => {
+  const profile = await mkdtemp(join(tmpdir(), "gtm-observability-"));
+  const extensionPath = resolve("apps/extension/dist");
+  const context = await chromium.launchPersistentContext(profile, {
+    channel: "chromium",
+    headless: true,
+    args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+  });
+  const pages: Page[] = [];
+
+  try {
+    const site = await context.newPage();
+    pages.push(site);
+    await site.goto("http://127.0.0.1:14173/loose-navigation");
+
+    await openWorkbench(context);
+    const panel = await workbenchFrame(site);
+
+    await panel.getByRole("button", { name: "Discover navigation" }).click();
+    await expect(panel.locator("#navigation-list .navigation-item")).toHaveCount(3);
+    await expect(panel.locator("#detected-gtm")).toHaveText("GTM-TEST123 matched");
+    await expect(panel.getByLabel("GTM container ID")).toHaveValue("GTM-TEST123");
+  } catch (error) {
+    await saveFailureScreenshots(testInfo, pages);
+    throw error;
+  } finally {
+    await context.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});

@@ -4,8 +4,9 @@ const port = Number.parseInt(process.env.FIXTURE_PORT ?? "14173", 10);
 
 function page(pathname: string): string {
   const gtmOnly = pathname === "/gtm-only";
+  const looseNavigation = pathname === "/loose-navigation";
   return `<!doctype html>
-<html lang="en">
+<html lang="en" data-container="GTM-TEST123">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -30,7 +31,11 @@ function page(pathname: string): string {
     </style>
   </head>
   <body>
-    <header>
+    ${looseNavigation ? `<div class="menu">
+      <a href="/services">Services</a>
+      <a href="/work">Work</a>
+      <a href="/contact">Contact</a>
+    </div>` : `<header>
       <a id="logo" href="/">Northstar</a>
       <nav aria-label="Primary navigation">
         <a href="/services">Services</a>
@@ -46,7 +51,7 @@ function page(pathname: string): string {
       <nav aria-label="Footer navigation">
         <a href="/privacy">Privacy</a>
       </nav>
-    </footer>
+    </footer>`}
     <script>
       const duplicate = new URLSearchParams(location.search).get('scenario') === 'duplicate';
       document.addEventListener('click', (event) => {
