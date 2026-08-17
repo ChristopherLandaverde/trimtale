@@ -251,6 +251,44 @@ button:disabled {
 .signal-panel .mismatch { color: #a52a2a; }
 .signal-panel .unknown { color: #667486; }
 
+.readiness {
+  border: 1px solid #d9e0e8;
+  border-radius: 7px;
+  padding: 9px;
+  color: #566270;
+  background: #f8fafc;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.readiness.ready {
+  color: #174f38;
+  border-color: #bde8ce;
+  background: #e8f8ee;
+}
+
+.readiness.blocked {
+  color: #7a4d00;
+  border-color: #f0dfab;
+  background: #fff8e8;
+}
+
+.advanced-config {
+  border-top: 1px solid #e0e6ed;
+  padding-top: 8px;
+}
+
+.advanced-config summary {
+  color: #526174;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.advanced-config .two-field-grid {
+  margin-top: 9px;
+}
+
 .navigation-list {
   display: grid;
   gap: 7px;

@@ -16,7 +16,7 @@
             <p id="site-host">Current site</p>
           </div>
         </div>
-        <span id="config-state" class="state-pill">Not configured</span>
+        <span id="config-state" class="state-pill">Detecting</span>
       </header>
 
       <nav class="progress" aria-label="Setup progress">
@@ -50,7 +50,7 @@
         <div class="section-heading">
           <div>
             <h2>Site configuration</h2>
-            <p id="config-summary">Save the GA4/GTM pair for this site.</p>
+            <p id="config-summary">Detected and saved automatically for this site.</p>
           </div>
         </div>
         <div id="detected-signals" class="signal-panel">
@@ -63,17 +63,21 @@
             <strong id="detected-ga4">None found</strong>
           </div>
         </div>
-        <div class="two-field-grid">
-          <div class="field-group">
-            <label for="measurement-id">GA4 measurement ID</label>
-            <input id="measurement-id" placeholder="G-XXXXXXXXXX" autocomplete="off" />
+        <div id="config-readiness" class="readiness">Waiting for page signals.</div>
+        <details id="manual-config" class="advanced-config">
+          <summary>Advanced fallback</summary>
+          <div class="two-field-grid">
+            <div class="field-group">
+              <label for="measurement-id">GA4 measurement ID</label>
+              <input id="measurement-id" placeholder="G-XXXXXXXXXX" autocomplete="off" />
+            </div>
+            <div class="field-group">
+              <label for="container-id">GTM container ID</label>
+              <input id="container-id" placeholder="GTM-XXXXXXX" autocomplete="off" />
+            </div>
           </div>
-          <div class="field-group">
-            <label for="container-id">GTM container ID</label>
-            <input id="container-id" placeholder="GTM-XXXXXXX" autocomplete="off" />
-          </div>
-        </div>
-        <button id="generate" class="primary">Generate GTM file</button>
+        </details>
+        <button id="generate" class="primary" disabled>Generate GTM file</button>
       </section>
 
       <section id="proposal-card" class="surface hidden">

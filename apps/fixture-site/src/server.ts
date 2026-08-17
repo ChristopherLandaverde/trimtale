@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 const port = Number.parseInt(process.env.FIXTURE_PORT ?? "14173", 10);
 
 function page(pathname: string): string {
+  const gtmOnly = pathname === "/gtm-only";
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -13,8 +14,9 @@ function page(pathname: string): string {
       window.dataLayer = window.dataLayer || [];
       window.google_tag_manager = { "GTM-TEST123": {} };
       window.dataLayer.push({ "gtm.start": Date.now(), event: "gtm.js" });
+      ${gtmOnly ? "" : `
       window.gtag = function gtag(){ window.dataLayer.push(arguments); };
-      window.gtag("config", "G-TEST123456");
+      window.gtag("config", "G-TEST123456");`}
     </script>
     <style>
       body { margin: 0; font-family: system-ui, sans-serif; color: #17212b; }
@@ -51,10 +53,11 @@ function page(pathname: string): string {
         const link = event.target.closest('a[href]');
         if (!link) return;
         event.preventDefault();
-        const endpoint = '/g/collect?v=2&tid=G-TEST123456&en=navigation_click&ep.link_text=' +
+        const measurementId = ${gtmOnly ? "''" : "'G-TEST123456'"};
+        const endpoint = '/g/collect?v=2&tid=' + measurementId + '&en=navigation_click&ep.link_text=' +
           encodeURIComponent(link.textContent.trim()) + '&ep.link_url=' + encodeURIComponent(link.href);
-        navigator.sendBeacon(endpoint);
-        if (duplicate) navigator.sendBeacon(endpoint);
+        if (measurementId) navigator.sendBeacon(endpoint);
+        if (measurementId && duplicate) navigator.sendBeacon(endpoint);
         setTimeout(() => { location.href = link.href; }, 250);
       }, true);
     </script>

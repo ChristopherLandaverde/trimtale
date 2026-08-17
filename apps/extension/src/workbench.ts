@@ -46,11 +46,13 @@ const scopeSummary = byId<HTMLParagraphElement>("scope-summary");
 const configSummary = byId<HTMLParagraphElement>("config-summary");
 const detectedGtm = byId<HTMLElement>("detected-gtm");
 const detectedGa4 = byId<HTMLElement>("detected-ga4");
+const configReadiness = byId<HTMLElement>("config-readiness");
 const scopeCard = byId<HTMLElement>("scope-card");
 const configurationCard = byId<HTMLElement>("configuration-card");
 const proposalCard = byId<HTMLElement>("proposal-card");
 const importCard = byId<HTMLElement>("import-card");
 const verificationCard = byId<HTMLElement>("verification-card");
+const generateButton = byId<HTMLButtonElement>("generate");
 const downloadReportButton = byId<HTMLButtonElement>("download-report");
 const progressSteps = {
   discover: byId<HTMLElement>("step-discover"),
@@ -80,12 +82,12 @@ function setSiteContext(url: string): void {
 
 function setConfigState(config?: SiteConfig): void {
   if (!config) {
-    configState.textContent = "Not configured";
+    configState.textContent = "Detecting";
     configState.classList.remove("ready");
-    configSummary.textContent = "Save the GA4/GTM pair for this site.";
+    configSummary.textContent = "Detected and saved automatically for this site.";
     return;
   }
-  configState.textContent = "Saved";
+  configState.textContent = "Ready";
   configState.classList.add("ready");
   configSummary.textContent = `Using ${config.containerId.toUpperCase()} and ${config.measurementId.toUpperCase()}.`;
 }
@@ -115,6 +117,44 @@ function renderTrackingSignals(): void {
   detectedGtm.className = gtm.className;
   detectedGa4.textContent = ga4.text;
   detectedGa4.className = ga4.className;
+}
+
+function autoFillDetectedConfig(): void {
+  const measurement = byId<HTMLInputElement>("measurement-id");
+  const container = byId<HTMLInputElement>("container-id");
+  if (!container.value.trim() && pageSignals.gtmContainers.length === 1) {
+    container.value = pageSignals.gtmContainers[0]!;
+  }
+  if (!measurement.value.trim() && pageSignals.ga4MeasurementIds.length === 1) {
+    measurement.value = pageSignals.ga4MeasurementIds[0]!;
+  }
+}
+
+function configReady(): boolean {
+  const { measurementId, containerId } = currentConfig();
+  return Boolean(measurementId && containerId);
+}
+
+function updateConfigReadiness(): void {
+  const { measurementId, containerId } = currentConfig();
+  generateButton.disabled = !measurementId || !containerId;
+  configReadiness.classList.toggle("ready", Boolean(measurementId && containerId));
+  configReadiness.classList.toggle("blocked", Boolean(containerId && !measurementId));
+  if (measurementId && containerId) {
+    configReadiness.textContent = "Ready. Site configuration was inferred or restored for this page.";
+    setConfigState({ measurementId, containerId });
+    return;
+  }
+  setConfigState(undefined);
+  if (containerId && !measurementId) {
+    configReadiness.textContent = "GTM is installed, but GA4 is not visible from the page. The next product step is GTM account connection to resolve the destination automatically.";
+    return;
+  }
+  if (!containerId && measurementId) {
+    configReadiness.textContent = "GA4 is visible, but no GTM container was detected on this page.";
+    return;
+  }
+  configReadiness.textContent = "No GTM or GA4 configuration is visible yet.";
 }
 
 function trackingSignalStatus(config: SiteConfig): string {
@@ -150,6 +190,7 @@ async function prefillSiteConfig(url: string): Promise<boolean> {
   byId<HTMLInputElement>("measurement-id").value = stored.measurementId;
   byId<HTMLInputElement>("container-id").value = stored.containerId;
   renderTrackingSignals();
+  updateConfigReadiness();
   return true;
 }
 
@@ -335,8 +376,10 @@ byId<HTMLButtonElement>("scan").addEventListener("click", async () => {
     setSiteContext(pageUrl);
     renderNavigation();
     const foundSiteConfig = await prefillSiteConfig(pageUrl);
+    autoFillDetectedConfig();
     const savedConfig = foundSiteConfig ? currentConfig() : undefined;
     renderTrackingSignals();
+    updateConfigReadiness();
     scopeCard.classList.remove("hidden");
     configurationCard.classList.remove("hidden");
     proposalCard.classList.add("hidden");
@@ -345,7 +388,9 @@ byId<HTMLButtonElement>("scan").addEventListener("click", async () => {
     setStatus(
       savedConfig
         ? `Loaded saved GTM configuration. ${trackingSignalStatus(savedConfig)}`
-        : "Confirm scope, then add the GA4 and GTM IDs.",
+        : configReady()
+          ? `Detected site configuration. ${trackingSignalStatus(currentConfig())}`
+          : "Confirm scope. GTM was detected when available; GA4 may require GTM account connection.",
     );
     setProgress("configure");
   } catch (error) {
@@ -367,6 +412,9 @@ byId<HTMLButtonElement>("generate").addEventListener("click", async () => {
     if (confirmed.length === 0) throw new Error("Confirm at least one navigation element.");
     setStatus("Generating a scoped GTM setup…");
     const { measurementId, containerId } = currentConfig();
+    if (!measurementId || !containerId) {
+      throw new Error("GTM and GA4 configuration must be inferred, restored, or supplied through the advanced fallback before generation.");
+    }
     const response = await fetch(`${apiBase}/api/setups`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -392,6 +440,7 @@ byId<HTMLButtonElement>("generate").addEventListener("click", async () => {
     }
     setConfigState({ measurementId, containerId });
     renderTrackingSignals();
+    updateConfigReadiness();
     renderProposal();
     setStatus(`${trackingSignalStatus({ measurementId, containerId })} Download the file, import it with Merge, then connect GTM Preview.`);
   } catch (error) {
@@ -455,6 +504,7 @@ void (async () => {
     containerId: proposal.containerFile.containerVersion.container.publicId,
   });
   renderTrackingSignals();
+  updateConfigReadiness();
   renderNavigation();
   scopeCard.classList.remove("hidden");
   configurationCard.classList.remove("hidden");
@@ -476,5 +526,11 @@ void (async () => {
   }
 })();
 
-byId<HTMLInputElement>("measurement-id").addEventListener("input", renderTrackingSignals);
-byId<HTMLInputElement>("container-id").addEventListener("input", renderTrackingSignals);
+byId<HTMLInputElement>("measurement-id").addEventListener("input", () => {
+  renderTrackingSignals();
+  updateConfigReadiness();
+});
+byId<HTMLInputElement>("container-id").addEventListener("input", () => {
+  renderTrackingSignals();
+  updateConfigReadiness();
+});
