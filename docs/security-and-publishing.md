@@ -46,6 +46,12 @@ Do not add wildcard Vercel host permissions. Build hosted extension artifacts wi
 GTM_OBSERVABILITY_API_BASE=https://your-api.vercel.app npm run build:extension
 ```
 
+For the current production API, build with:
+
+```bash
+npm run build:extension:prod
+```
+
 ## Vercel pre-publish checklist
 
 Before promoting a Vercel deployment to production:
