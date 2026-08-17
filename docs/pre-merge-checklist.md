@@ -20,6 +20,7 @@ Status: merged to `main` and deployed to production
 - `POST /api/setups` generates a GTM-compatible navigation-click setup.
 - Chrome extension opens a persistent browser-action workbench tab, not a side panel and not an auto-closing popup.
 - The workbench is bound to the source tab that opened it, preventing accidental scans of another HTTP tab.
+- The workbench includes a GTM import and Preview checklist before browser verification can start.
 - Read-only GTM discovery paginates account and container results with `nextPageToken`.
 - Production extension build points at the exact production API origin.
 - Security and publishing guardrails are documented.

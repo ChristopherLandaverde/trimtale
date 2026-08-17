@@ -18,6 +18,7 @@ The first autonomous vertical slice is implemented:
 - Extension builds can target a hosted API by setting `GTM_OBSERVABILITY_API_BASE`.
 - Guided verification now produces a local JSON evidence report with per-link browser verdicts and the platform-confirmation boundary.
 - The extension action opens a persistent workbench tab. It passes the source tab id into the workbench so discovery and verification stay bound to the site the practitioner opened the extension from.
+- The workbench includes a GTM import and Preview checklist before guided verification starts.
 - Read-only GTM discovery follows Google `nextPageToken` pagination for both account and container lists.
 - The branch has been fast-forward merged into `main` and deployed to `https://gtm-observability.vercel.app`.
 - `npm run verify` passes type checks, eleven unit/scenario tests, builds, and the extension E2E test.

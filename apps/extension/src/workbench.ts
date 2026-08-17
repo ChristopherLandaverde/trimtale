@@ -24,6 +24,7 @@ const status = byId<HTMLParagraphElement>("status");
 const scopeCard = byId<HTMLElement>("scope-card");
 const configurationCard = byId<HTMLElement>("configuration-card");
 const proposalCard = byId<HTMLElement>("proposal-card");
+const importCard = byId<HTMLElement>("import-card");
 const verificationCard = byId<HTMLElement>("verification-card");
 const downloadReportButton = byId<HTMLButtonElement>("download-report");
 
@@ -174,6 +175,7 @@ byId<HTMLButtonElement>("scan").addEventListener("click", async () => {
     scopeCard.classList.remove("hidden");
     configurationCard.classList.remove("hidden");
     proposalCard.classList.add("hidden");
+    importCard.classList.add("hidden");
     verificationCard.classList.add("hidden");
     setStatus(`Found ${navigation.length} candidate navigation element(s). Confirm the scope below.`);
   } catch (error) {
@@ -220,7 +222,8 @@ byId<HTMLButtonElement>("generate").addEventListener("click", async () => {
       return item;
     }));
     proposalCard.classList.remove("hidden");
-    setStatus("Preflight passed. Review the import warning before downloading.");
+    importCard.classList.remove("hidden");
+    setStatus("Preflight passed. Download the file, import it with Merge, then connect GTM Preview.");
   } catch (error) {
     setStatus(error instanceof Error ? error.message : "Unable to generate the setup.", true);
   }

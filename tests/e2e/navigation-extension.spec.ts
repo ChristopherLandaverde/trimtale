@@ -60,6 +60,9 @@ test("discovers, generates, downloads, and verifies navigation tracking", async 
     await panel.getByRole("button", { name: "Generate GTM file" }).click();
     await expect(panel.getByRole("heading", { name: "Preflight passed" })).toBeVisible();
     await expect(panel.locator("#preflight-list li")).toHaveCount(4);
+    await expect(panel.getByRole("heading", { name: "GTM import and Preview" })).toBeVisible();
+    await expect(panel.locator("#import-card")).toContainText("Merge");
+    await expect(panel.locator("#import-card")).toContainText("Do not select Overwrite");
 
     const downloadPromise = panel.waitForEvent("download");
     await panel.getByRole("button", { name: "Download container JSON" }).click();
@@ -75,7 +78,7 @@ test("discovers, generates, downloads, and verifies navigation tracking", async 
     expect(file.containerVersion.trigger).toHaveLength(1);
     expect(file.containerVersion.builtInVariable).toHaveLength(2);
 
-    await panel.getByRole("button", { name: "I imported it — start verification" }).click();
+    await panel.getByRole("button", { name: "GTM Preview is connected — start verification" }).click();
     await expect(panel.getByRole("heading", { name: "Guided verification" })).toBeVisible();
 
     await site.bringToFront();

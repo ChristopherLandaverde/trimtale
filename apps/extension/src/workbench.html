@@ -50,7 +50,22 @@
           Import using <strong>Merge into a new workspace</strong>. Never choose Overwrite.
         </div>
         <button id="download" class="primary">Download container JSON</button>
-        <button id="verify" class="secondary">I imported it — start verification</button>
+      </section>
+
+      <section id="import-card" class="card hidden">
+        <h2>GTM import and Preview</h2>
+        <ol class="step-list">
+          <li>Open the target GTM container.</li>
+          <li>Create or select a new workspace for this tracking setup.</li>
+          <li>Import the downloaded JSON file.</li>
+          <li>Select <strong>Merge</strong>. Do not select Overwrite.</li>
+          <li>Review the imported navigation click tag, trigger, and click variables.</li>
+          <li>Start GTM Preview for this site.</li>
+        </ol>
+        <div class="warning">
+          Stop here until GTM Preview is connected to the site tab, then start browser verification.
+        </div>
+        <button id="verify" class="secondary">GTM Preview is connected — start verification</button>
       </section>
 
       <section id="verification-card" class="card hidden">

@@ -33,6 +33,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .navigation-item small { display: block; color: #6a7582; overflow-wrap: anywhere; margin-top: 3px; }
 .area { color: #566270; background: #eef1f4; border-radius: 999px; padding: 3px 7px; font-size: 10px; text-transform: uppercase; }
 .check-list { padding-left: 20px; margin: 0; font-size: 12px; display: grid; gap: 5px; }
+.step-list { padding-left: 20px; margin: 0; font-size: 12px; display: grid; gap: 7px; }
 .warning { border-left: 3px solid #e29a14; background: #fff8e8; padding: 9px; font-size: 12px; }
 .boundary { border-top: 1px solid #e2e6eb; padding-top: 10px; color: #566270; font-size: 12px; }
 .result-pass { color: #177245; }
