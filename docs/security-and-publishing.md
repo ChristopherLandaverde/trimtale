@@ -21,6 +21,8 @@ The no-login setup flow sends structured navigation metadata only:
 
 It must not send full page HTML, cookies, local/session storage, form values, or arbitrary page text.
 
+The extension stores the manually entered GA4 Measurement ID and public GTM Container ID in `chrome.storage.local` by site hostname after a successful setup generation. These values are identifiers for repeat setup convenience; they must not be treated as GTM API credentials or proof of GTM account access.
+
 ## Google integration controls
 
 `GET /api/google/status` is public and reports whether Google discovery is configured.

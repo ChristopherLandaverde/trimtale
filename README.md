@@ -103,6 +103,8 @@ The API exposes a separately gated read-only discovery surface for real GTM acco
 - `GET /api/google/status` reports whether Google discovery is enabled.
 - `GET /api/google/gtm/accounts` lists accessible GTM accounts and containers only when `GOOGLE_OAUTH_ACCESS_TOKEN` is set server-side and the caller provides the configured admin bearer token.
 
+The extension can also remember manually supplied GA4 Measurement IDs and public GTM Container IDs by hostname after a successful setup generation. Those saved IDs are site configuration, not Google API credentials; OAuth is still required for account discovery or GTM workspace mutation.
+
 Ordinary local verification remains credential-free. The optional `GOOGLE_TAG_MANAGER_API_BASE_URL` environment variable exists for disposable integration tests or mocks.
 
 ## Hosted API builds

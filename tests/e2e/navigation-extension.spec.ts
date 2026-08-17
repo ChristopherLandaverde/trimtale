@@ -59,6 +59,14 @@ test("discovers, generates, downloads, and verifies navigation tracking", async 
     await panel.getByLabel("GTM container ID").fill("GTM-TEST123");
     await panel.getByRole("button", { name: "Generate GTM file" }).click();
     await expect(panel.getByRole("heading", { name: "Preflight passed" })).toBeVisible();
+    await expect
+      .poll(async () => panel.evaluate(() => chrome.storage.local.get("siteConfig:127.0.0.1")))
+      .toEqual({
+        "siteConfig:127.0.0.1": {
+          measurementId: "G-TEST123456",
+          containerId: "GTM-TEST123",
+        },
+      });
     await expect(panel.locator("#preflight-list li")).toHaveCount(4);
     await expect(panel.getByRole("heading", { name: "GTM import and Preview" })).toBeVisible();
     await expect(panel.locator("#import-card")).toContainText("Merge");

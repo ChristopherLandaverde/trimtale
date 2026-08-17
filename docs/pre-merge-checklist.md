@@ -22,6 +22,7 @@ Status: merged to `main` and deployed to production
 - Chrome extension opens a persistent browser-action workbench tab, not a side panel and not an auto-closing popup.
 - The workbench is bound to the source tab that opened it, preventing accidental scans of another HTTP tab.
 - The workbench includes a GTM import and Preview checklist before browser verification can start.
+- The workbench remembers manually entered GA4 Measurement IDs and public GTM Container IDs per site hostname after successful generation.
 - Read-only GTM discovery paginates account and container results with `nextPageToken`.
 - Production extension build points at the exact production API origin.
 - Production extension builds write to `apps/extension/prod-dist`, separate from local E2E builds in `apps/extension/dist`.

@@ -9,10 +9,16 @@ declare const __GTM_OBSERVABILITY_API_BASE__: string;
 
 const apiBase = __GTM_OBSERVABILITY_API_BASE__;
 const targetTabId = Number.parseInt(new URLSearchParams(location.search).get("tabId") ?? "", 10);
+const siteConfigPrefix = "siteConfig:";
 let pageUrl = "";
 let navigation: NavigationElement[] = [];
 let proposal: SetupProposal | undefined;
 const evidence = new Map<string, BrowserEvidence>();
+
+interface SiteConfig {
+  measurementId: string;
+  containerId: string;
+}
 
 function byId<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
@@ -31,6 +37,29 @@ const downloadReportButton = byId<HTMLButtonElement>("download-report");
 function setStatus(message: string, error = false): void {
   status.textContent = message;
   status.classList.toggle("error", error);
+}
+
+function siteConfigKey(url: string): string {
+  return `${siteConfigPrefix}${new URL(url).hostname}`;
+}
+
+async function loadSiteConfig(url: string): Promise<SiteConfig | undefined> {
+  const result = await chrome.storage.local.get(siteConfigKey(url));
+  const stored = result[siteConfigKey(url)] as Partial<SiteConfig> | undefined;
+  if (!stored?.measurementId || !stored?.containerId) return undefined;
+  return { measurementId: stored.measurementId, containerId: stored.containerId };
+}
+
+async function saveSiteConfig(url: string, config: SiteConfig): Promise<void> {
+  await chrome.storage.local.set({ [siteConfigKey(url)]: config });
+}
+
+async function prefillSiteConfig(url: string): Promise<boolean> {
+  const stored = await loadSiteConfig(url);
+  if (!stored) return false;
+  byId<HTMLInputElement>("measurement-id").value = stored.measurementId;
+  byId<HTMLInputElement>("container-id").value = stored.containerId;
+  return true;
 }
 
 async function activeTab(): Promise<chrome.tabs.Tab> {
@@ -172,12 +201,17 @@ byId<HTMLButtonElement>("scan").addEventListener("click", async () => {
     navigation = result.navigation;
     if (navigation.length === 0) throw new Error("No header, navigation, or footer links were found.");
     renderNavigation();
+    const foundSiteConfig = await prefillSiteConfig(pageUrl);
     scopeCard.classList.remove("hidden");
     configurationCard.classList.remove("hidden");
     proposalCard.classList.add("hidden");
     importCard.classList.add("hidden");
     verificationCard.classList.add("hidden");
-    setStatus(`Found ${navigation.length} candidate navigation element(s). Confirm the scope below.`);
+    setStatus(
+      foundSiteConfig
+        ? `Found ${navigation.length} candidate navigation element(s). Loaded saved GTM configuration for this site.`
+        : `Found ${navigation.length} candidate navigation element(s). Confirm the scope below.`,
+    );
   } catch (error) {
     setStatus(error instanceof Error ? error.message : "Unable to inspect this page.", true);
   }
@@ -196,18 +230,20 @@ byId<HTMLButtonElement>("generate").addEventListener("click", async () => {
     const confirmed = selectedNavigation();
     if (confirmed.length === 0) throw new Error("Confirm at least one navigation element.");
     setStatus("Generating a scoped GTM setup…");
+    const measurementId = byId<HTMLInputElement>("measurement-id").value.trim();
+    const containerId = byId<HTMLInputElement>("container-id").value.trim();
     const response = await fetch(`${apiBase}/api/setups`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         intent: byId<HTMLTextAreaElement>("intent").value,
         pageUrl,
-        measurementId: byId<HTMLInputElement>("measurement-id").value.trim(),
+        measurementId,
         navigation: confirmed,
         container: {
           accountId: "0",
           containerId: "0",
-          publicId: byId<HTMLInputElement>("container-id").value.trim(),
+          publicId: containerId,
           name: "GTM Observability navigation setup",
         },
       }),
@@ -215,6 +251,7 @@ byId<HTMLButtonElement>("generate").addEventListener("click", async () => {
     const body = (await response.json()) as SetupProposal | { error: string };
     if (!response.ok || "error" in body) throw new Error("error" in body ? body.error : "Generation failed.");
     proposal = body;
+    await saveSiteConfig(pageUrl, { measurementId, containerId });
     const checks = byId<HTMLUListElement>("preflight-list");
     checks.replaceChildren(...proposal.preflight.checks.map((check) => {
       const item = document.createElement("li");
