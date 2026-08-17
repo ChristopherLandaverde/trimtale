@@ -4,7 +4,7 @@
 
 The first autonomous vertical slice is implemented:
 
-- Chrome extension popup discovers and confirms navigation scope.
+- Chrome extension workbench tab discovers and confirms navigation scope.
 - Local API validates the request and generates a partial GTM container file.
 - Guided verification correlates a confirmed click with an observed GA4-style request.
 - Browser verification remains separate from platform confirmation.

@@ -101,7 +101,7 @@ Humans do not need to launch the development services or load the extension to v
 The API exposes a separately gated read-only discovery surface for real GTM accounts and containers:
 
 - `GET /api/google/status` reports whether Google discovery is enabled.
-- `GET /api/google/gtm/accounts` lists accessible GTM accounts and containers only when `GOOGLE_OAUTH_ACCESS_TOKEN` is set.
+- `GET /api/google/gtm/accounts` lists accessible GTM accounts and containers only when `GOOGLE_OAUTH_ACCESS_TOKEN` is set server-side and the caller provides the configured admin bearer token.
 
 Ordinary local verification remains credential-free. The optional `GOOGLE_TAG_MANAGER_API_BASE_URL` environment variable exists for disposable integration tests or mocks.
 

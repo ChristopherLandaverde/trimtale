@@ -16,7 +16,6 @@
     "type": "module"
   },
   "action": {
-    "default_title": "Open GTM Observability",
-    "default_popup": "popup.html"
+    "default_title": "Open GTM Observability"
   }
 }

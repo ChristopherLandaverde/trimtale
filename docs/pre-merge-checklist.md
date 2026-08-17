@@ -16,7 +16,7 @@ Status: ready for human GTM acceptance test
 - `GET /api/google/status` reports Google integration disabled unless server credentials are configured.
 - `GET /api/google/gtm/accounts` rejects unauthenticated access.
 - `POST /api/setups` generates a GTM-compatible navigation-click setup.
-- Chrome extension is a browser-action popup, not a side panel.
+- Chrome extension opens a persistent browser-action workbench tab, not a side panel.
 - Production extension build points at the exact production API origin.
 - Security and publishing guardrails are documented.
 
@@ -32,7 +32,7 @@ This is the only remaining pre-merge step that requires access outside the local
 
 2. Load `apps/extension/dist` as an unpacked Chrome extension.
 3. Open the live ConsentFlow site.
-4. Use the extension popup to discover and confirm navigation scope.
+4. Use the extension workbench tab to discover and confirm navigation scope.
 5. Generate and download the GTM container JSON.
 6. In the ConsentFlow GTM container, import the file using **Merge into a new workspace**.
 7. Start GTM Preview for ConsentFlow.

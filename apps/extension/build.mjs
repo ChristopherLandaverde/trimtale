@@ -11,7 +11,7 @@ await build({
   entryPoints: {
     "service-worker": "src/service-worker.ts",
     "content-script": "src/content-script.ts",
-    "popup": "src/popup.ts",
+    "workbench": "src/workbench.ts",
   },
   bundle: true,
   format: "esm",
@@ -32,6 +32,6 @@ manifest.host_permissions = [
 ];
 await writeFile("dist/manifest.json", `${JSON.stringify(manifest, null, 2)}\n`);
 
-for (const file of ["popup.html", "popup.css"]) {
+for (const file of ["workbench.html", "workbench.css"]) {
   await cp(`src/${file}`, `dist/${file}`);
 }

@@ -36,9 +36,14 @@ test("discovers, generates, downloads, and verifies navigation tracking", async 
     await site.goto("http://127.0.0.1:14173/");
 
     const id = await extensionId(context);
-    const panel = await context.newPage();
+    const workbenchPromise = context.waitForEvent("page");
+    await context.serviceWorkers()[0]!.evaluate(() => {
+      void chrome.tabs.create({ url: chrome.runtime.getURL("workbench.html") });
+    });
+    const panel = await workbenchPromise;
     pages.push(panel);
-    await panel.goto(`chrome-extension://${id}/popup.html`);
+    await panel.waitForLoadState("domcontentloaded");
+    expect(panel.url()).toBe(`chrome-extension://${id}/workbench.html`);
 
     await panel.getByRole("button", { name: "Discover navigation" }).click();
     await expect(panel.locator("#navigation-list .navigation-item")).toHaveCount(5);
