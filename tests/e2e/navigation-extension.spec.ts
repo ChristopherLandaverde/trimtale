@@ -37,13 +37,19 @@ test("discovers, generates, downloads, and verifies navigation tracking", async 
 
     const id = await extensionId(context);
     const workbenchPromise = context.waitForEvent("page");
-    await context.serviceWorkers()[0]!.evaluate(() => {
-      void chrome.tabs.create({ url: chrome.runtime.getURL("workbench.html") });
+    await context.serviceWorkers()[0]!.evaluate(async () => {
+      const [tab] = await chrome.tabs.query({ url: "http://127.0.0.1:14173/*" });
+      if (!tab?.id) throw new Error("Fixture tab not found.");
+      await chrome.tabs.create({ url: chrome.runtime.getURL(`workbench.html?tabId=${tab.id}`) });
     });
     const panel = await workbenchPromise;
     pages.push(panel);
     await panel.waitForLoadState("domcontentloaded");
-    expect(panel.url()).toBe(`chrome-extension://${id}/workbench.html`);
+    const workbenchUrl = new URL(panel.url());
+    expect(workbenchUrl.protocol).toBe("chrome-extension:");
+    expect(workbenchUrl.host).toBe(id);
+    expect(workbenchUrl.pathname).toBe("/workbench.html");
+    expect(Number.parseInt(workbenchUrl.searchParams.get("tabId") ?? "", 10)).toBeGreaterThan(0);
 
     await panel.getByRole("button", { name: "Discover navigation" }).click();
     await expect(panel.locator("#navigation-list .navigation-item")).toHaveCount(5);

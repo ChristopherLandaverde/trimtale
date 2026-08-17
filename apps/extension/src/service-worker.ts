@@ -1,7 +1,8 @@
 import type { BrowserEvidence } from "@gtm-observability/core";
 
-chrome.action.onClicked.addListener(() => {
-  void chrome.tabs.create({ url: chrome.runtime.getURL("workbench.html") });
+chrome.action.onClicked.addListener((tab) => {
+  const params = tab.id && tab.url?.startsWith("http") ? `?tabId=${tab.id}` : "";
+  void chrome.tabs.create({ url: chrome.runtime.getURL(`workbench.html${params}`) });
 });
 
 interface PendingEvidence {

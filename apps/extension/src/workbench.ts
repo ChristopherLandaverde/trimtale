@@ -8,6 +8,7 @@ import {
 declare const __GTM_OBSERVABILITY_API_BASE__: string;
 
 const apiBase = __GTM_OBSERVABILITY_API_BASE__;
+const targetTabId = Number.parseInt(new URLSearchParams(location.search).get("tabId") ?? "", 10);
 let pageUrl = "";
 let navigation: NavigationElement[] = [];
 let proposal: SetupProposal | undefined;
@@ -32,9 +33,11 @@ function setStatus(message: string, error = false): void {
 }
 
 async function activeTab(): Promise<chrome.tabs.Tab> {
-  const tabs = await chrome.tabs.query({ currentWindow: true });
-  const tab = tabs.find((candidate) => candidate.active && candidate.url?.startsWith("http")) ??
-    tabs.find((candidate) => candidate.url?.startsWith("http"));
+  if (!Number.isFinite(targetTabId)) {
+    throw new Error("Open GTM Observability from the toolbar on the site you want to inspect.");
+  }
+  const tab = await chrome.tabs.get(targetTabId);
+  if (!tab.url?.startsWith("http")) throw new Error("Open a public HTTP or HTTPS website first.");
   if (!tab?.id) throw new Error("Open a public HTTP or HTTPS website first.");
   return tab;
 }

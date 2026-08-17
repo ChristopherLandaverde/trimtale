@@ -32,10 +32,12 @@ export interface GtmDiscoveryResult {
 
 interface TagManagerAccountResponse {
   account?: Array<Partial<GtmAccountSummary>>;
+  nextPageToken?: string;
 }
 
 interface TagManagerContainerResponse {
   container?: Array<Partial<GtmContainerSummary>>;
+  nextPageToken?: string;
 }
 
 type Fetch = typeof fetch;
@@ -89,6 +91,13 @@ async function getJson<T>(
   return response.json() as Promise<T>;
 }
 
+function pagedPath(path: string, pageToken: string | undefined): string {
+  if (!pageToken) return path;
+  const url = new URL(path, defaultBaseUrl);
+  url.searchParams.set("pageToken", pageToken);
+  return `${url.pathname}${url.search}`;
+}
+
 function accountSummary(account: Partial<GtmAccountSummary>): GtmAccountSummary | undefined {
   if (!account.accountId || !account.name || !account.path) return undefined;
   return {
@@ -116,27 +125,43 @@ export async function discoverGtmContainers(
   config: GoogleIntegrationConfig,
   fetchImpl: Fetch = fetch,
 ): Promise<GtmDiscoveryResult> {
-  const accountResponse = await getJson<TagManagerAccountResponse>(
-    fetchImpl,
-    config,
-    "/tagmanager/v2/accounts",
-  );
-  const accounts = (accountResponse.account ?? []).flatMap((account) => {
-    const summary = accountSummary(account);
-    return summary ? [summary] : [];
-  });
+  const accounts: GtmAccountSummary[] = [];
+  let accountPageToken: string | undefined;
+  do {
+    const accountResponse = await getJson<TagManagerAccountResponse>(
+      fetchImpl,
+      config,
+      pagedPath("/tagmanager/v2/accounts", accountPageToken),
+    );
+    accounts.push(
+      ...(accountResponse.account ?? []).flatMap((account) => {
+        const summary = accountSummary(account);
+        return summary ? [summary] : [];
+      }),
+    );
+    accountPageToken = accountResponse.nextPageToken;
+  } while (accountPageToken);
+
   const containers = (
     await Promise.all(
       accounts.map(async (account) => {
-        const containerResponse = await getJson<TagManagerContainerResponse>(
-          fetchImpl,
-          config,
-          `/tagmanager/v2/${account.path}/containers`,
-        );
-        return (containerResponse.container ?? []).flatMap((container) => {
-          const summary = containerSummary(container);
-          return summary ? [summary] : [];
-        });
+        const accountContainers: GtmContainerSummary[] = [];
+        let containerPageToken: string | undefined;
+        do {
+          const containerResponse = await getJson<TagManagerContainerResponse>(
+            fetchImpl,
+            config,
+            pagedPath(`/tagmanager/v2/${account.path}/containers`, containerPageToken),
+          );
+          accountContainers.push(
+            ...(containerResponse.container ?? []).flatMap((container) => {
+              const summary = containerSummary(container);
+              return summary ? [summary] : [];
+            }),
+          );
+          containerPageToken = containerResponse.nextPageToken;
+        } while (containerPageToken);
+        return accountContainers;
       }),
     )
   ).flat();
