@@ -1,13 +1,5 @@
 import type { BrowserEvidence } from "@gtm-observability/core";
 
-chrome.runtime.onInstalled.addListener(() => {
-  void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
-});
-
-chrome.runtime.onStartup.addListener(() => {
-  void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
-});
-
 interface PendingEvidence {
   tabId: number;
   evidence: BrowserEvidence;

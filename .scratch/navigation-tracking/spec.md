@@ -4,7 +4,7 @@ Status: accepted
 
 ## User outcome
 
-A tracking practitioner opens a Chrome side panel on a public lead-generation website, asks to track navigation clicks, confirms the discovered navigation scope, downloads a GTM-compatible container file, imports it into a new workspace, and performs a guided browser check without manually constructing GTM entities.
+A tracking practitioner opens the Chrome extension popup on a public lead-generation website, asks to track navigation clicks, confirms the discovered navigation scope, downloads a GTM-compatible container file, imports it into a new workspace, and performs a guided browser check without manually constructing GTM entities.
 
 ## Supported path
 

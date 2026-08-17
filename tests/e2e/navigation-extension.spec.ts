@@ -38,7 +38,7 @@ test("discovers, generates, downloads, and verifies navigation tracking", async 
     const id = await extensionId(context);
     const panel = await context.newPage();
     pages.push(panel);
-    await panel.goto(`chrome-extension://${id}/sidepanel.html`);
+    await panel.goto(`chrome-extension://${id}/popup.html`);
 
     await panel.getByRole("button", { name: "Discover navigation" }).click();
     await expect(panel.locator("#navigation-list .navigation-item")).toHaveCount(5);

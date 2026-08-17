@@ -4,7 +4,7 @@
   "description": "Generate and verify evidence-backed GTM navigation tracking.",
   "version": "0.1.0",
   "minimum_chrome_version": "120",
-  "permissions": ["activeTab", "scripting", "sidePanel", "storage", "webRequest"],
+  "permissions": ["activeTab", "scripting", "storage", "webRequest"],
   "host_permissions": [
     "http://127.0.0.1:18787/*",
     "http://127.0.0.1:14173/*",
@@ -16,9 +16,7 @@
     "type": "module"
   },
   "action": {
-    "default_title": "Open GTM Observability"
-  },
-  "side_panel": {
-    "default_path": "sidepanel.html"
+    "default_title": "Open GTM Observability",
+    "default_popup": "popup.html"
   }
 }
