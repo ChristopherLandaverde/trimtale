@@ -13,6 +13,8 @@ User or scheduled scan
   -> agent explanation and proposed action
 ```
 
+Coverage should degrade into guidance rather than failure. When the extension cannot observe enough evidence on the website, it should create a diagnostic handoff in the application with the tracking intent, evidence already captured, missing evidence, and the shortest next action for the user.
+
 ## Core components
 
 ### Chrome extension
@@ -90,6 +92,30 @@ type TrackingRunEvidence = {
 };
 ```
 
+### Diagnostic workspace
+
+The website assistant and application debugger are two surfaces over the same investigation state. A handoff must not make the user repeat the original request or recollect evidence the extension already captured.
+
+The workspace should:
+
+- Explain which evidence is missing and why the diagnosis is inconclusive.
+- Offer focused collection steps, such as connecting GTM, replaying a journey, uploading an export, or identifying the expected conversion outcome.
+- Show the event timeline, dataLayer activity, destination requests, consent state, and relevant GTM configuration together.
+- Let the user confirm the diagnosis and corrective action.
+- Return the verified correction to the website conversation for final testing and approval.
+
+### Improvement loop
+
+The agent does not silently retrain or modify production rules from individual conversations. Each completed investigation can produce a verified resolution containing normalized symptoms, relevant environment attributes, the confirmed cause, corrective action, and before-and-after evidence.
+
+Verified resolutions support three progressively stronger forms of improvement:
+
+1. Retrieve similar cases to provide context for later investigations.
+2. Suggest a reusable diagnostic rule when the same evidence pattern recurs.
+3. Promote that rule into the deterministic engine only after review and scenario-corpus tests.
+
+This creates learning from real customer cases without allowing an incorrect one-off fix to become product behavior.
+
 ## Agent logic
 
 Use deterministic workflows first. Add an agent after tools are reliable.
@@ -105,6 +131,7 @@ classify_intent
   -> inspect_gtm
   -> inspect_ga4
   -> classify_verdict
+  -> handoff_if_inconclusive
   -> propose_fix
   -> human_approval
   -> create_draft
@@ -174,4 +201,3 @@ diagnose
 ```
 
 The product should be trusted because it refuses to over-automate destructive changes.
-
