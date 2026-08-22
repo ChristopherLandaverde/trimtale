@@ -8,3 +8,4 @@ export * from "./gtm-runtime.js";
 export * from "./navigation.js";
 export * from "./types.js";
 export * from "./verification.js";
+export * from "./verified-resolution.js";

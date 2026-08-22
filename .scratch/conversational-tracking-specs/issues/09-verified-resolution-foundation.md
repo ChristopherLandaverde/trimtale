@@ -1,6 +1,6 @@
 # Persist verified resolutions for later retrieval
 
-Status: open
+Status: claimed
 
 Blocked by: 07, 08
 
@@ -41,3 +41,6 @@ Required invariants:
 - `apps/api/src/verified-resolutions.test.ts` consumes every acceptance case with no skips.
 
 ## Comments
+
+- 2026-08-22: Claimed after Issue 08 merged. The behavioral test now consumes ten acceptance cases, including confirmation, missing/mismatched evidence, before/after ordering, schema rejection, and privacy sentinels.
+- 2026-08-22: Added a versioned verified-resolution contract and file-backed API repository. Focused acceptance and persistence tests pass; full completion verification remains in progress.
