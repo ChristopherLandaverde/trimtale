@@ -1,8 +1,9 @@
 import { createServer } from "node:http";
+import { getFormFixtureScenario, type FormFixtureScenario } from "./form-scenarios.js";
 
 const port = Number.parseInt(process.env.FIXTURE_PORT ?? "4173", 10);
 
-function page(pathname: string, gtmContainerId?: string): string {
+function page(pathname: string, fixture: FormFixtureScenario, gtmContainerId?: string): string {
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -37,7 +38,8 @@ function page(pathname: string, gtmContainerId?: string): string {
     <main>
       <h1>Lead-generation websites for growing teams.</h1>
       <p>This deterministic fixture represents a small agency website.</p>
-      <section class="fixture-forms" aria-label="Lead forms">
+      <section class="fixture-forms" aria-label="Lead forms" data-presentation="${fixture.presentation}">
+        ${fixture.presentation === "cross_origin_iframe" ? '<iframe title="External lead form" src="http://127.0.0.1:4174/external-form"></iframe>' : `
         <form id="contact" aria-label="Contact sales" data-success-selector="#contact-success">
           <label>Work email <input name="email" type="email" /></label>
           <button type="submit">Contact sales</button>
@@ -48,6 +50,7 @@ function page(pathname: string, gtmContainerId?: string): string {
         </form>
         <p id="contact-success" hidden>Thanks, we'll be in touch.</p>
         <p id="newsletter-success" hidden>Thanks for subscribing.</p>
+        `}
       </section>
     </main>
     <footer>
@@ -56,6 +59,11 @@ function page(pathname: string, gtmContainerId?: string): string {
       </nav>
     </footer>
     <script>
+      const formFixture = ${JSON.stringify(fixture)};
+      window.__formFixture = formFixture;
+      window.dataLayer = window.dataLayer || [];
+      document.documentElement.dataset.fixtureScenario = formFixture.id;
+      document.documentElement.dataset.consent = formFixture.consent;
       const duplicate = new URLSearchParams(location.search).get('scenario') === 'duplicate';
       document.addEventListener('click', (event) => {
         const link = event.target.closest('a[href]');
@@ -67,6 +75,49 @@ function page(pathname: string, gtmContainerId?: string): string {
         if (duplicate) navigator.sendBeacon(endpoint);
         setTimeout(() => { location.href = link.href; }, 250);
       }, true);
+
+      function attachFixtureForm(form) {
+        form.addEventListener('submit', (event) => {
+          event.preventDefault();
+          document.documentElement.dataset.submitAttempted = 'true';
+          if (formFixture.submissionResult !== 'success' || !formFixture.outcomeObserved) {
+            document.documentElement.dataset.submissionResult = formFixture.submissionResult;
+            return;
+          }
+          if (formFixture.dataLayerEvent) {
+            window.dataLayer.push({ event: 'generate_lead', form_id: form.id, form_name: form.getAttribute('aria-label') });
+          }
+          const parameters = formFixture.includeRequiredParameters
+            ? '&ep.form_id=' + encodeURIComponent(form.id) + '&ep.form_name=' + encodeURIComponent(form.getAttribute('aria-label'))
+            : '';
+          for (let index = 0; index < formFixture.ga4RequestCount; index += 1) {
+            navigator.sendBeacon('/g/collect?v=2&tid=G-TEST123456&en=generate_lead' + parameters);
+          }
+          if (formFixture.transport === 'redirect') {
+            location.href = '/thank-you?scenario=' + encodeURIComponent(formFixture.id);
+            return;
+          }
+          if (formFixture.transport === 'spa') history.pushState({}, '', '/lead-complete?scenario=' + encodeURIComponent(formFixture.id));
+          const success = document.querySelector(form.dataset.successSelector || '');
+          if (success) success.hidden = false;
+          document.documentElement.dataset.outcomeObserved = 'true';
+        });
+      }
+
+      if (formFixture.presentation === 'dynamic') {
+        const contact = document.querySelector('#contact');
+        contact?.remove();
+        setTimeout(() => {
+          const dynamic = document.createElement('form');
+          dynamic.id = 'dynamic-contact';
+          dynamic.setAttribute('aria-label', 'Dynamic contact');
+          dynamic.dataset.successSelector = '#contact-success';
+          dynamic.innerHTML = '<label>Work email <input name="email" type="email"></label><button type="submit">Contact sales</button>';
+          document.querySelector('.fixture-forms')?.prepend(dynamic);
+          attachFixtureForm(dynamic);
+        }, 150);
+      }
+      document.querySelectorAll('form').forEach(attachFixtureForm);
     </script>
   </body>
 </html>`;
@@ -90,7 +141,11 @@ const server = createServer((request, response) => {
     return;
   }
   response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
-  response.end(page(url.pathname, url.searchParams.get("gtm") ?? undefined));
+  response.end(page(
+    url.pathname,
+    getFormFixtureScenario(url.searchParams.get("formScenario")),
+    url.searchParams.get("gtm") ?? undefined,
+  ));
 });
 
 server.listen(port, "127.0.0.1", () => {
