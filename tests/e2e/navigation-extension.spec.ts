@@ -32,6 +32,7 @@ test("mounts and streams through the floating tracking assistant", async () => {
     await expect(root.getByText("What do you want to track on this page?")).toBeVisible();
     await expect(root.getByLabel("Tracking request")).toBeFocused();
     expect(await assistant.evaluate((element) => getComputedStyle(element).fontFamily)).toContain("Inter");
+    await root.getByLabel("Tracking request").evaluate((element) => (element as HTMLElement).blur());
     await expect(assistant).toHaveScreenshot("assistant-open.png", screenshotOptions);
 
     await root.getByLabel("Tracking request").fill("navigation");
