@@ -1,6 +1,6 @@
 # Remediate exploratory intake findings
 
-Status: claimed
+Status: resolved
 
 Blocked by: 03, 10
 
@@ -44,3 +44,9 @@ Required invariants:
 - The follow-up exploratory review has no blocker/high findings.
 
 ## Comments
+
+- 2026-08-22: Generalized safe page-target highlights to forms, added deterministic GTM runtime observation, separated generation/runtime/browser/platform evidence language, and reviewed candidate and confirmed visual baselines. Core runtime cases and four Chromium workflows pass with no remaining blocker/high exploratory findings.
+
+## Answer
+
+Form clarification now maps every assistant choice to a visible page highlight and retains only the selected form as confirmed. The evidence path reports observed GTM runtime state independently from setup generation, browser verification, and platform confirmation. Page-owned labels are inserted as text rather than executable markup.

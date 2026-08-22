@@ -9,6 +9,11 @@ interface IntakeCase {
   message: string;
 }
 
+const screenshotOptions = {
+  animations: "disabled" as const,
+  stylePath: resolve("tests/e2e/visual-stability.css"),
+};
+
 function acceptanceCase(id: string): IntakeCase {
   const contract = JSON.parse(readFileSync(
     resolve("tests/acceptance/conversation-intake.json"),
@@ -33,6 +38,7 @@ test("clarifies a form intent and requires explicit specification confirmation",
   try {
     const site = await context.newPage();
     await site.goto("http://127.0.0.1:4173/");
+    await site.addStyleTag({ path: screenshotOptions.stylePath });
     const root = site.locator("#gtm-observability-root");
     await root.getByRole("button", { name: "Open tracking assistant" }).click();
 
@@ -42,9 +48,17 @@ test("clarifies a form intent and requires explicit specification confirmation",
     await expect(root.getByText("I found 2 forms. Which one represents the outcome you want to measure?")).toBeVisible();
     await expect(root.getByRole("button", { name: "Contact sales" })).toBeVisible();
     await expect(root.getByRole("button", { name: "Newsletter signup" })).toBeVisible();
+    const targets = site.locator("#gtm-observability-targets");
+    await expect(targets.locator(".target.candidate")).toHaveCount(2);
+    await expect(targets.locator(".target.candidate[data-target-id='contact']")).toHaveCount(1);
+    await expect(targets.locator(".target.candidate[data-target-id='newsletter']")).toHaveCount(1);
+    await expect(site).toHaveScreenshot("form-candidate-highlights.png", screenshotOptions);
     await expect(root.getByRole("button", { name: "Confirm setup" })).toHaveCount(0);
 
     await root.getByRole("button", { name: "Contact sales" }).click();
+    await expect(targets.locator(".target.candidate")).toHaveCount(0);
+    await expect(targets.locator(".target.confirmed[data-target-id='contact']")).toHaveCount(1);
+    await expect(site).toHaveScreenshot("form-confirmed-highlight.png", screenshotOptions);
     await expect(root.getByText(/successful Contact sales submission as generate_lead/)).toBeVisible();
     await expect(root.getByText(/validation error will not count/)).toBeVisible();
     await root.getByRole("button", { name: "Review setup" }).click();
