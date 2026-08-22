@@ -118,6 +118,71 @@ test("reports an observed GTM public container ID separately from setup generati
   }
 });
 
+test("matches the observed container and explicitly prepares one managed workspace", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "gtm-observability-managed-workspace-"));
+  const extensionPath = resolve("apps/extension/dist");
+  const context = await chromium.launchPersistentContext(profile, {
+    channel: "chromium",
+    headless: true,
+    args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+  });
+  let preparationCount = 0;
+  await context.route("http://127.0.0.1:8787/api/google/containers/**", async (route) => {
+    const request = route.request();
+    const preparing = request.method() === "POST";
+    if (preparing) preparationCount += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ...(preparing ? {} : { containerWritesEnabled: true }),
+        result: {
+          status: "recognized",
+          publicId: "GTM-TEST123",
+          container: { name: "Lead site", publicId: "GTM-TEST123" },
+          workspace: preparing
+            ? {
+              status: "created",
+              workspaceCount: 2,
+              workspace: { name: "GTM Observability", workspaceId: "99" },
+            }
+            : {
+              status: "available",
+              action: "create",
+              workspaceCount: 1,
+              remainingSlots: 2,
+            },
+        },
+      }),
+    });
+  });
+  try {
+    const site = await context.newPage();
+    await site.goto("http://127.0.0.1:4173/?gtm=GTM-TEST123");
+    const root = site.locator("#gtm-observability-root");
+    await root.getByRole("button", { name: "Open tracking assistant" }).click();
+    await root.getByLabel("Tracking request").fill("navigation");
+    await root.getByRole("button", { name: "Send request" }).click();
+    await root.getByRole("button", { name: "Track all" }).click();
+
+    await root.getByRole("button", { name: "Check GTM access" }).click();
+    await expect(root.getByText(/Recognized Lead site.*Managed workspace can be prepared/)).toBeVisible();
+    expect(preparationCount).toBe(0);
+
+    await root.getByRole("button", { name: "Prepare managed workspace" }).click();
+    await expect(root.getByText(/Recognized Lead site.*GTM Observability prepared \(2\/3 slots occupied\)/)).toBeVisible();
+    expect(preparationCount).toBe(1);
+    await expect(root.getByText(/published/i)).toHaveCount(0);
+    await expect(root.locator("section.assistant")).toHaveScreenshot(
+      "assistant-managed-workspace.png",
+      screenshotOptions,
+    );
+  } finally {
+    await context.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});
+
 test("renders page-controlled target labels as inert text", async () => {
   const profile = await mkdtemp(join(tmpdir(), "gtm-observability-label-safety-"));
   const extensionPath = resolve("apps/extension/dist");

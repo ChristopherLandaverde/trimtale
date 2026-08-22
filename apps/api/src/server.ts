@@ -4,6 +4,7 @@ import {
   GoogleIntegrationError,
   GoogleOAuthSession,
   GtmDiscoveryClient,
+  googleGtmWritesEnabled,
   googleOAuthConfig,
 } from "./google.js";
 
@@ -11,9 +12,12 @@ const port = Number.parseInt(process.env.PORT ?? "8787", 10);
 const allowedOrigin = process.env.EXTENSION_ORIGIN ?? "*";
 const maximumBodyBytes = 256_000;
 const oauthConfig = googleOAuthConfig();
-const oauthSession = oauthConfig ? new GoogleOAuthSession(oauthConfig) : undefined;
+const containerWritesEnabled = googleGtmWritesEnabled();
+const oauthSession = oauthConfig
+  ? new GoogleOAuthSession(oauthConfig, fetch, Date.now, containerWritesEnabled)
+  : undefined;
 const discoveryClient = oauthSession
-  ? new GtmDiscoveryClient(() => oauthSession.accessToken())
+  ? new GtmDiscoveryClient(() => oauthSession.accessToken(), fetch, containerWritesEnabled)
   : undefined;
 
 function setCors(response: ServerResponse): void {
@@ -62,7 +66,8 @@ const server = createServer(async (request, response) => {
     sendJson(response, 200, {
       configured: oauthSession !== undefined,
       connected: oauthSession?.isConnected() ?? false,
-      scope: "read-only",
+      scope: containerWritesEnabled ? "container-edit" : "read-only",
+      containerWritesEnabled,
     });
     return;
   }
@@ -93,7 +98,9 @@ const server = createServer(async (request, response) => {
       await oauthSession.authorize(code, state);
       sendJson(response, 200, {
         connected: true,
-        message: "Google Tag Manager connected with read-only access.",
+        message: containerWritesEnabled
+          ? "Google Tag Manager connected with container-edit access."
+          : "Google Tag Manager connected with read-only access.",
       });
     } catch (integrationError) {
       const status = integrationError instanceof GoogleIntegrationError
@@ -121,6 +128,59 @@ const server = createServer(async (request, response) => {
       const message = integrationError instanceof Error
         ? integrationError.message
         : "Unable to discover Google Tag Manager containers.";
+      sendJson(response, status, { error: message });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && requestUrl.pathname === "/api/google/containers/recognize") {
+    if (!discoveryClient) {
+      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
+      return;
+    }
+    const publicId = requestUrl.searchParams.get("publicId") ?? "";
+    try {
+      sendJson(response, 200, {
+        result: await discoveryClient.inspectObservedContainer(publicId),
+        containerWritesEnabled,
+      });
+    } catch (integrationError) {
+      const status = integrationError instanceof GoogleIntegrationError
+        ? integrationError.status
+        : integrationError instanceof Error && integrationError.message.includes("GTM public container ID")
+          ? 400
+          : 502;
+      const message = integrationError instanceof Error
+        ? integrationError.message
+        : "Unable to recognize the observed GTM container.";
+      sendJson(response, status, { error: message });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && requestUrl.pathname === "/api/google/containers/prepare-workspace") {
+    if (!discoveryClient) {
+      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
+      return;
+    }
+    try {
+      const body = (await readJson(request)) as { publicId?: unknown };
+      if (typeof body.publicId !== "string") {
+        sendJson(response, 400, { error: "A GTM public container ID is required." });
+        return;
+      }
+      sendJson(response, 200, {
+        result: await discoveryClient.prepareManagedWorkspace(body.publicId),
+      });
+    } catch (integrationError) {
+      const status = integrationError instanceof GoogleIntegrationError
+        ? integrationError.status
+        : integrationError instanceof SyntaxError
+          ? 400
+          : 502;
+      const message = integrationError instanceof Error
+        ? integrationError.message
+        : "Unable to prepare the managed GTM workspace.";
       sendJson(response, status, { error: message });
     }
     return;

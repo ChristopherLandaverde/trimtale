@@ -1,6 +1,15 @@
 import { randomBytes } from "node:crypto";
+import {
+  GTM_MANAGED_WORKSPACE_DESCRIPTION,
+  GTM_MANAGED_WORKSPACE_NAME,
+  inspectManagedWorkspace,
+  normalizePublicContainerId,
+  recognizeContainer,
+  type ManagedWorkspaceInspection,
+} from "@gtm-observability/core";
 
 export const GTM_READONLY_SCOPE = "https://www.googleapis.com/auth/tagmanager.readonly";
+export const GTM_EDIT_CONTAINERS_SCOPE = "https://www.googleapis.com/auth/tagmanager.edit.containers";
 
 const authorizationEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
 const tokenEndpoint = "https://oauth2.googleapis.com/token";
@@ -77,6 +86,37 @@ export interface GtmContainerEntityContext {
   liveVersion: GtmContainerVersion;
 }
 
+export type GtmObservedContainerInspection =
+  | { status: "not_accessible"; publicId: string }
+  | { status: "ambiguous"; publicId: string; matchCount: number }
+  | {
+    status: "recognized";
+    publicId: string;
+    container: GtmContainer;
+    liveVersion: GtmContainerVersion;
+    workspace: ManagedWorkspaceInspection<GtmWorkspace>;
+  };
+
+export type GtmManagedWorkspacePreparation =
+  | { status: "not_accessible"; publicId: string }
+  | { status: "ambiguous"; publicId: string; matchCount: number }
+  | {
+    status: "recognized";
+    publicId: string;
+    container: GtmContainer;
+    liveVersion: GtmContainerVersion;
+    workspace:
+      | { status: "created" | "reused"; workspaceCount: number; workspace: GtmWorkspace }
+      | { status: "capacity_blocked"; workspaceCount: number }
+      | {
+        status: "ownership_conflict";
+        workspaceCount: number;
+        managedWorkspaceCount: number;
+        reservedNameCount: number;
+      }
+      | { status: "sync_conflict"; workspaceCount: number; workspace: GtmWorkspace };
+  };
+
 type Fetch = typeof fetch;
 
 export function googleOAuthConfig(
@@ -87,6 +127,12 @@ export function googleOAuthConfig(
   const redirectUri = environment.GOOGLE_OAUTH_REDIRECT_URI?.trim();
   if (!clientId || !clientSecret || !redirectUri) return undefined;
   return { clientId, clientSecret, redirectUri };
+}
+
+export function googleGtmWritesEnabled(
+  environment: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return environment.GOOGLE_GTM_CONTAINER_WRITES_ENABLED === "true";
 }
 
 export class GoogleIntegrationError extends Error {
@@ -115,6 +161,7 @@ export class GoogleOAuthSession {
     private readonly config: GoogleOAuthConfig,
     private readonly fetcher: Fetch = fetch,
     private readonly now: () => number = Date.now,
+    private readonly containerWritesEnabled = false,
   ) {}
 
   isConnected(): boolean {
@@ -130,7 +177,9 @@ export class GoogleOAuthSession {
       client_id: this.config.clientId,
       redirect_uri: this.config.redirectUri,
       response_type: "code",
-      scope: GTM_READONLY_SCOPE,
+      scope: this.containerWritesEnabled
+        ? `${GTM_READONLY_SCOPE} ${GTM_EDIT_CONTAINERS_SCOPE}`
+        : GTM_READONLY_SCOPE,
       access_type: "offline",
       include_granted_scopes: "true",
       prompt: "consent",
@@ -216,10 +265,23 @@ interface WorkspaceListResponse {
   nextPageToken?: string;
 }
 
+interface WorkspaceSyncResponse {
+  syncStatus?: { mergeConflict?: boolean; syncError?: boolean };
+  mergeConflict?: unknown[];
+}
+
+interface WorkspaceStatusResponse {
+  workspaceChange?: unknown[];
+  mergeConflict?: unknown[];
+}
+
 export class GtmDiscoveryClient {
+  private readonly preparations = new Map<string, Promise<GtmManagedWorkspacePreparation>>();
+
   constructor(
     private readonly getAccessToken: () => Promise<string>,
     private readonly fetcher: Fetch = fetch,
+    private readonly containerWritesEnabled = false,
   ) {}
 
   async discover(): Promise<GtmAccountDiscovery[]> {
@@ -254,9 +316,118 @@ export class GtmDiscoveryClient {
     return { container, workspaces, liveVersion };
   }
 
+  async inspectObservedContainer(publicId: string): Promise<GtmObservedContainerInspection> {
+    const recognition = await this.recognizeObservedContainer(publicId);
+    if (recognition.status !== "recognized") return recognition;
+    const context = await this.containerEntityContext(
+      recognition.container.accountId,
+      recognition.container.containerId,
+    );
+    return {
+      ...recognition,
+      container: context.container,
+      liveVersion: context.liveVersion,
+      workspace: inspectManagedWorkspace(context.workspaces),
+    };
+  }
+
+  async prepareManagedWorkspace(publicId: string): Promise<GtmManagedWorkspacePreparation> {
+    if (!this.containerWritesEnabled) {
+      throw new GoogleIntegrationError("GTM container writes are disabled on this backend.", 403);
+    }
+    const normalized = normalizePublicContainerId(publicId);
+    const pending = this.preparations.get(normalized);
+    if (pending) return pending;
+    const preparation = this.prepareManagedWorkspaceOnce(normalized).finally(() => {
+      this.preparations.delete(normalized);
+    });
+    this.preparations.set(normalized, preparation);
+    return preparation;
+  }
+
+  private async prepareManagedWorkspaceOnce(
+    publicId: string,
+  ): Promise<GtmManagedWorkspacePreparation> {
+    const inspection = await this.inspectObservedContainer(publicId);
+    if (inspection.status !== "recognized") return inspection;
+    const decision = inspection.workspace;
+    if (decision.status !== "available") {
+      return { ...inspection, workspace: decision };
+    }
+    if (decision.action === "create") {
+      const workspace = await this.post<GtmWorkspace>(
+        `/${inspection.container.path}/workspaces`,
+        {
+          name: GTM_MANAGED_WORKSPACE_NAME,
+          description: GTM_MANAGED_WORKSPACE_DESCRIPTION,
+        },
+      );
+      this.assertWorkspacePath(workspace, inspection.container);
+      return {
+        ...inspection,
+        workspace: {
+          status: "created",
+          workspaceCount: decision.workspaceCount + 1,
+          workspace,
+        },
+      };
+    }
+
+    this.assertWorkspacePath(decision.workspace, inspection.container);
+    const sync = await this.post<WorkspaceSyncResponse>(`/${decision.workspace.path}:sync`);
+    const status = await this.get<WorkspaceStatusResponse>(`/${decision.workspace.path}/status`);
+    if (
+      sync.syncStatus?.mergeConflict
+      || sync.syncStatus?.syncError
+      || (sync.mergeConflict?.length ?? 0) > 0
+      || (status.mergeConflict?.length ?? 0) > 0
+    ) {
+      return {
+        ...inspection,
+        workspace: {
+          status: "sync_conflict",
+          workspaceCount: decision.workspaceCount,
+          workspace: decision.workspace,
+        },
+      };
+    }
+    return {
+      ...inspection,
+      workspace: {
+        status: "reused",
+        workspaceCount: decision.workspaceCount,
+        workspace: decision.workspace,
+      },
+    };
+  }
+
+  private async recognizeObservedContainer(publicId: string) {
+    const accounts = await this.discover();
+    return recognizeContainer(publicId, accounts.flatMap((account) => account.containers));
+  }
+
+  private assertWorkspacePath(workspace: GtmWorkspace, container: GtmContainer): void {
+    const expected = new RegExp(`^${container.path.replaceAll("/", "\\/")}\/workspaces\/\\d+$`);
+    if (!expected.test(workspace.path)) {
+      throw new GoogleIntegrationError("Google returned a workspace outside the recognized container.", 502);
+    }
+  }
+
   private async get<Result>(path: string): Promise<Result> {
     const response = await this.fetcher(`${tagManagerEndpoint}${path}`, {
       headers: { Authorization: `Bearer ${await this.getAccessToken()}` },
+    });
+    return responseJson<Result>(response);
+  }
+
+  private async post<Result>(path: string, body?: unknown): Promise<Result> {
+    const response = await this.fetcher(`${tagManagerEndpoint}${path}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${await this.getAccessToken()}`,
+        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     return responseJson<Result>(response);
   }

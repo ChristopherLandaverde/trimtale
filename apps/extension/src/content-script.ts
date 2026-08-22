@@ -29,6 +29,37 @@ interface OverlayPreferences {
 
 interface ScanResponse { pageUrl: string; title: string; navigation: NavigationElement[]; }
 
+interface EvidencePathContext {
+  intentDetail: string;
+  inspectedDetail: string;
+  confirmedDetail: string;
+}
+
+interface GtmWorkspaceResult {
+  status: "available" | "capacity_blocked" | "ownership_conflict" | "created" | "reused" | "sync_conflict";
+  action?: "create" | "reuse";
+  workspaceCount: number;
+  remainingSlots?: number;
+  managedWorkspaceCount?: number;
+  reservedNameCount?: number;
+  workspace?: { name: string; workspaceId: string };
+}
+
+interface GtmContainerResult {
+  status: "recognized" | "not_accessible" | "ambiguous";
+  publicId: string;
+  matchCount?: number;
+  container?: { name: string; publicId: string };
+  workspace?: GtmWorkspaceResult;
+}
+
+interface GtmBridgeResponse {
+  ok: boolean;
+  error?: string;
+  result?: GtmContainerResult;
+  containerWritesEnabled?: boolean;
+}
+
 type ExtensionRequest =
   | { type: "SCAN_NAVIGATION" }
   | { type: "START_VERIFICATION"; navigation: NavigationElement[] }
@@ -259,6 +290,71 @@ function inspectGtmRuntime() {
   }
 }
 
+async function requestGtmContainer(
+  operation: "inspect" | "prepare",
+  publicId: string,
+): Promise<GtmBridgeResponse> {
+  return chrome.runtime.sendMessage({
+    type: "GTM_CONTAINER_REQUEST",
+    operation,
+    publicId,
+  }) as Promise<GtmBridgeResponse>;
+}
+
+function updateEvidenceStage(
+  row: HTMLElement,
+  state: "passed" | "pending",
+  detail: string,
+): void {
+  row.classList.toggle("passed", state === "passed");
+  row.classList.toggle("pending", state === "pending");
+  const icon = row.querySelector("i");
+  const copy = row.querySelector("small");
+  if (icon) icon.textContent = state === "passed" ? "✓" : "○";
+  if (copy) copy.textContent = detail;
+}
+
+function workspaceResultDetail(result: GtmContainerResult): string {
+  const workspace = result.workspace;
+  if (!workspace) return "Container matched; workspace state unavailable";
+  if (workspace.status === "available" && workspace.action === "reuse") {
+    return `${workspace.workspace?.name ?? "Managed workspace"} is ready to reuse (${workspace.workspaceCount}/3 slots occupied)`;
+  }
+  if (workspace.status === "available") {
+    return `Managed workspace can be prepared (${workspace.workspaceCount}/3 slots occupied)`;
+  }
+  if (workspace.status === "created") {
+    return `${workspace.workspace?.name ?? "Managed workspace"} prepared (${workspace.workspaceCount}/3 slots occupied)`;
+  }
+  if (workspace.status === "reused") {
+    return `${workspace.workspace?.name ?? "Managed workspace"} synchronized and reused`;
+  }
+  if (workspace.status === "capacity_blocked") {
+    return `All ${workspace.workspaceCount} workspace slots are occupied; planning remains available`;
+  }
+  if (workspace.status === "sync_conflict") {
+    return "Managed workspace has synchronization conflicts and was preserved for review";
+  }
+  return "Multiple managed ownership markers found; no workspace was changed";
+}
+
+function appendGtmAction(
+  parent: HTMLElement,
+  label: string,
+  action: () => void,
+): HTMLButtonElement {
+  parent.querySelector(".gtm-action")?.remove();
+  const button = document.createElement("button");
+  button.className = "quick gtm-action";
+  button.textContent = label;
+  button.addEventListener("click", () => {
+    button.remove();
+    action();
+  }, { once: true });
+  parent.append(button);
+  return button;
+}
+
 function navigationTargets(navigation: NavigationElement[]): PageTarget[] {
   return navigation.map((item) => ({ id: item.id, label: item.text, selector: item.selector }));
 }
@@ -354,7 +450,7 @@ function clearTargetHighlights(): void {
   targetHost?.shadowRoot?.querySelectorAll(".target").forEach((node) => node.remove());
 }
 
-function renderEvidencePath(navigation: NavigationElement[]): void {
+function renderEvidencePath(context: EvidencePathContext): void {
   const path = document.createElement("section");
   path.className = "evidence-path";
   path.setAttribute("aria-label", "Tracking evidence path");
@@ -365,11 +461,12 @@ function renderEvidencePath(navigation: NavigationElement[]): void {
       ? "No GTM container detected on this page"
       : runtime.reason;
   const stages = [
-    { state: "passed", label: "Intent understood", detail: "Navigation clicks → navigation_click" },
-    { state: "passed", label: "Page inspected", detail: `${navigation.length} matching link${navigation.length === 1 ? "" : "s"} found` },
-    { state: "passed", label: "Targets confirmed", detail: `${navigation.length} highlighted on this page` },
+    { state: "passed", label: "Intent understood", detail: context.intentDetail },
+    { state: "passed", label: "Page inspected", detail: context.inspectedDetail },
+    { state: "passed", label: "Targets confirmed", detail: context.confirmedDetail },
     { state: "pending", label: "Setup generation", detail: "No setup generated from this conversation yet" },
     { state: runtime.status === "detected" ? "passed" : "pending", label: "GTM runtime", detail: runtimeDetail },
+    { state: "pending", label: "GTM access", detail: runtime.status === "detected" ? "Observed container has not been matched to Google access" : "Requires an observed container" },
     { state: "pending", label: "Browser verification", detail: "Runs after the GTM setup is installed" },
     { state: "pending", label: "Platform confirmation", detail: "Unverified — browser evidence cannot confirm GA4 processing" },
   ];
@@ -377,6 +474,7 @@ function renderEvidencePath(navigation: NavigationElement[]): void {
   heading.className = "evidence-heading";
   heading.innerHTML = `<span>Evidence path</span><small>What the assistant used</small>`;
   path.append(heading);
+  let accessRow: HTMLElement | undefined;
   for (const stage of stages) {
     const row = document.createElement("div");
     row.className = `evidence-stage ${stage.state}`;
@@ -391,6 +489,63 @@ function renderEvidencePath(navigation: NavigationElement[]): void {
     copy.append(label, detail);
     row.append(icon, copy);
     path.append(row);
+    if (stage.label === "GTM access") accessRow = row;
+  }
+  if (runtime.status === "detected" && runtime.containerIds.length === 1 && accessRow) {
+    const publicId = runtime.containerIds[0]!;
+    const inspectAccess = (): void => {
+      const action = path.querySelector<HTMLButtonElement>(".gtm-action");
+      if (action) action.disabled = true;
+      updateEvidenceStage(accessRow!, "pending", `Matching ${publicId} to connected Google access…`);
+      void requestGtmContainer("inspect", publicId).then((response) => {
+        if (!response.ok || !response.result) {
+          updateEvidenceStage(accessRow!, "pending", response.error ?? "GTM access could not be checked");
+          appendGtmAction(path, "Try GTM access again", inspectAccess);
+          return;
+        }
+        const result = response.result;
+        if (result.status === "not_accessible") {
+          updateEvidenceStage(accessRow!, "pending", `${publicId} is not accessible through the connected Google account`);
+          return;
+        }
+        if (result.status === "ambiguous") {
+          updateEvidenceStage(accessRow!, "pending", `${publicId} matched ${result.matchCount ?? "multiple"} accessible containers; nothing was selected`);
+          return;
+        }
+        updateEvidenceStage(
+          accessRow!,
+          "passed",
+          `Recognized ${result.container?.name ?? result.publicId}. ${workspaceResultDetail(result)}`,
+        );
+        const canPrepare = result.workspace?.status === "available";
+        if (canPrepare && response.containerWritesEnabled) {
+          appendGtmAction(path, "Prepare managed workspace", () => {
+            updateEvidenceStage(accessRow!, "pending", `Rechecking ${publicId} capacity and ownership…`);
+            void requestGtmContainer("prepare", publicId).then((prepared) => {
+              if (!prepared.ok || !prepared.result) {
+                updateEvidenceStage(accessRow!, "pending", prepared.error ?? "Managed workspace could not be prepared");
+                return;
+              }
+              updateEvidenceStage(
+                accessRow!,
+                prepared.result.status === "recognized" ? "passed" : "pending",
+                prepared.result.status === "recognized"
+                  ? `Recognized ${prepared.result.container?.name ?? prepared.result.publicId}. ${workspaceResultDetail(prepared.result)}`
+                  : `${publicId} is no longer uniquely accessible; nothing was changed`,
+              );
+            });
+          });
+        } else if (canPrepare) {
+          const note = document.createElement("small");
+          note.className = "gtm-write-note";
+          note.textContent = "Workspace preparation is disabled; planning and downloads remain available.";
+          path.append(note);
+        }
+      });
+    };
+    appendGtmAction(path, "Check GTM access", inspectAccess);
+  } else if (runtime.status === "detected" && runtime.containerIds.length > 1 && accessRow) {
+    updateEvidenceStage(accessRow, "pending", "Multiple GTM containers were observed; choose one before checking Google access");
   }
   responseList?.append(path);
   responseList?.scrollTo({ top: responseList.scrollHeight });
@@ -399,7 +554,11 @@ function renderEvidencePath(navigation: NavigationElement[]): void {
 function confirmNavigation(navigation: NavigationElement[]): void {
   highlightTargets(navigationTargets(navigation), "confirmed");
   addMessage(`${navigation.length} navigation link${navigation.length === 1 ? "" : "s"} selected and highlighted on the page.`, "assistant");
-  renderEvidencePath(navigation);
+  renderEvidencePath({
+    intentDetail: "Navigation clicks → navigation_click",
+    inspectedDetail: `${navigation.length} matching link${navigation.length === 1 ? "" : "s"} found`,
+    confirmedDetail: `${navigation.length} highlighted on this page`,
+  });
 }
 
 function renderNavigationPicker(navigation: NavigationElement[]): void {
@@ -499,6 +658,11 @@ function handleAssistantAction(actionId: string, requestId: string): void {
   }
   if (actionId === "confirm-form-specification" && intake?.canConfirm) {
     addMessage("Form tracking specification confirmed.", "assistant");
+    renderEvidencePath({
+      intentDetail: `Successful ${intake.target?.label ?? "form"} submission → generate_lead`,
+      inspectedDetail: `${forms.length} form${forms.length === 1 ? "" : "s"} found`,
+      confirmedDetail: `${intake.target?.label ?? "Selected form"} highlighted on this page`,
+    });
     renderQuickActions(requestId, [
       { id: "download-form-setup", label: "Download GTM setup" },
       { id: "start-form-verification", label: "Start verification" },
@@ -680,6 +844,8 @@ async function mountOverlay(): Promise<void> {
       .quick-actions { display: flex; flex-wrap: wrap; gap: 7px; }
       .quick { padding: 7px 10px; border: 1px solid rgba(167,243,208,.22); border-radius: 10px; color: #dff9ec; background: rgba(40,72,61,.58); font-size: 12px; text-decoration: none; }
       .quick:hover { border-color: rgba(167,243,208,.42); background: rgba(47,88,73,.72); }
+      .gtm-action { justify-self: start; margin-top: 3px; }
+      .gtm-write-note { color: #89969e; font-size: 10px; }
       .primary-quick { margin-top: 3px; justify-self: start; }
       .picker { display: grid; gap: 6px; padding: 9px; border: 1px solid rgba(255,255,255,.09); border-radius: 13px; background: rgba(22,29,34,.62); }
       .pick { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; padding: 6px; border-radius: 8px; color: #e3eaee; }

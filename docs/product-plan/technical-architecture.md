@@ -194,10 +194,13 @@ Safe production flow:
 ```text
 diagnose
   -> propose change
-  -> create import file or draft workspace
+  -> observe public GTM container ID
+  -> match exactly one accessible container
+  -> inspect workspace capacity and ownership
+  -> reuse one managed workspace or create it after explicit preparation
   -> verify in preview
   -> ask for approval
   -> publish remains explicit
 ```
 
-The product should be trusted because it refuses to over-automate destructive changes.
+Standard GTM workspace capacity is scarce. The connector reserves at most one marked custom workspace per container, reuses it across interrupted work, and falls back to non-mutating planning when three slots are occupied. It never edits or deletes a default or unmarked workspace. Container versioning and publication remain later, separately approved stages.

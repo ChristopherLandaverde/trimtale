@@ -56,6 +56,14 @@ _Avoid_: Agent learning, chat answer, suggested fix
 The process that turns a tracking intent into a tested Google Tag Manager configuration that a tracking practitioner can review and deploy.
 _Avoid_: Tag creation, AI-generated tag, automatic tagging
 
+**Recognized container**:
+A GTM container whose public ID was observed on the current website and matched exactly to one container accessible through the tracking practitioner's connected Google account.
+_Avoid_: Detected account, assumed container, selected container
+
+**Managed workspace**:
+The single custom GTM workspace reserved by the site-aware analytics assistant for reviewable tracking-setup changes in one recognized container.
+_Avoid_: Temporary workspace, workspace per request, default workspace
+
 **Tracking practitioner**:
 A freelancer or agency team member responsible for implementing and verifying tracking on client websites.
 _Avoid_: GTM person, marketer, user

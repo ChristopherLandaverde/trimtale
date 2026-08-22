@@ -5,6 +5,7 @@ export * from "./generator.js";
 export * from "./form-evidence.js";
 export * from "./form-verdict.js";
 export * from "./gtm-runtime.js";
+export * from "./managed-workspace.js";
 export * from "./navigation.js";
 export * from "./types.js";
 export * from "./verification.js";
