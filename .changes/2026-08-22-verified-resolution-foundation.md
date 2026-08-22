@@ -1,6 +1,6 @@
 # Persist verified resolutions safely
 
-Change record version: 1
+Change record version: 2
 
 Issue: `.scratch/conversational-tracking-specs/issues/09-verified-resolution-foundation.md`
 
