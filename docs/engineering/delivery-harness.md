@@ -13,6 +13,7 @@ accepted spec
   -> implementation plus permanent regression
   -> change record and issue update
   -> npm run verify
+  -> automated complete-journey review
   -> exploratory Chromium review
   -> remediate findings and add regressions
   -> draft PR updated as work progresses
@@ -36,6 +37,23 @@ An issue cannot become `resolved` until:
 - Any acceptance fixture created earlier is consumed by the behavioral test rather than duplicated or abandoned.
 
 Skipped tests, `test.todo`, and fixtures that are never loaded by the harness do not satisfy the contract.
+
+## Automated complete-journey review
+
+User-visible workflows must be driven through a reusable Playwright journey harness before exploratory review. The acceptance fixture—not duplicated test code—defines the intent, clarifications, fixture state, expected artifact, evidence, verdict, next-action concepts, and forbidden claims.
+
+For each journey, automation should:
+
+1. Launch Chromium with the unpacked extension and deterministic local services.
+2. Begin from the visible chat surface and use accessible controls for every practitioner action.
+3. Assert page effects such as candidate and confirmed highlights.
+4. Validate generated artifacts semantically after removing timestamps and irrelevant identifiers.
+5. Execute the local site behavior and collect the same evidence the product displays.
+6. Assert the deterministic verdict and platform-confirmation boundary.
+7. Score the conversational explanation against required concepts and forbidden claims rather than exact prose.
+8. Repeat critical journeys when race, duplication, reload, or listener regressions are plausible.
+
+This automated review catches known behavior continuously. Exploratory review remains responsible for discovering missing expectations and converting confirmed findings into permanent regressions.
 
 ## Exploratory Chromium review
 

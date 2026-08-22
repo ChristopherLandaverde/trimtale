@@ -21,9 +21,12 @@
       "fixtureState": "ajax_success",
       "expected": {
         "eventName": "generate_lead",
+        "artifact": "gtm_container_import",
         "verdict": "browser_verified",
         "browserVerification": "passed",
-        "platformConfirmation": "unverified"
+        "platformConfirmation": "unverified",
+        "explanationMustInclude": ["browser", "request", "platform confirmation"],
+        "explanationMustNotClaim": ["GA4 confirmed", "published", "production verified"]
       }
     },
     {
@@ -43,9 +46,12 @@
       "fixtureState": "validation_error",
       "expected": {
         "eventName": "generate_lead",
+        "artifact": "gtm_container_import",
         "verdict": "expected_non_conversion",
         "browserVerification": "failed",
-        "platformConfirmation": "unverified"
+        "platformConfirmation": "unverified",
+        "explanationMustInclude": ["validation", "not counted", "submit again"],
+        "explanationMustNotClaim": ["conversion recorded", "GA4 confirmed", "platform confirmed"]
       }
     }
   ]
