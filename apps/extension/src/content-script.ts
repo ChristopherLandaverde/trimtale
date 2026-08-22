@@ -1,4 +1,7 @@
 import {
+  createFormSetupProposal,
+  determineFormVerdict,
+  normalizeFormRunEvidence,
   observeGtmRuntime,
   selectConversationSuccess,
   selectConversationTarget,
@@ -7,6 +10,9 @@ import {
   type FormCandidate,
   type NavigationArea,
   type NavigationElement,
+  type SuccessEvidence,
+  type TrackingRunEvidenceV1,
+  type TrackingSpecificationV1,
 } from "@gtm-observability/core";
 
 declare global {
@@ -27,6 +33,7 @@ type ExtensionRequest =
   | { type: "SCAN_NAVIGATION" }
   | { type: "START_VERIFICATION"; navigation: NavigationElement[] }
   | { type: "GET_EVIDENCE" }
+  | { type: "FORM_ANALYTICS_REQUEST"; request: { url: string; observedAt: string } }
   | { type: "TOGGLE_OVERLAY" };
 
 const analyticsPattern = /(?:google-analytics\.com|analytics\.google\.com)\/g\/collect/i;
@@ -47,6 +54,131 @@ const navigationByRequest = new Map<string, NavigationElement[]>();
 const requestTimeouts = new Map<string, number>();
 const intakeByRequest = new Map<string, ConversationIntakeResult>();
 const formsByRequest = new Map<string, FormCandidate[]>();
+const recentFormRequests: Array<{ url: string; observedAt: string }> = [];
+let activeFormVerification: { requestId: string; intake: ConversationIntakeResult } | undefined;
+
+function successEvidenceFor(result: ConversationIntakeResult): SuccessEvidence | undefined {
+  const signal = result.successSignal;
+  if (!signal) return undefined;
+  if (signal.type === "visible_element") return { type: signal.type, selector: signal.value };
+  if (signal.type === "thank_you_url") return { type: signal.type, urlPattern: signal.value };
+  if (signal.type === "data_layer_event") return { type: signal.type, eventName: signal.value };
+  return { type: signal.type, signal: signal.value };
+}
+
+function confirmedFormSpecification(result: ConversationIntakeResult): TrackingSpecificationV1 | undefined {
+  const target = result.target;
+  const successEvidence = successEvidenceFor(result);
+  if (!target || !successEvidence || !result.canConfirm) return undefined;
+  return {
+    schemaVersion: 1,
+    id: `spec_form_${target.id}`,
+    status: "confirmed",
+    originalIntent: `Track qualified inquiries from ${target.label}`,
+    interaction: { type: "form_submission" },
+    conversionOutcome: { type: "qualified_inquiry", practitionerConfirmed: true },
+    event: {
+      name: "generate_lead",
+      requiredParameters: ["form_id", "form_name", "page_location"],
+      optionalParameters: [],
+    },
+    targets: [{
+      id: target.id,
+      label: target.label,
+      selector: target.selector,
+      pageUrl: target.pageUrl,
+    }],
+    successEvidence: [successEvidence],
+  };
+}
+
+function fixtureMeta(name: string): string | undefined {
+  return document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)?.content || undefined;
+}
+
+function formSetupProposal(result: ConversationIntakeResult) {
+  const specification = confirmedFormSpecification(result);
+  const measurementId = fixtureMeta("gtm-observability-measurement-id");
+  const publicId = fixtureMeta("gtm-observability-container-id");
+  if (!specification || !measurementId || !publicId) return undefined;
+  return createFormSetupProposal({
+    specification,
+    measurementId,
+    container: { accountId: "0", containerId: "0", publicId, name: "GTM Observability import" },
+  });
+}
+
+function formSetupDownloadHref(result: ConversationIntakeResult): string | undefined {
+  const proposal = formSetupProposal(result);
+  if (!proposal) return undefined;
+  const content = JSON.stringify(proposal.containerFile, null, 2);
+  return `data:application/json;charset=utf-8,${encodeURIComponent(content)}`;
+}
+
+function formExplanation(verdict: TrackingRunEvidenceV1["verdict"]): string {
+  if (verdict.code === "browser_verified") {
+    return "Browser verification passed because one generate_lead request was observed. Platform confirmation remains unverified.";
+  }
+  if (verdict.code === "expected_non_conversion") {
+    return "The form was stopped by validation, so this attempt was not counted. Correct the input and submit again. Platform confirmation remains unverified.";
+  }
+  return `${verdict.code.replaceAll("_", " ")}. ${verdict.nextAction} Platform confirmation remains unverified.`;
+}
+
+function classifySubmissionResult(value: string | undefined): "success" | "validation_error" | "server_error" | "unknown" {
+  return value === "success" || value === "validation_error" || value === "server_error" ? value : "unknown";
+}
+
+function classifyTransport(value: string | undefined): "native" | "redirect" | "ajax" | "spa" | "unobservable" {
+  return value === "native" || value === "redirect" || value === "ajax" || value === "spa" ? value : "unobservable";
+}
+
+function classifyConsent(value: string | undefined): "granted" | "denied" | "unknown" {
+  return value === "granted" || value === "denied" ? value : "unknown";
+}
+
+function finishFormVerification(result: ConversationIntakeResult, startedAt: string): void {
+  const specification = confirmedFormSpecification(result);
+  const target = result.target;
+  const success = result.successSignal;
+  if (!specification || !target || !success) return;
+  const pageState = document.documentElement.dataset;
+  const requestUrls = recentFormRequests
+    .filter((request) => Date.parse(request.observedAt) >= Date.parse(startedAt))
+    .map((request) => request.url);
+  const provisionalVerdict: TrackingRunEvidenceV1["verdict"] = {
+    code: "insufficient_observable_evidence",
+    browserVerification: "inconclusive",
+    platformConfirmation: "unverified",
+    nextAction: "Await deterministic classification.",
+  };
+  const provisional = normalizeFormRunEvidence({
+    runId: `run_form_${Date.now()}`,
+    specificationId: specification.id,
+    startedAt,
+    transport: classifyTransport(pageState.transport),
+    targetId: target.id,
+    submitAttempted: pageState.submitAttempted === "true",
+    submissionResult: classifySubmissionResult(pageState.submissionResult),
+    outcomeObserved: pageState.outcomeObserved === "true",
+    outcomeObservable: pageState.outcomeObservable !== "false",
+    outcomeEvidenceType: success.type,
+    dataLayerEvents: pageState.dataLayerEvent === "true"
+      ? [{ event: "generate_lead", form_id: target.id, form_name: target.label.replaceAll(" ", "_") }]
+      : [],
+    tagFired: pageState.tagFired === "true" ? true : pageState.tagFired === "false" ? false : null,
+    networkUrls: requestUrls,
+    consent: classifyConsent(pageState.consent),
+  }, provisionalVerdict);
+  const verdict = determineFormVerdict(provisional.observations);
+  const verdictMessage = addMessage(
+    `Verdict: ${verdict.code}\nBrowser verification: ${verdict.browserVerification}\nPlatform confirmation: ${verdict.platformConfirmation}\nNext action: ${verdict.nextAction}`,
+    "assistant",
+  );
+  addMessage(formExplanation(verdict), "assistant").classList.add("explanation");
+  window.requestAnimationFrame(() => verdictMessage.scrollIntoView({ block: "start" }));
+  activeFormVerification = undefined;
+}
 
 function areaFor(element: Element): NavigationArea {
   if (element.closest("header")) return "header";
@@ -366,7 +498,26 @@ function handleAssistantAction(actionId: string, requestId: string): void {
     return;
   }
   if (actionId === "confirm-form-specification" && intake?.canConfirm) {
-    addMessage("Form tracking specification confirmed. GTM generation will be added in the next implementation slice.", "assistant");
+    addMessage("Form tracking specification confirmed.", "assistant");
+    renderQuickActions(requestId, [
+      { id: "download-form-setup", label: "Download GTM setup" },
+      { id: "start-form-verification", label: "Start verification" },
+    ]);
+    return;
+  }
+  if (actionId === "download-form-setup" && intake?.canConfirm) {
+    if (!formSetupDownloadHref(intake)) {
+      addMessage("Connect a GTM container and GA4 measurement ID before generating setup.", "assistant");
+      return;
+    }
+    addMessage("Downloaded a reviewable GTM container import. Import with Merge into a new workspace; nothing was published.", "assistant");
+    renderQuickActions(requestId, [{ id: "start-form-verification", label: "Start verification" }]);
+    return;
+  }
+  if (actionId === "start-form-verification" && intake?.canConfirm) {
+    recentFormRequests.length = 0;
+    activeFormVerification = { requestId, intake };
+    addMessage(`Verification is ready. Submit ${intake.target?.label ?? "the selected form"} once.`, "assistant");
     return;
   }
   if (actionId === "cancel") { clearTargetHighlights(); addMessage("Okay — nothing was selected.", "assistant"); }
@@ -380,14 +531,22 @@ function renderQuickActions(
   const row = document.createElement("div");
   row.className = "quick-actions";
   for (const action of actions) {
-    const button = document.createElement("button");
-    button.className = "quick";
-    button.textContent = action.label;
-    button.addEventListener("click", () => {
+    const downloadHref = action.id === "download-form-setup"
+      ? formSetupDownloadHref(intakeByRequest.get(requestId)!)
+      : undefined;
+    const control = downloadHref ? document.createElement("a") : document.createElement("button");
+    control.className = "quick";
+    control.textContent = action.label;
+    if (control instanceof HTMLAnchorElement) {
+      control.href = downloadHref!;
+      control.download = "gtm-observability-generate-lead.json";
+      control.setAttribute("role", "button");
+    }
+    control.addEventListener("click", () => {
       row.remove();
       handleAssistantAction(action.id, requestId);
     });
-    row.append(button);
+    row.append(control);
   }
   responseList?.append(row);
   responseList?.scrollTo({ top: responseList.scrollHeight });
@@ -519,7 +678,7 @@ async function mountOverlay(): Promise<void> {
       .message.user { align-self: flex-end; color: #f5fff9; background: #28483d; border-radius: 13px 13px 4px 13px; }
       .message.streaming:empty { width: 64px; height: 16px; background: linear-gradient(100deg, rgba(52,63,71,.6) 20%, rgba(167,243,208,.18) 45%, rgba(52,63,71,.6) 70%); background-size: 220% 100%; animation: shimmer 1.15s linear infinite; }
       .quick-actions { display: flex; flex-wrap: wrap; gap: 7px; }
-      .quick { padding: 7px 10px; border: 1px solid rgba(167,243,208,.22); border-radius: 10px; color: #dff9ec; background: rgba(40,72,61,.58); font-size: 12px; }
+      .quick { padding: 7px 10px; border: 1px solid rgba(167,243,208,.22); border-radius: 10px; color: #dff9ec; background: rgba(40,72,61,.58); font-size: 12px; text-decoration: none; }
       .quick:hover { border-color: rgba(167,243,208,.42); background: rgba(47,88,73,.72); }
       .primary-quick { margin-top: 3px; justify-self: start; }
       .picker { display: grid; gap: 6px; padding: 9px; border: 1px solid rgba(255,255,255,.09); border-radius: 13px; background: rgba(22,29,34,.62); }
@@ -597,6 +756,15 @@ document.addEventListener("click", (event) => {
   }, 1200);
 }, true);
 
+document.addEventListener("submit", (event) => {
+  const active = activeFormVerification;
+  const form = event.target instanceof HTMLFormElement ? event.target : undefined;
+  const target = active?.intake.target;
+  if (!active || !form || !target || !form.matches(target.selector)) return;
+  const startedAt = new Date().toISOString();
+  window.setTimeout(() => finishFormVerification(active.intake, startedAt), 800);
+}, true);
+
 if (!window.__gtmObservabilityInstalled) {
   window.__gtmObservabilityInstalled = true;
   void mountOverlay();
@@ -604,6 +772,7 @@ if (!window.__gtmObservabilityInstalled) {
     if (request.type === "TOGGLE_OVERLAY") { void mountOverlay().then(() => setCollapsed(!preferences.collapsed)); sendResponse({ toggled: true }); return true; }
     if (request.type === "SCAN_NAVIGATION") { sendResponse(scanNavigation()); return; }
     if (request.type === "START_VERIFICATION") { evidence.clear(); verificationScope = new Map(request.navigation.map((item) => [item.id, item])); sendResponse({ started: true, count: verificationScope.size }); return; }
+    if (request.type === "FORM_ANALYTICS_REQUEST") { recentFormRequests.push(request.request); sendResponse({ recorded: true }); return; }
     if (request.type === "GET_EVIDENCE") sendResponse({ evidence: [...evidence.values()] });
   });
 }

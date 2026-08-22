@@ -6,7 +6,7 @@ Issue: `.scratch/conversational-tracking-specs/issues/08-form-e2e.md`
 
 ## Summary
 
-In progress: adds a reusable extension journey harness and deterministic explanation evaluation as the execution framework for the complete conversational form workflow.
+Completes the acceptance-driven conversational form workflow from visible chat through confirmed setup, downloaded GTM import, browser verification, deterministic verdict, and plain-language explanation.
 
 ## Why
 
@@ -14,20 +14,22 @@ Known user journeys should be verified automatically from visible chat through a
 
 ## Behavior
 
-The acceptance fixture now defines artifact semantics, required explanation concepts, and forbidden claims. A shared Playwright helper owns local extension launch and visible chat interaction. Explanation scoring accepts varied wording while rejecting missing diagnostic meaning and unsupported platform claims. Product generation and verification steps remain in progress on this draft branch.
+The acceptance fixture defines artifact semantics, required explanation concepts, and forbidden claims. A shared Playwright helper owns extension launch and visible chat interaction. After explicit confirmation, the assistant provides a reviewable `generate_lead` GTM import and a guided verification action. The successful fixture produces `browser_verified`; the validation fixture produces `expected_non_conversion`. Both preserve platform confirmation as `unverified`, and run evidence excludes submitted values.
+
+The delivery harness now starts fresh local services by default and documents least-privilege command authorization. This prevents a stale development server from silently supplying completion evidence.
 
 ## Regression coverage
 
-Core tests cover complete, incomplete, and unsafe explanations. The acceptance-contract test requires explanation and artifact expectations for both passing and validation-error journeys. Existing browser and product regressions remain green.
+Core tests cover complete, incomplete, and unsafe explanations. The acceptance-contract test requires explanation and artifact expectations for both passing and validation-error journeys. The Playwright test consumes every acceptance journey, inspects the actual downloaded JSON, uses a private sentinel to guard artifact leakage, asserts visible target state and verdict boundaries, and retains final-state screenshots. Existing navigation, fixture, and visual regressions remain green.
 
 ## Verification
 
-`npm run verify` passes at the harness-foundation checkpoint with 89 deterministic tests and 20 Chromium workflows.
+`npm run verify` passes with 89 deterministic tests and 22 Chromium workflows.
 
 ## Exploratory review
 
-Pending completion of the visible end-to-end workflow. Exploratory review will run after the automated journey passes and before issue resolution.
+Passed in `docs/reviews/2026-08-22-conversational-form-e2e.md`. The review exercised successful and validation-error journeys, inspected final screenshots and the downloaded artifact, and remediated all discovered blocker/high findings before issue resolution.
 
 ## Documentation
 
-Updated the delivery harness, issue 08 regression contract, and its acceptance fixture.
+Updated the delivery harness, issue 08 regression contract and resolution evidence, effort acceptance criteria, acceptance fixture, and exploratory review.

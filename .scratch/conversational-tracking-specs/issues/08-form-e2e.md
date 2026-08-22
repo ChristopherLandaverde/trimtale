@@ -1,6 +1,6 @@
 # Complete conversational form E2E workflow
 
-Status: claimed
+Status: resolved
 
 Blocked by: 02, 03, 05, 07
 
@@ -47,3 +47,12 @@ Required invariants:
 - `npm run verify` passes.
 
 ## Comments
+
+- 2026-08-22: `tests/e2e/conversational-form.spec.ts` now consumes both acceptance journeys through visible chat, confirmation, a downloaded GTM import, form execution, run-evidence normalization, deterministic verdict, and explanation evaluation.
+- 2026-08-22: Passing AJAX evidence reaches `browser_verified`; validation failure reaches `expected_non_conversion`. Both visibly retain `platformConfirmation: unverified` and exclude the sentinel form value from the generated artifact.
+- 2026-08-22: Exploratory review found and remediated an uncontrolled raw-JSON tab, clipped verdict text, and silent reuse of stale local services. See `docs/reviews/2026-08-22-conversational-form-e2e.md`.
+- 2026-08-22: Final `npm run verify` passed with 89 deterministic tests and 22 Chromium workflows.
+
+## Answer
+
+The supported form workflow is complete from plain-language intake through confirmed specification, reviewable GTM import, browser execution, redacted versioned evidence, deterministic diagnosis, and a plain-language next action. The reusable acceptance-driven journey requires no human browser operation or Google credentials and permanently protects both a passing outcome and a false-positive guard.

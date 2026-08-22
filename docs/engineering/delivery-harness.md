@@ -159,6 +159,21 @@ Update the active `.scratch` issue as work progresses. When acceptance criteria 
 
 Human review remains responsible for whether the record is truthful, coverage is proportionate, and a baseline change is intentional.
 
+## Command authorization discipline
+
+Keep the local verification loop least-privileged without turning approval prompts into progress gates.
+
+- Run read-only diagnostics such as `git status`, `ps`, `ss`, local file inspection, and local HTTP checks in the normal sandbox first.
+- Escalate a command only after the sandbox actually blocks the required operation, and report the concrete failure that made escalation necessary.
+- Preemptive authorization is appropriate only when the operation is inherently privileged, opens a GUI, binds a blocked local service port, reaches a restricted network, or changes state outside the workspace.
+- Request approval before destructive or materially external actions unless the user has already authorized that exact scope.
+- Do not request elevated access merely because a later remediation might need it. Diagnose read-only first, resolve the exact target, and escalate only the smallest required action.
+- Reuse an existing narrow approval for repeated verification commands; do not broaden it to unrelated shell or process access.
+
+For example, a Playwright run may require escalation when its local fixture server receives `EPERM` while binding a port. Inspecting which process owns that port should still run normally first; only stopping the resolved stale process may require separate authority.
+
+Completion gates start fresh local API and fixture processes by default so a stale development server cannot produce a false result. Set `PLAYWRIGHT_REUSE_SERVERS=true` only for an intentional local debugging session after confirming the running services match the current build; never use server reuse as completion evidence.
+
 ## Progress without ceremony
 
 - Documentation-only edits do not require a change record or browser run unless they alter executable examples.

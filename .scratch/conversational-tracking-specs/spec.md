@@ -267,10 +267,10 @@ A verified resolution records normalized symptoms, relevant environment attribut
 - [x] Successful form outcomes can produce a `generate_lead` GTM import configuration.
 - [x] Submit attempts and validation failures do not produce passing conversion evidence.
 - [x] All sixteen initial scenarios produce their expected deterministic verdicts.
-- [ ] Every run produces versioned, redacted run evidence.
-- [ ] Browser verification remains distinct from platform confirmation.
-- [ ] Unsupported or unobservable forms produce a diagnostic handoff.
-- [ ] `npm run verify` passes without real Google credentials or external services.
+- [x] Every run produces versioned, redacted run evidence.
+- [x] Browser verification remains distinct from platform confirmation.
+- [x] Unsupported or unobservable forms produce a diagnostic handoff.
+- [x] `npm run verify` passes without real Google credentials or external services.
 
 ## Success measures
 

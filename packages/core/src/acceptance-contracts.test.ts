@@ -52,7 +52,7 @@ describe("issue 08 conversational form acceptance contract", () => {
   it("requires a successful outcome and a false-positive guard", () => {
     const journeys = loadContract().journeys;
     const passing = journeys.find((journey) => journey.fixtureState === "ajax_success");
-    const validationError = journeys.find((journey) => journey.fixtureState === "validation_error");
+    const validationError = journeys.find((journey) => journey.fixtureState === "validation_failure");
     expect(passing?.expected).toMatchObject({
       eventName: "generate_lead",
       artifact: "gtm_container_import",

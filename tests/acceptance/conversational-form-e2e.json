@@ -43,7 +43,7 @@
         }
       ],
       "practitionerConfirmsSpecification": true,
-      "fixtureState": "validation_error",
+      "fixtureState": "validation_failure",
       "expected": {
         "eventName": "generate_lead",
         "artifact": "gtm_container_import",
