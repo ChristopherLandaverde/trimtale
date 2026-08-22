@@ -11,7 +11,10 @@ export interface ExtensionJourney {
   close(): Promise<void>;
 }
 
-export async function openExtensionJourney(fixtureState: string): Promise<ExtensionJourney> {
+export async function openExtensionJourney(
+  fixtureState: string,
+  gtmContainerId?: string,
+): Promise<ExtensionJourney> {
   const profile = await mkdtemp(join(tmpdir(), "gtm-observability-journey-"));
   const extensionPath = resolve("apps/extension/dist");
   const context = await chromium.launchPersistentContext(profile, {
@@ -20,7 +23,10 @@ export async function openExtensionJourney(fixtureState: string): Promise<Extens
     args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
   });
   const page = await context.newPage();
-  await page.goto(`http://127.0.0.1:4173/?formScenario=${encodeURIComponent(fixtureState)}`);
+  const url = new URL("http://127.0.0.1:4173/");
+  url.searchParams.set("formScenario", fixtureState);
+  if (gtmContainerId) url.searchParams.set("gtm", gtmContainerId);
+  await page.goto(url.toString());
   const root = page.locator("#gtm-observability-root");
   await expect(root).toBeAttached();
   await root.getByRole("button", { name: "Open tracking assistant" }).click();

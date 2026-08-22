@@ -80,6 +80,46 @@ chrome.runtime.onConnect.addListener((port) => {
   });
 });
 
+type GtmContainerOperation = "inspect" | "prepare";
+
+chrome.runtime.onMessage.addListener(
+  (
+    message: { type?: string; operation?: GtmContainerOperation; publicId?: string },
+    _sender,
+    sendResponse,
+  ) => {
+    if (
+      message.type !== "GTM_CONTAINER_REQUEST"
+      || (message.operation !== "inspect" && message.operation !== "prepare")
+      || typeof message.publicId !== "string"
+    ) return undefined;
+
+    const operation = message.operation;
+    const request = operation === "inspect"
+      ? fetch(`http://127.0.0.1:8787/api/google/containers/recognize?publicId=${encodeURIComponent(message.publicId)}`)
+      : fetch("http://127.0.0.1:8787/api/google/containers/prepare-workspace", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ publicId: message.publicId }),
+      });
+
+    void request.then(async (response) => {
+      const body = await response.json() as Record<string, unknown>;
+      sendResponse(response.ok
+        ? { ok: true, ...body }
+        : { ok: false, error: typeof body.error === "string" ? body.error : `GTM request failed with HTTP ${response.status}.` });
+    }).catch((error: unknown) => {
+      sendResponse({
+        ok: false,
+        error: error instanceof Error
+          ? error.message
+          : "The local GTM integration could not be reached.",
+      });
+    });
+    return true;
+  },
+);
+
 interface PendingEvidence {
   tabId: number;
   evidence: BrowserEvidence;

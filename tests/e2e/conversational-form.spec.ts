@@ -87,3 +87,42 @@ for (const acceptance of contract.journeys) {
     }
   });
 }
+
+test("a confirmed lead form can recognize the page container", async () => {
+  const journey = await openExtensionJourney("confirmed_success", "GTM-TEST123");
+  await journey.context.route("http://127.0.0.1:8787/api/google/containers/**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        containerWritesEnabled: false,
+        result: {
+          status: "recognized",
+          publicId: "GTM-TEST123",
+          container: { name: "Lead site", publicId: "GTM-TEST123" },
+          workspace: {
+            status: "available",
+            action: "create",
+            workspaceCount: 1,
+            remainingSlots: 2,
+          },
+        },
+      }),
+    });
+  });
+  try {
+    const { root } = journey;
+    await journey.send("Track leads from the contact form");
+    await root.getByRole("button", { name: "Contact sales" }).click();
+    await root.getByRole("button", { name: "Review setup" }).click();
+    await root.getByRole("button", { name: "Confirm setup" }).click();
+
+    await expect(root.getByText("Detected GTM-TEST123")).toBeVisible();
+    await root.getByRole("button", { name: "Check GTM access" }).click();
+    await expect(root.getByText(/Recognized Lead site.*Managed workspace can be prepared/)).toBeVisible();
+    await expect(root.getByText(/Workspace preparation is disabled/)).toBeVisible();
+    await expect(root.getByRole("button", { name: "Prepare managed workspace" })).toHaveCount(0);
+  } finally {
+    await journey.close();
+  }
+});

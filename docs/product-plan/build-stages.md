@@ -125,8 +125,10 @@ Goal: correlate runtime evidence with platform configuration and destination evi
 GTM connector:
 
 - Read accounts, containers, tags, triggers, variables, versions, and workspaces.
+- Match an observed public container ID to exactly one accessible container before proposing mutation.
 - Compare live container against the last passing scan.
-- Create draft workspaces or import files.
+- Reuse at most one marked managed workspace; create it only after a fresh capacity check and explicit preparation.
+- Fall back to import files and planning when all three standard workspace slots are occupied.
 - Never publish without explicit human approval.
 
 GA4 connector:
@@ -178,4 +180,3 @@ Build:
 - Audit trail of fixes.
 - Reusable journey templates.
 - Pricing by monitored site or client.
-
