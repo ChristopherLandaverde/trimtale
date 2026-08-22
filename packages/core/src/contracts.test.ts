@@ -74,11 +74,12 @@ describe("tracking specification contract", () => {
       runId: "run_1",
       specificationId: "spec_1",
       startedAt: "2026-08-22T12:00:00.000Z",
-      observations: {},
+      observations: { tagFired: true },
       verdict: {
         code: "browser_verified",
         browserVerification: "passed",
         platformConfirmation: "unverified",
+        nextAction: "Await platform confirmation.",
       },
     })).toEqual([]);
   });
