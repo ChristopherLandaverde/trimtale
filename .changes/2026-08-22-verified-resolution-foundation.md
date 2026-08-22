@@ -6,7 +6,7 @@ Issue: `.scratch/conversational-tracking-specs/issues/09-verified-resolution-fou
 
 ## Summary
 
-In progress: defines the versioned verified-resolution boundary and file-backed API repository for confirmed before-and-after tracking evidence.
+Defines the versioned verified-resolution boundary and file-backed API repository for confirmed before-and-after tracking evidence.
 
 ## Why
 
@@ -18,11 +18,11 @@ A verified resolution requires human confirmation, a controlled cause and correc
 
 ## Regression coverage
 
-The API persistence test consumes every case in `tests/acceptance/verified-resolution-foundation.json`, reopens the stored file to prove retrieval, rejects incomplete or inconsistent evidence, checks schema handling, scans persisted JSON for privacy sentinels, and confirms the deterministic verdict output is unchanged.
+The API persistence test consumes every case in `tests/acceptance/verified-resolution-foundation.json`, reopens the stored file to prove retrieval, rejects incomplete or inconsistent evidence, checks both input and stored-collection schema handling, scans persisted JSON for privacy sentinels, and confirms the deterministic verdict output is unchanged.
 
 ## Verification
 
-Focused acceptance and persistence tests pass: 13 tests across the fixture contract and API repository. Full `npm run verify` is pending final documentation review.
+`npm run verify` passes with 100 deterministic tests and 22 Chromium workflows. The focused fixture-contract and API repository lane contains 14 passing tests.
 
 ## Exploratory review
 

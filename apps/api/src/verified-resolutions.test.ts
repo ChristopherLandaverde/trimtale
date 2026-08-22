@@ -5,7 +5,7 @@ import {
   type TrackingRunEvidenceV1,
 } from "@gtm-observability/core";
 import { readFileSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -103,6 +103,19 @@ describe("verified resolution persistence acceptance", () => {
 
       expect(determineFormVerdict(ruleProbe)).toEqual(rulesBefore);
       expect(acceptance.expected.deterministicRulesChanged).toBe(false);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an unsupported persisted collection schema", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "gtm-observability-resolutions-"));
+    const filePath = join(directory, "verified-resolutions.json");
+    try {
+      await writeFile(filePath, JSON.stringify({ schemaVersion: 99, resolutions: [] }), "utf8");
+      expect(() => new VerifiedResolutionRepository(filePath, evidenceStore())).toThrow(
+        "Unsupported verified-resolution collection schema.",
+      );
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
