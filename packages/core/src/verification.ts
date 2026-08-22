@@ -3,6 +3,12 @@ import type {
   NavigationElement,
   VerificationVerdict,
 } from "./types.js";
+import {
+  TRACKING_SCHEMA_VERSION,
+  assertTrackingRunEvidence,
+  type ScenarioVerdictCode,
+  type TrackingRunEvidenceV1,
+} from "./contracts.js";
 
 function isAnalyticsRequest(url: string): boolean {
   return /(?:(?:google-analytics\.com|analytics\.google\.com)|127\.0\.0\.1:4173)\/g\/collect/i.test(url);
@@ -11,6 +17,7 @@ function isAnalyticsRequest(url: string): boolean {
 export function evaluateEvidence(
   expected: NavigationElement,
   evidence?: BrowserEvidence,
+  specificationId = "spec_navigation",
 ): VerificationVerdict {
   if (!evidence) {
     return {
@@ -25,11 +32,45 @@ export function evaluateEvidence(
   const analyticsRequests = evidence.requests.filter((request) => isAnalyticsRequest(request.url));
   const exactlyOneRequest = analyticsRequests.length === 1;
   const passed = clickedExpectedLink && exactlyOneRequest;
+  const verdictCode: ScenarioVerdictCode = passed
+    ? "browser_verified"
+    : analyticsRequests.length > 1
+      ? "duplicate_fire"
+      : clickedExpectedLink
+        ? "tag_fired_request_missing"
+        : "insufficient_observable_evidence";
+  const runEvidence: TrackingRunEvidenceV1 = {
+    schemaVersion: TRACKING_SCHEMA_VERSION,
+    runId: `run_${expected.id}_${Date.parse(evidence.clickedAt)}`,
+    specificationId,
+    startedAt: evidence.clickedAt,
+    observations: {
+      interaction: {
+        type: "navigation_click",
+        targetId: expected.id,
+        attempted: true,
+      },
+      outcome: {
+        observed: clickedExpectedLink,
+        ...(clickedExpectedLink ? { evidenceType: "navigation_click" as const } : {}),
+      },
+      dataLayer: { matchingEvents: [] },
+      network: { ga4Requests: analyticsRequests },
+      consent: { analyticsStorage: "unknown" },
+    },
+    verdict: {
+      code: verdictCode,
+      browserVerification: passed ? "passed" : "failed",
+      platformConfirmation: "unverified",
+    },
+  };
+  assertTrackingRunEvidence(runEvidence);
 
   return {
     status: passed ? "passed" : "failed",
     browserVerification: passed ? "verified" : "failed",
     platformConfirmation: "unverified",
+    runEvidence,
     checks: [
       {
         name: "Confirmed link clicked",

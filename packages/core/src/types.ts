@@ -25,6 +25,7 @@ export interface SetupRequest {
 
 export interface SetupProposal {
   id: string;
+  specification: import("./contracts.js").TrackingSpecificationV1;
   eventName: "navigation_click";
   pageUrl: string;
   measurementId: string;
@@ -53,6 +54,7 @@ export interface VerificationVerdict {
   status: "passed" | "failed" | "incomplete";
   browserVerification: "verified" | "failed" | "pending";
   platformConfirmation: "unverified";
+  runEvidence?: import("./contracts.js").TrackingRunEvidenceV1;
   checks: Array<{
     name: string;
     passed: boolean;

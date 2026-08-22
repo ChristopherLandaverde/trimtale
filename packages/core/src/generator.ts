@@ -1,4 +1,5 @@
 import { isNavigationIntent, normalizeNavigation } from "./navigation.js";
+import { navigationSpecification } from "./contracts.js";
 import type {
   GtmContainerExport,
   GtmParameter,
@@ -169,8 +170,10 @@ export function createSetupProposal(request: SetupRequest): SetupProposal {
     }),
   );
 
+  const id = `setup_${fingerprint}_${randomSuffix()}`;
   return {
-    id: `setup_${fingerprint}_${randomSuffix()}`,
+    id,
+    specification: navigationSpecification(`spec_${fingerprint}`, request.intent, request.pageUrl, navigation),
     eventName: "navigation_click",
     pageUrl: request.pageUrl,
     measurementId: request.measurementId.toUpperCase(),
