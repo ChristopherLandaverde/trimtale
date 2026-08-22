@@ -1,4 +1,5 @@
 import {
+  observeGtmRuntime,
   selectConversationSuccess,
   selectConversationTarget,
   type BrowserEvidence,
@@ -38,7 +39,8 @@ let responseList: HTMLElement | undefined;
 let composer: HTMLTextAreaElement | undefined;
 let port: chrome.runtime.Port | undefined;
 let targetHost: HTMLDivElement | undefined;
-let highlightedNavigation: NavigationElement[] = [];
+interface PageTarget { id: string; label: string; selector: string; }
+let highlightedTargets: PageTarget[] = [];
 let highlightTone: "candidate" | "confirmed" = "candidate";
 const responseNodes = new Map<string, HTMLElement>();
 const navigationByRequest = new Map<string, NavigationElement[]>();
@@ -114,6 +116,25 @@ function scanForms(): FormCandidate[] {
   });
 }
 
+function inspectGtmRuntime() {
+  try {
+    return observeGtmRuntime({
+      inspectionAvailable: true,
+      scriptUrls: [...document.scripts].map((script) => script.src).filter(Boolean),
+    });
+  } catch {
+    return observeGtmRuntime({ inspectionAvailable: false, scriptUrls: [] });
+  }
+}
+
+function navigationTargets(navigation: NavigationElement[]): PageTarget[] {
+  return navigation.map((item) => ({ id: item.id, label: item.text, selector: item.selector }));
+}
+
+function formTargets(forms: FormCandidate[]): PageTarget[] {
+  return forms.map((item) => ({ id: item.id, label: item.label, selector: item.selector }));
+}
+
 function recentAnalyticsRequests(since: number): BrowserEvidence["requests"] {
   return performance.getEntriesByType("resource")
     .filter((entry) => entry.startTime >= since && analyticsPattern.test(entry.name))
@@ -157,7 +178,7 @@ function updateTargetHighlights(): void {
   const shadow = targetHost?.shadowRoot;
   if (!shadow) return;
   shadow.querySelectorAll(".target").forEach((node) => node.remove());
-  highlightedNavigation.forEach((item, index) => {
+  highlightedTargets.forEach((item, index) => {
     const element = document.querySelector<HTMLElement>(item.selector);
     if (!element || element.getBoundingClientRect().width === 0) return;
     const bounds = element.getBoundingClientRect();
@@ -167,13 +188,16 @@ function updateTargetHighlights(): void {
     marker.style.top = `${Math.max(2, bounds.top - 4)}px`;
     marker.style.width = `${bounds.width + 8}px`;
     marker.style.height = `${bounds.height + 8}px`;
-    marker.innerHTML = `<span>${highlightTone === "confirmed" ? "✓" : index + 1} ${item.text}</span>`;
+    marker.dataset.targetId = item.id;
+    const label = document.createElement("span");
+    label.textContent = `${highlightTone === "confirmed" ? "✓" : index + 1} ${item.label}`;
+    marker.append(label);
     shadow.append(marker);
   });
 }
 
-function highlightTargets(navigation: NavigationElement[], tone: "candidate" | "confirmed"): void {
-  highlightedNavigation = navigation;
+function highlightTargets(targets: PageTarget[], tone: "candidate" | "confirmed"): void {
+  highlightedTargets = targets;
   highlightTone = tone;
   if (!targetHost) {
     targetHost = document.createElement("div");
@@ -194,7 +218,7 @@ function highlightTargets(navigation: NavigationElement[], tone: "candidate" | "
 }
 
 function clearTargetHighlights(): void {
-  highlightedNavigation = [];
+  highlightedTargets = [];
   targetHost?.shadowRoot?.querySelectorAll(".target").forEach((node) => node.remove());
 }
 
@@ -202,12 +226,20 @@ function renderEvidencePath(navigation: NavigationElement[]): void {
   const path = document.createElement("section");
   path.className = "evidence-path";
   path.setAttribute("aria-label", "Tracking evidence path");
+  const runtime = inspectGtmRuntime();
+  const runtimeDetail = runtime.status === "detected"
+    ? `Detected ${runtime.containerIds.join(", ")}`
+    : runtime.status === "not_detected"
+      ? "No GTM container detected on this page"
+      : runtime.reason;
   const stages = [
     { state: "passed", label: "Intent understood", detail: "Navigation clicks → navigation_click" },
     { state: "passed", label: "Page inspected", detail: `${navigation.length} matching link${navigation.length === 1 ? "" : "s"} found` },
     { state: "passed", label: "Targets confirmed", detail: `${navigation.length} highlighted on this page` },
-    { state: "pending", label: "GTM tag", detail: "Not created from chat yet" },
+    { state: "pending", label: "Setup generation", detail: "No setup generated from this conversation yet" },
+    { state: runtime.status === "detected" ? "passed" : "pending", label: "GTM runtime", detail: runtimeDetail },
     { state: "pending", label: "Browser verification", detail: "Runs after the GTM setup is installed" },
+    { state: "pending", label: "Platform confirmation", detail: "Unverified — browser evidence cannot confirm GA4 processing" },
   ];
   const heading = document.createElement("div");
   heading.className = "evidence-heading";
@@ -216,7 +248,16 @@ function renderEvidencePath(navigation: NavigationElement[]): void {
   for (const stage of stages) {
     const row = document.createElement("div");
     row.className = `evidence-stage ${stage.state}`;
-    row.innerHTML = `<i aria-hidden="true">${stage.state === "passed" ? "✓" : "○"}</i><span><strong>${stage.label}</strong><small>${stage.detail}</small></span>`;
+    const icon = document.createElement("i");
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = stage.state === "passed" ? "✓" : "○";
+    const copy = document.createElement("span");
+    const label = document.createElement("strong");
+    label.textContent = stage.label;
+    const detail = document.createElement("small");
+    detail.textContent = stage.detail;
+    copy.append(label, detail);
+    row.append(icon, copy);
     path.append(row);
   }
   responseList?.append(path);
@@ -224,13 +265,13 @@ function renderEvidencePath(navigation: NavigationElement[]): void {
 }
 
 function confirmNavigation(navigation: NavigationElement[]): void {
-  highlightTargets(navigation, "confirmed");
+  highlightTargets(navigationTargets(navigation), "confirmed");
   addMessage(`${navigation.length} navigation link${navigation.length === 1 ? "" : "s"} selected and highlighted on the page.`, "assistant");
   renderEvidencePath(navigation);
 }
 
 function renderNavigationPicker(navigation: NavigationElement[]): void {
-  highlightTargets(navigation, "candidate");
+  highlightTargets(navigationTargets(navigation), "candidate");
   const picker = document.createElement("div");
   picker.className = "picker";
   for (const item of navigation) {
@@ -242,7 +283,7 @@ function renderNavigationPicker(navigation: NavigationElement[]): void {
     input.dataset.navigationId = item.id;
     input.addEventListener("change", () => {
       const selectedIds = new Set([...picker.querySelectorAll<HTMLInputElement>("input:checked")].map((node) => node.dataset.navigationId));
-      highlightTargets(navigation.filter((candidate) => selectedIds.has(candidate.id)), "candidate");
+      highlightTargets(navigationTargets(navigation.filter((candidate) => selectedIds.has(candidate.id))), "candidate");
     });
     const copy = document.createElement("span");
     copy.textContent = item.text;
@@ -309,7 +350,10 @@ function handleAssistantAction(actionId: string, requestId: string): void {
   const forms = formsByRequest.get(requestId) ?? [];
   if (actionId.startsWith("target:") && intake) {
     const target = forms.find((form) => form.id === actionId.slice("target:".length));
-    if (target) renderIntakeStep(requestId, selectConversationTarget(intake, target));
+    if (target) {
+      highlightTargets(formTargets([target]), "confirmed");
+      renderIntakeStep(requestId, selectConversationTarget(intake, target));
+    }
     return;
   }
   if (actionId.startsWith("success:") && intake?.target) {
@@ -387,7 +431,12 @@ function connectAssistant(): chrome.runtime.Port {
       requestTimeouts.delete(message.requestId);
       navigationByRequest.set(message.requestId, message.navigation ?? []);
       formsByRequest.set(message.requestId, message.forms ?? []);
-      if (message.intake) intakeByRequest.set(message.requestId, message.intake);
+      if (message.intake) {
+        intakeByRequest.set(message.requestId, message.intake);
+        if (message.intake.state === "awaiting_target") {
+          highlightTargets(formTargets(message.forms ?? []), "candidate");
+        }
+      }
       renderQuickActions(message.requestId, message.actions ?? []);
     }
   });
@@ -397,6 +446,7 @@ function connectAssistant(): chrome.runtime.Port {
 function submitPrompt(): void {
   const prompt = composer?.value.trim();
   if (!prompt) return;
+  clearTargetHighlights();
   composer!.value = "";
   addMessage(prompt, "user");
   const requestId = crypto.randomUUID();

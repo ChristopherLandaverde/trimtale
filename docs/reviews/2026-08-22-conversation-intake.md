@@ -46,6 +46,8 @@ Impact: a practitioner cannot confidently distinguish similarly named or visuall
 
 Remediation: `.scratch/conversational-tracking-specs/issues/11-exploratory-intake-findings.md`.
 
+Resolution: fixed and reviewed in `2026-08-22-form-highlights-gtm-runtime.md`.
+
 ### EXP-02 — GTM evidence language does not report observed page state
 
 Severity: high
@@ -57,6 +59,8 @@ Observed: `Not created from chat yet` describes the assistant's generation histo
 Impact: the evidence path can mislead a practitioner about what the assistant inspected and cannot support later diagnosis.
 
 Remediation: `.scratch/conversational-tracking-specs/issues/11-exploratory-intake-findings.md`.
+
+Resolution: fixed and reviewed in `2026-08-22-form-highlights-gtm-runtime.md`.
 
 ## Review result
 

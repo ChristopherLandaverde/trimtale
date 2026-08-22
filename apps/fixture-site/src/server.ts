@@ -2,13 +2,14 @@ import { createServer } from "node:http";
 
 const port = Number.parseInt(process.env.FIXTURE_PORT ?? "4173", 10);
 
-function page(pathname: string): string {
+function page(pathname: string, gtmContainerId?: string): string {
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Northstar Studio${pathname === "/" ? "" : ` — ${pathname.slice(1)}`}</title>
+    ${gtmContainerId ? `<script src="/fixture-gtm.js?id=${gtmContainerId}"></script>` : ""}
     <style>
       body { margin: 0; font-family: system-ui, sans-serif; color: #17212b; }
       header, footer { display: flex; align-items: center; justify-content: space-between; padding: 20px 8vw; }
@@ -83,8 +84,13 @@ const server = createServer((request, response) => {
     response.end();
     return;
   }
+  if (url.pathname === "/fixture-gtm.js") {
+    response.writeHead(200, { "Content-Type": "application/javascript", "Cache-Control": "no-store" });
+    response.end("// Deterministic local GTM runtime marker.");
+    return;
+  }
   response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
-  response.end(page(url.pathname));
+  response.end(page(url.pathname, url.searchParams.get("gtm") ?? undefined));
 });
 
 server.listen(port, "127.0.0.1", () => {
