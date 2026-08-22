@@ -15,9 +15,12 @@ interface AcceptanceContract {
     fixtureState: string;
     expected: {
       eventName: string;
+      artifact: string;
       verdict: string;
       browserVerification: string;
       platformConfirmation: string;
+      explanationMustInclude: string[];
+      explanationMustNotClaim: string[];
     };
   }>;
 }
@@ -49,18 +52,23 @@ describe("issue 08 conversational form acceptance contract", () => {
   it("requires a successful outcome and a false-positive guard", () => {
     const journeys = loadContract().journeys;
     const passing = journeys.find((journey) => journey.fixtureState === "ajax_success");
-    const validationError = journeys.find((journey) => journey.fixtureState === "validation_error");
-    expect(passing?.expected).toEqual({
+    const validationError = journeys.find((journey) => journey.fixtureState === "validation_failure");
+    expect(passing?.expected).toMatchObject({
       eventName: "generate_lead",
+      artifact: "gtm_container_import",
       verdict: "browser_verified",
       browserVerification: "passed",
       platformConfirmation: "unverified",
+      explanationMustInclude: ["browser", "request", "platform confirmation"],
     });
-    expect(validationError?.expected).toEqual({
+    expect(validationError?.expected).toMatchObject({
       eventName: "generate_lead",
+      artifact: "gtm_container_import",
       verdict: "expected_non_conversion",
       browserVerification: "failed",
       platformConfirmation: "unverified",
+      explanationMustInclude: ["validation", "not counted", "submit again"],
     });
+    expect(journeys.every((journey) => journey.expected.explanationMustNotClaim.length > 0)).toBe(true);
   });
 });

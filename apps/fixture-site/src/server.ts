@@ -9,6 +9,8 @@ function page(pathname: string, fixture: FormFixtureScenario, gtmContainerId?: s
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="gtm-observability-measurement-id" content="G-TEST123456" />
+    <meta name="gtm-observability-container-id" content="GTM-TEST123" />
     <title>Northstar Studio${pathname === "/" ? "" : ` — ${pathname.slice(1)}`}</title>
     ${gtmContainerId ? `<script src="/fixture-gtm.js?id=${gtmContainerId}"></script>` : ""}
     <style>
@@ -64,6 +66,8 @@ function page(pathname: string, fixture: FormFixtureScenario, gtmContainerId?: s
       window.dataLayer = window.dataLayer || [];
       document.documentElement.dataset.fixtureScenario = formFixture.id;
       document.documentElement.dataset.consent = formFixture.consent;
+      document.documentElement.dataset.transport = formFixture.transport;
+      document.documentElement.dataset.outcomeObservable = String(formFixture.presentation !== 'cross_origin_iframe');
       const duplicate = new URLSearchParams(location.search).get('scenario') === 'duplicate';
       document.addEventListener('click', (event) => {
         const link = event.target.closest('a[href]');
@@ -80,6 +84,9 @@ function page(pathname: string, fixture: FormFixtureScenario, gtmContainerId?: s
         form.addEventListener('submit', (event) => {
           event.preventDefault();
           document.documentElement.dataset.submitAttempted = 'true';
+          document.documentElement.dataset.submissionResult = formFixture.submissionResult;
+          document.documentElement.dataset.tagFired = String(formFixture.tagFired);
+          document.documentElement.dataset.dataLayerEvent = String(formFixture.dataLayerEvent);
           if (formFixture.submissionResult !== 'success' || !formFixture.outcomeObserved) {
             document.documentElement.dataset.submissionResult = formFixture.submissionResult;
             return;

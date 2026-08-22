@@ -135,6 +135,9 @@ chrome.webRequest.onBeforeRequest.addListener(
       .filter((item) => Date.parse(item.observedAt) >= cutoff);
     observed.push(request);
     recentRequests.set(details.tabId, observed);
+    if (details.tabId >= 0) {
+      void chrome.tabs.sendMessage(details.tabId, { type: "FORM_ANALYTICS_REQUEST", request }).catch(() => undefined);
+    }
 
     if (!pending || details.tabId !== pending.tabId || Date.now() - pending.startedAt > requestLifetimeMs) return undefined;
     const updated: BrowserEvidence = {

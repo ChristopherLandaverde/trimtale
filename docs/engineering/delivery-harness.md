@@ -13,6 +13,7 @@ accepted spec
   -> implementation plus permanent regression
   -> change record and issue update
   -> npm run verify
+  -> automated complete-journey review
   -> exploratory Chromium review
   -> remediate findings and add regressions
   -> draft PR updated as work progresses
@@ -36,6 +37,23 @@ An issue cannot become `resolved` until:
 - Any acceptance fixture created earlier is consumed by the behavioral test rather than duplicated or abandoned.
 
 Skipped tests, `test.todo`, and fixtures that are never loaded by the harness do not satisfy the contract.
+
+## Automated complete-journey review
+
+User-visible workflows must be driven through a reusable Playwright journey harness before exploratory review. The acceptance fixture—not duplicated test code—defines the intent, clarifications, fixture state, expected artifact, evidence, verdict, next-action concepts, and forbidden claims.
+
+For each journey, automation should:
+
+1. Launch Chromium with the unpacked extension and deterministic local services.
+2. Begin from the visible chat surface and use accessible controls for every practitioner action.
+3. Assert page effects such as candidate and confirmed highlights.
+4. Validate generated artifacts semantically after removing timestamps and irrelevant identifiers.
+5. Execute the local site behavior and collect the same evidence the product displays.
+6. Assert the deterministic verdict and platform-confirmation boundary.
+7. Score the conversational explanation against required concepts and forbidden claims rather than exact prose.
+8. Repeat critical journeys when race, duplication, reload, or listener regressions are plausible.
+
+This automated review catches known behavior continuously. Exploratory review remains responsible for discovering missing expectations and converting confirmed findings into permanent regressions.
 
 ## Exploratory Chromium review
 
@@ -140,6 +158,21 @@ Update the active `.scratch` issue as work progresses. When acceptance criteria 
 `npm run check:change-docs` validates every committed change record. In pull-request CI, it also compares the branch to the base revision and fails a code-bearing change with no new record. `npm run verify` runs documentation validation before type checks, unit/scenario tests, builds, and browser E2E.
 
 Human review remains responsible for whether the record is truthful, coverage is proportionate, and a baseline change is intentional.
+
+## Command authorization discipline
+
+Keep the local verification loop least-privileged without turning approval prompts into progress gates.
+
+- Run read-only diagnostics such as `git status`, `ps`, `ss`, local file inspection, and local HTTP checks in the normal sandbox first.
+- Escalate a command only after the sandbox actually blocks the required operation, and report the concrete failure that made escalation necessary.
+- Preemptive authorization is appropriate only when the operation is inherently privileged, opens a GUI, binds a blocked local service port, reaches a restricted network, or changes state outside the workspace.
+- Request approval before destructive or materially external actions unless the user has already authorized that exact scope.
+- Do not request elevated access merely because a later remediation might need it. Diagnose read-only first, resolve the exact target, and escalate only the smallest required action.
+- Reuse an existing narrow approval for repeated verification commands; do not broaden it to unrelated shell or process access.
+
+For example, a Playwright run may require escalation when its local fixture server receives `EPERM` while binding a port. Inspecting which process owns that port should still run normally first; only stopping the resolved stale process may require separate authority.
+
+Completion gates start fresh local API and fixture processes by default so a stale development server cannot produce a false result. Set `PLAYWRIGHT_REUSE_SERVERS=true` only for an intentional local debugging session after confirming the running services match the current build; never use server reuse as completion evidence.
 
 ## Progress without ceremony
 
