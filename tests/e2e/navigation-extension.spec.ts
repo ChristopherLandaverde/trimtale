@@ -3,6 +3,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
+const screenshotOptions = {
+  animations: "disabled" as const,
+  stylePath: resolve("tests/e2e/visual-stability.css"),
+};
+
 test("mounts and streams through the floating tracking assistant", async () => {
   const profile = await mkdtemp(join(tmpdir(), "gtm-observability-"));
   const extensionPath = resolve("apps/extension/dist");
@@ -20,10 +25,14 @@ test("mounts and streams through the floating tracking assistant", async () => {
     const assistant = root.locator("section.assistant");
     await expect(root).toBeAttached();
     await expect(assistant).toHaveClass(/collapsed/);
+    await expect(assistant).toHaveScreenshot("assistant-collapsed.png", screenshotOptions);
 
     await root.getByRole("button", { name: "Open tracking assistant" }).click();
     await expect(assistant).not.toHaveClass(/collapsed/);
     await expect(root.getByText("What do you want to track on this page?")).toBeVisible();
+    await expect(root.getByLabel("Tracking request")).toBeFocused();
+    expect(await assistant.evaluate((element) => getComputedStyle(element).fontFamily)).toContain("Inter");
+    await expect(assistant).toHaveScreenshot("assistant-open.png", screenshotOptions);
 
     await root.getByLabel("Tracking request").fill("navigation");
     await root.getByRole("button", { name: "Send request" }).click();
@@ -31,6 +40,7 @@ test("mounts and streams through the floating tracking assistant", async () => {
     await expect(root.getByText(/I found 5 navigation links/)).toBeVisible();
     await root.getByRole("button", { name: "Choose links" }).click();
     await expect(root.locator(".pick")).toHaveCount(5);
+    await expect(assistant).toHaveScreenshot("assistant-navigation-scope.png", screenshotOptions);
     await root.getByRole("button", { name: "Confirm selection" }).click();
     await expect(root.getByText("5 navigation links selected and highlighted on the page.")).toBeVisible();
     await expect(root.getByRole("region", { name: "Tracking evidence path" })).toBeVisible();
@@ -38,6 +48,7 @@ test("mounts and streams through the floating tracking assistant", async () => {
     await expect(root.getByText("Not created from chat yet")).toBeVisible();
     await expect(site.locator("#gtm-observability-targets")).toBeAttached();
     await expect(site.locator("#gtm-observability-targets").locator(".target.confirmed")).toHaveCount(5);
+    await expect(assistant).toHaveScreenshot("assistant-evidence-path.png", screenshotOptions);
 
     const setupResponse = await site.request.post("http://127.0.0.1:8787/api/setups", {
       data: {
