@@ -16,11 +16,11 @@ The user-facing product behavior is unchanged. Navigation setup proposals now in
 
 ## Regression coverage
 
-The repository verification gate now validates change-record structure. Pull-request CI additionally checks that code-bearing diffs include a change record. Contract tests cover round trips, schema versions, invalid event combinations, form success evidence, scenarios, and run-evidence envelopes. Existing generator, verdict, and browser E2E coverage asserts the migrated navigation contract.
+The repository verification gate now validates change-record structure. Pull-request CI additionally checks that code-bearing diffs include a change record. Contract tests cover round trips, schema versions, invalid event combinations, form success evidence, scenarios, and run-evidence envelopes. Existing generator, verdict, and browser E2E coverage asserts the migrated navigation contract. Issue 08 now has a schema-validated positive and negative acceptance fixture that must become the input to its eventual browser test.
 
 ## Verification
 
-`npm run verify` passes: strict TypeScript checks, 17 unit/scenario tests, builds, and one Chromium extension E2E test.
+`npm run verify` passes: strict TypeScript checks, 19 unit/scenario tests, builds, and one Chromium extension E2E test.
 
 ## Documentation
 

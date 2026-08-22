@@ -27,6 +27,8 @@ Before completing a change, run `npm run verify` and report the evidence. Never 
 
 - Read `docs/engineering/delivery-harness.md` before changing product behavior, contracts, persistence, security boundaries, or test infrastructure.
 - Every code-bearing pull request must include one concise change record under `.changes/`; use `.changes/template.md` as the format.
+- Every claimed implementation issue must define a regression contract before product implementation begins. When dependencies do not exist yet, add a schema-validated acceptance fixture that later becomes the input to the real test; do not use a skipped or permanently failing test.
+- An issue may be resolved only when its required behavioral tests exist, run in the ordinary harness, and are named in the issue's `## Regression contract` section.
 - Update the relevant `.scratch/<feature>/spec.md` acceptance criteria and issue comments when implementation changes the documented state of an effort.
 - Add permanent regression coverage in the same change as new accepted behavior. Do not delete or weaken an existing regression without documenting the product decision in the change record.
 - Keep pull requests to one reviewable vertical slice. Open a draft pull request early when remote collaboration is available; a draft is a visibility mechanism, not a reason to pause local implementation.

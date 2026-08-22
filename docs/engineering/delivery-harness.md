@@ -8,6 +8,7 @@ The harness lets the product advance in small vertical slices while preserving a
 
 ```text
 accepted spec
+  -> executable regression contract
   -> claimed issue
   -> implementation plus permanent regression
   -> change record and issue update
@@ -18,6 +19,21 @@ accepted spec
 ```
 
 Do not wait for an entire multi-issue effort before integrating completed foundations. Each pull request should complete one independently understandable slice and leave the repository green.
+
+## Test-first issue contract
+
+Every implementation issue starts by defining its regression contract. The contract names the invariant, test level, fixtures, positive case, negative case, and expected evidence or verdict.
+
+If the behavior can run, write the behavioral test first and implement until it passes. If downstream dependencies do not exist, commit a schema-validated acceptance fixture rather than a skipped or intentionally failing test. The fixture is executable as contract validation immediately and must later be consumed by the real unit, scenario, or E2E test. This lets dependent work move forward while keeping `main` green.
+
+An issue cannot become `resolved` until:
+
+- Its behavioral test runs in `npm test` or `npm run test:e2e`.
+- Positive, negative, and inconclusive behavior are covered when applicable.
+- The issue names the concrete test files under `## Regression contract`.
+- Any acceptance fixture created earlier is consumed by the behavioral test rather than duplicated or abandoned.
+
+Skipped tests, `test.todo`, and fixtures that are never loaded by the harness do not satisfy the contract.
 
 ## Regression tiers
 
