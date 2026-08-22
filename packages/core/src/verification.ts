@@ -49,9 +49,11 @@ export function evaluateEvidence(
         type: "navigation_click",
         targetId: expected.id,
         attempted: true,
+        submissionResult: "success",
       },
       outcome: {
         observed: clickedExpectedLink,
+        observable: true,
         ...(clickedExpectedLink ? { evidenceType: "navigation_click" as const } : {}),
       },
       dataLayer: { matchingEvents: [] },

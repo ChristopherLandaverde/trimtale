@@ -16,7 +16,9 @@ function raw(transport: RawFormRunObservation["transport"]): RawFormRunObservati
     transport,
     targetId: "contact",
     submitAttempted: true,
+    submissionResult: "success",
     outcomeObserved: true,
+    outcomeObservable: true,
     outcomeEvidenceType: "visible_element",
     dataLayerEvents: [{ event: "generate_lead", form_id: "contact", form_name: "Contact_sales" }],
     tagFired: true,
@@ -29,8 +31,8 @@ describe("form run evidence normalization", () => {
   it.each(["native", "redirect", "ajax", "spa"] as const)("normalizes %s transport into the same evidence contract", (transport) => {
     const evidence = normalizeFormRunEvidence(raw(transport), verdict);
     expect(evidence.observations).toMatchObject({
-      interaction: { type: "form_submission", targetId: "contact", attempted: true },
-      outcome: { observed: true, evidenceType: "visible_element" },
+      interaction: { type: "form_submission", targetId: "contact", attempted: true, submissionResult: "success" },
+      outcome: { observed: true, observable: true, evidenceType: "visible_element" },
       consent: { analyticsStorage: "granted" },
       tagFired: true,
     });
@@ -55,6 +57,7 @@ describe("form run evidence normalization", () => {
   it("marks unobservable cases through supplied inconclusive verdicts without fabricating observations", () => {
     const input = raw("unobservable");
     input.outcomeObserved = false;
+    input.outcomeObservable = false;
     delete input.outcomeEvidenceType;
     input.dataLayerEvents = [];
     input.tagFired = null;
@@ -65,7 +68,7 @@ describe("form run evidence normalization", () => {
       platformConfirmation: "unverified",
       nextAction: "Inspect the form manually and identify a safe success signal.",
     });
-    expect(evidence.observations.outcome).toEqual({ observed: false });
+    expect(evidence.observations.outcome).toEqual({ observed: false, observable: false });
     expect(evidence.verdict.browserVerification).toBe("inconclusive");
     expect(evidence.observations.tagFired).toBeNull();
   });

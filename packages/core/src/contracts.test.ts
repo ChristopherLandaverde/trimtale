@@ -74,7 +74,11 @@ describe("tracking specification contract", () => {
       runId: "run_1",
       specificationId: "spec_1",
       startedAt: "2026-08-22T12:00:00.000Z",
-      observations: { tagFired: true },
+      observations: {
+        interaction: { submissionResult: "success" },
+        outcome: { observable: true },
+        tagFired: true,
+      },
       verdict: {
         code: "browser_verified",
         browserVerification: "passed",

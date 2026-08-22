@@ -265,8 +265,8 @@ A verified resolution records normalized symptoms, relevant environment attribut
 - [x] The practitioner can review and correct the draft before confirmation.
 - [x] No form setup is generated without a confirmed target, outcome, and success signal.
 - [x] Successful form outcomes can produce a `generate_lead` GTM import configuration.
-- [ ] Submit attempts and validation failures do not produce passing conversion evidence.
-- [ ] All sixteen initial scenarios produce their expected deterministic verdicts.
+- [x] Submit attempts and validation failures do not produce passing conversion evidence.
+- [x] All sixteen initial scenarios produce their expected deterministic verdicts.
 - [ ] Every run produces versioned, redacted run evidence.
 - [ ] Browser verification remains distinct from platform confirmation.
 - [ ] Unsupported or unobservable forms produce a diagnostic handoff.
