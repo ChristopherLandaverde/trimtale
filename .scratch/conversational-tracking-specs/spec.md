@@ -260,9 +260,9 @@ A verified resolution records normalized symptoms, relevant environment attribut
 ## Acceptance criteria
 
 - [x] Existing navigation behavior is represented by the versioned specification and evidence contracts without changing its user outcome.
-- [ ] Conversation intake turns a supported plain-language form intent into a draft specification.
-- [ ] The assistant asks focused questions when target, business outcome, or success evidence is ambiguous.
-- [ ] The practitioner can review and correct the draft before confirmation.
+- [x] Conversation intake turns a supported plain-language form intent into a draft specification.
+- [x] The assistant asks focused questions when target, business outcome, or success evidence is ambiguous.
+- [x] The practitioner can review and correct the draft before confirmation.
 - [ ] No form setup is generated without a confirmed target, outcome, and success signal.
 - [ ] Successful form outcomes can produce a `generate_lead` GTM import configuration.
 - [ ] Submit attempts and validation failures do not produce passing conversion evidence.

@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "issue": ".scratch/conversational-tracking-specs/issues/03-conversation-intake.md",
+  "feature": "conversation_intake",
+  "behavioralTests": [
+    "packages/core/src/conversation.test.ts",
+    "tests/e2e/conversation-intake.spec.ts"
+  ],
+  "cases": [
+    {
+      "id": "navigation-remains-supported",
+      "message": "Track the navigation links",
+      "page": { "navigationCount": 5, "forms": [] },
+      "expected": { "interaction": "navigation_click", "state": "awaiting_scope", "canConfirm": false }
+    },
+    {
+      "id": "ambiguous-form-requires-target",
+      "message": "Track leads from a form",
+      "page": {
+        "navigationCount": 5,
+        "forms": [
+          { "id": "contact", "label": "Contact sales", "successSignals": ["success-message"] },
+          { "id": "newsletter", "label": "Newsletter signup", "successSignals": ["newsletter-thanks"] }
+        ]
+      },
+      "expected": { "interaction": "form_submission", "state": "awaiting_target", "canConfirm": false }
+    },
+    {
+      "id": "ambiguous-success-requires-evidence",
+      "message": "Track successful contact form leads",
+      "page": {
+        "navigationCount": 5,
+        "forms": [
+          { "id": "contact", "label": "Contact sales", "successSignals": ["success-message", "thank-you-url"] }
+        ]
+      },
+      "expected": { "interaction": "form_submission", "state": "awaiting_success_evidence", "canConfirm": false }
+    },
+    {
+      "id": "complete-form-intent-produces-draft",
+      "message": "Track successful leads from Contact sales using the success message",
+      "page": {
+        "navigationCount": 5,
+        "forms": [
+          { "id": "contact", "label": "Contact sales", "successSignals": ["success-message"] }
+        ]
+      },
+      "expected": { "interaction": "form_submission", "state": "draft_ready", "eventName": "generate_lead", "canConfirm": true }
+    },
+    {
+      "id": "phone-is-recognized-but-unsupported",
+      "message": "Track phone calls",
+      "page": { "navigationCount": 5, "forms": [] },
+      "expected": { "interaction": "phone_click", "state": "unsupported", "canConfirm": false }
+    },
+    {
+      "id": "unknown-intent-requests-interaction",
+      "message": "Help me measure this page",
+      "page": { "navigationCount": 5, "forms": [] },
+      "expected": { "interaction": "unknown", "state": "awaiting_interaction", "canConfirm": false }
+    }
+  ]
+}

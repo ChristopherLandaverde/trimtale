@@ -1,4 +1,9 @@
-import type { BrowserEvidence, NavigationElement } from "@gtm-observability/core";
+import {
+  interpretConversationIntent,
+  type BrowserEvidence,
+  type FormCandidate,
+  type NavigationElement,
+} from "@gtm-observability/core";
 
 async function toggleAssistant(tab: chrome.tabs.Tab): Promise<void> {
   if (!tab.id || !tab.url?.startsWith("http")) return;
@@ -28,39 +33,32 @@ chrome.runtime.onConnect.addListener((port) => {
       title: string;
       url: string;
       navigation: NavigationElement[];
+      forms: FormCandidate[];
     };
   }) => {
     if (message.type !== "ASSISTANT_REQUEST" || !message.requestId || !message.prompt || !message.page) return;
     const page = message.page;
-    const normalized = message.prompt.toLowerCase().trim();
-    const navigationIntent = /\b(nav|navigation|menu|header|footer|link|links)\b/.test(normalized);
-    const formIntent = /\b(form|forms|submit|submission|lead)\b/.test(normalized);
-    const phoneIntent = /\b(phone|call|telephone|tel)\b/.test(normalized);
-    const emailIntent = /\b(email|mailto)\b/.test(normalized);
+    const intake = interpretConversationIntent(message.prompt, {
+      navigationCount: page.navigation.length,
+      forms: page.forms ?? [],
+    });
     let response: string;
-    let actions: Array<{ id: string; label: string }> = [];
+    let actions = intake.options;
 
-    if (navigationIntent) {
+    if (intake.interaction === "navigation_click") {
       response = `I found ${page.navigation.length} navigation links. Do you want to track all of them?`;
-      actions = [
-        { id: "track-all-navigation", label: "Track all" },
-        { id: "choose-navigation", label: "Choose links" },
-        { id: "cancel", label: "Cancel" },
-      ];
-    } else if (formIntent) {
-      response = "I understand that as form-submission tracking. That tracking type is not implemented in this build yet.";
-    } else if (phoneIntent) {
-      response = "I understand that as phone-click tracking. That tracking type is not implemented in this build yet.";
-    } else if (emailIntent) {
-      response = "I understand that as email-link tracking. That tracking type is not implemented in this build yet.";
+    } else if (intake.state === "awaiting_target") {
+      response = `I found ${intake.options.length} forms. Which one represents the outcome you want to measure?`;
+    } else if (intake.state === "awaiting_success_evidence") {
+      response = `What proves ${intake.target?.label ?? "the form"} succeeded?`;
+    } else if (intake.state === "draft_ready") {
+      response = `I'll treat a successful ${intake.target?.label ?? "form"} submission as generate_lead. A submit attempt or validation error will not count.`;
+    } else if (intake.state === "insufficient_evidence") {
+      response = "I found the form, but I cannot safely observe what proves it succeeded. This needs a diagnostic handoff.";
+    } else if (intake.state === "unsupported") {
+      response = `I understand that as ${intake.interaction.replaceAll("_", " ")} tracking. That tracking type is not implemented in this build yet.`;
     } else {
       response = "What kind of interaction should I track? Try navigation, form, phone, or email.";
-      actions = [
-        { id: "prompt:navigation", label: "Navigation" },
-        { id: "prompt:form", label: "Form" },
-        { id: "prompt:phone", label: "Phone" },
-        { id: "prompt:email", label: "Email" },
-      ];
     }
     const chunks = response.match(/.{1,18}(?:\s|$)/g) ?? [response];
     chunks.forEach((delta, index) => {
@@ -73,6 +71,8 @@ chrome.runtime.onConnect.addListener((port) => {
             requestId: message.requestId,
             actions,
             navigation: page.navigation,
+            forms: page.forms,
+            intake,
           });
         }
       }, index * 24);

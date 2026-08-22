@@ -1,4 +1,12 @@
-import type { BrowserEvidence, NavigationArea, NavigationElement } from "@gtm-observability/core";
+import {
+  selectConversationSuccess,
+  selectConversationTarget,
+  type BrowserEvidence,
+  type ConversationIntakeResult,
+  type FormCandidate,
+  type NavigationArea,
+  type NavigationElement,
+} from "@gtm-observability/core";
 
 declare global {
   interface Window { __gtmObservabilityInstalled?: boolean; }
@@ -35,6 +43,8 @@ let highlightTone: "candidate" | "confirmed" = "candidate";
 const responseNodes = new Map<string, HTMLElement>();
 const navigationByRequest = new Map<string, NavigationElement[]>();
 const requestTimeouts = new Map<string, number>();
+const intakeByRequest = new Map<string, ConversationIntakeResult>();
+const formsByRequest = new Map<string, FormCandidate[]>();
 
 function areaFor(element: Element): NavigationArea {
   if (element.closest("header")) return "header";
@@ -79,6 +89,29 @@ function scanNavigation(): ScanResponse {
     });
   });
   return { pageUrl: location.href, title: document.title, navigation };
+}
+
+function scanForms(): FormCandidate[] {
+  return [...document.querySelectorAll<HTMLFormElement>("form")].map((form, index) => {
+    const id = form.id || form.getAttribute("name") || `form_${index + 1}`;
+    const label = form.getAttribute("aria-label")
+      || form.querySelector("legend")?.textContent?.trim()
+      || form.getAttribute("name")
+      || id;
+    const selector = form.id
+      ? `form#${CSS.escape(form.id)}`
+      : form.getAttribute("name")
+        ? `form[name="${CSS.escape(form.getAttribute("name")!)}"]`
+        : `form:nth-of-type(${index + 1})`;
+    const successSignals: FormCandidate["successSignals"] = [];
+    if (form.dataset.successSelector) {
+      successSignals.push({ id: "success-message", label: "Success message", type: "visible_element", value: form.dataset.successSelector });
+    }
+    if (form.dataset.successUrl) {
+      successSignals.push({ id: "thank-you-url", label: "Thank-you URL", type: "thank_you_url", value: form.dataset.successUrl });
+    }
+    return { id, label, selector, pageUrl: location.href, successSignals };
+  });
 }
 
 function recentAnalyticsRequests(since: number): BrowserEvidence["requests"] {
@@ -233,6 +266,31 @@ function renderNavigationPicker(navigation: NavigationElement[]): void {
   responseList?.scrollTo({ top: responseList.scrollHeight });
 }
 
+function intakeResponse(result: ConversationIntakeResult): string {
+  switch (result.state) {
+    case "awaiting_target": return `I found ${result.options.length} forms. Which one represents the outcome you want to measure?`;
+    case "awaiting_success_evidence": return `What proves ${result.target?.label ?? "the form"} succeeded?`;
+    case "draft_ready": return `I'll treat a successful ${result.target?.label ?? "form"} submission as generate_lead. A submit attempt or validation error will not count.`;
+    case "insufficient_evidence": return "I found the form, but I cannot safely observe what proves it succeeded. This needs a diagnostic handoff.";
+    case "unsupported": return `I understand that as ${result.interaction.replaceAll("_", " ")} tracking. That tracking type is not implemented in this build yet.`;
+    default: return "What kind of interaction should I track? Try navigation, form, phone, or email.";
+  }
+}
+
+function renderIntakeStep(requestId: string, result: ConversationIntakeResult): void {
+  intakeByRequest.set(requestId, result);
+  addMessage(intakeResponse(result), "assistant");
+  renderQuickActions(requestId, result.options);
+}
+
+function renderFormDraft(requestId: string, result: ConversationIntakeResult): void {
+  const target = result.target;
+  const success = result.successSignal;
+  if (!target || !success) return;
+  addMessage(`Draft specification\nInteraction: successful ${target.label} submission\nOutcome: qualified inquiry\nEvent: generate_lead\nSuccess evidence: ${success.label}`, "assistant");
+  renderQuickActions(requestId, [{ id: "confirm-form-specification", label: "Confirm setup" }]);
+}
+
 function handleAssistantAction(actionId: string, requestId: string): void {
   if (actionId.startsWith("prompt:")) {
     if (composer) composer.value = actionId.slice("prompt:".length);
@@ -245,6 +303,26 @@ function handleAssistantAction(actionId: string, requestId: string): void {
   }
   if (actionId === "choose-navigation") {
     renderNavigationPicker(navigationByRequest.get(requestId) ?? []);
+    return;
+  }
+  const intake = intakeByRequest.get(requestId);
+  const forms = formsByRequest.get(requestId) ?? [];
+  if (actionId.startsWith("target:") && intake) {
+    const target = forms.find((form) => form.id === actionId.slice("target:".length));
+    if (target) renderIntakeStep(requestId, selectConversationTarget(intake, target));
+    return;
+  }
+  if (actionId.startsWith("success:") && intake?.target) {
+    const success = intake.target.successSignals.find((signal) => signal.id === actionId.slice("success:".length));
+    if (success) renderIntakeStep(requestId, selectConversationSuccess(intake, intake.target, success));
+    return;
+  }
+  if (actionId === "confirm-specification" && intake?.canConfirm) {
+    renderFormDraft(requestId, intake);
+    return;
+  }
+  if (actionId === "confirm-form-specification" && intake?.canConfirm) {
+    addMessage("Form tracking specification confirmed. GTM generation will be added in the next implementation slice.", "assistant");
     return;
   }
   if (actionId === "cancel") { clearTargetHighlights(); addMessage("Okay — nothing was selected.", "assistant"); }
@@ -291,6 +369,8 @@ function connectAssistant(): chrome.runtime.Port {
     delta?: string;
     actions?: Array<{ id: string; label: string }>;
     navigation?: NavigationElement[];
+    forms?: FormCandidate[];
+    intake?: ConversationIntakeResult;
   }) => {
     if (!message.requestId) return;
     const node = responseNodes.get(message.requestId);
@@ -306,6 +386,8 @@ function connectAssistant(): chrome.runtime.Port {
       if (timeout !== undefined) window.clearTimeout(timeout);
       requestTimeouts.delete(message.requestId);
       navigationByRequest.set(message.requestId, message.navigation ?? []);
+      formsByRequest.set(message.requestId, message.forms ?? []);
+      if (message.intake) intakeByRequest.set(message.requestId, message.intake);
       renderQuickActions(message.requestId, message.actions ?? []);
     }
   });
@@ -328,6 +410,7 @@ function submitPrompt(): void {
     port?.disconnect();
   }, 8_000));
   const scan = scanNavigation();
+  const forms = scanForms();
   connectAssistant().postMessage({
     type: "ASSISTANT_REQUEST",
     requestId,
@@ -336,6 +419,7 @@ function submitPrompt(): void {
       title: scan.title,
       url: scan.pageUrl,
       navigation: scan.navigation,
+      forms,
     },
   });
   preferences.height = Math.max(preferences.height, 420);

@@ -18,6 +18,10 @@ function page(pathname: string): string {
       a { color: #194db4; }
       main { max-width: 900px; margin: 70px auto; padding: 0 24px; }
       h1 { font-size: 48px; max-width: 680px; }
+      .fixture-forms { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin-top: 42px; }
+      form { display: grid; gap: 10px; padding: 18px; border: 1px solid #ddd; border-radius: 12px; }
+      label { display: grid; gap: 5px; }
+      input { padding: 9px; }
     </style>
   </head>
   <body>
@@ -32,6 +36,18 @@ function page(pathname: string): string {
     <main>
       <h1>Lead-generation websites for growing teams.</h1>
       <p>This deterministic fixture represents a small agency website.</p>
+      <section class="fixture-forms" aria-label="Lead forms">
+        <form id="contact" aria-label="Contact sales" data-success-selector="#contact-success">
+          <label>Work email <input name="email" type="email" /></label>
+          <button type="submit">Contact sales</button>
+        </form>
+        <form id="newsletter" aria-label="Newsletter signup" data-success-selector="#newsletter-success">
+          <label>Email <input name="email" type="email" /></label>
+          <button type="submit">Join newsletter</button>
+        </form>
+        <p id="contact-success" hidden>Thanks, we'll be in touch.</p>
+        <p id="newsletter-success" hidden>Thanks for subscribing.</p>
+      </section>
     </main>
     <footer>
       <nav aria-label="Footer navigation">
