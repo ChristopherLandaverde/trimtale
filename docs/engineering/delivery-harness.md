@@ -13,6 +13,8 @@ accepted spec
   -> implementation plus permanent regression
   -> change record and issue update
   -> npm run verify
+  -> exploratory Chromium review
+  -> remediate findings and add regressions
   -> draft PR updated as work progresses
   -> reviewable PR evidence
   -> merge
@@ -34,6 +36,25 @@ An issue cannot become `resolved` until:
 - Any acceptance fixture created earlier is consumed by the behavioral test rather than duplicated or abandoned.
 
 Skipped tests, `test.todo`, and fixtures that are never loaded by the harness do not satisfy the contract.
+
+## Exploratory Chromium review
+
+Automated checks prove the behavior they encode; they do not prove that the encoded expectations are complete. Every user-visible slice therefore has an agent-owned exploratory review after `npm run verify` and before the issue is resolved or the pull request is marked ready.
+
+The agent must:
+
+1. Build the current branch and launch Chromium with the unpacked extension against the deterministic fixture site.
+2. Exercise the primary workflow from the visible UI without bypassing steps through direct APIs.
+3. Exercise at least one ambiguous, negative, unsupported, or insufficient-evidence path.
+4. Compare visible behavior with the user outcome, domain language, evidence boundaries, and existing UX baselines.
+5. Inspect both the overlay and the affected page—for example target highlights, focus, evidence labels, and persistence after collapse or reload.
+6. Record the environment, scenarios, observations, screenshots when useful, and findings under `docs/reviews/YYYY-MM-DD-description.md`.
+7. Classify each finding as blocker, high, medium, or low. Create or claim a remediation issue for confirmed blocker/high findings immediately.
+8. Add permanent automated coverage when the finding is fixed so the same regression cannot silently return.
+
+A user-visible issue may resolve only when its review has no unresolved blocker/high findings. Medium and low findings may become linked follow-up issues when they do not invalidate the accepted user outcome.
+
+Exploratory review does not require the user to operate Chromium or describe what went wrong. It is part of the agent-owned completion gate.
 
 ## Regression tiers
 
@@ -100,6 +121,7 @@ Each code-bearing pull request includes one `.changes/YYYY-MM-DD-description.md`
 - Supported, unchanged, and out-of-scope behavior.
 - Permanent regression coverage.
 - Verification evidence.
+- Exploratory Chromium review evidence for user-visible changes, or a concise explanation that the change has no user-visible surface.
 - Specifications and operational documentation updated.
 
 Update the active `.scratch` issue as work progresses. When acceptance criteria become true, check them in the spec and record concrete evidence in the issue comments. Update `CONTEXT.md` only when domain language is resolved. Use an ADR only for a hard-to-reverse, surprising trade-off with real alternatives.

@@ -31,6 +31,13 @@
 
 Evidence:
 
+## Exploratory review
+
+- Review report:
+- Chromium scenarios exercised:
+- Unresolved blocker/high findings:
+- [ ] User-visible behavior was reviewed in the built product, or this change has no user-visible surface.
+
 ## Documentation
 
 - [ ] Relevant spec acceptance criteria and issue comments are current.

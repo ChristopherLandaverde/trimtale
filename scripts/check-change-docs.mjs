@@ -5,6 +5,7 @@ import { join, relative } from "node:path";
 const root = process.cwd();
 const changesDir = join(root, ".changes");
 const requiredHeadings = ["Summary", "Why", "Behavior", "Regression coverage", "Verification", "Documentation"];
+const currentRecordVersion = "Change record version: 2";
 
 function markdownFiles(directory) {
   return readdirSync(directory)
@@ -18,6 +19,9 @@ function validateRecord(path) {
   const missing = requiredHeadings.filter((heading) => !content.includes(`## ${heading}`));
   if (missing.length > 0) {
     throw new Error(`${relative(root, path)} is missing sections: ${missing.join(", ")}`);
+  }
+  if (content.includes(currentRecordVersion) && !content.includes("## Exploratory review")) {
+    throw new Error(`${relative(root, path)} is missing section: Exploratory review`);
   }
 }
 
@@ -45,6 +49,12 @@ if (baseFlag !== -1) {
 
   if (codeBearing && !changedRecord) {
     throw new Error("Code-bearing pull requests must include a change record under .changes/");
+  }
+  for (const path of changed.filter((item) => /^\.changes\/[^/]+\.md$/.test(item) && !item.endsWith("template.md") && !item.endsWith("README.md"))) {
+    const content = readFileSync(join(root, path), "utf8");
+    if (!content.includes(currentRecordVersion) || !content.includes("## Exploratory review")) {
+      throw new Error(`${path} must use change record version 2 and include Exploratory review`);
+    }
   }
 }
 
