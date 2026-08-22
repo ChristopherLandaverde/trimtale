@@ -45,6 +45,7 @@ Required invariants:
 ## Comments
 
 - 2026-08-22: Added and visually reviewed four Linux Chromium baselines. The existing E2E now asserts composer focus, accessible roles/names, collapse persistence, and normal screenshot comparison. `npm run verify` passed with 22 unit/scenario/acceptance-contract tests and the Chromium E2E test.
+- 2026-08-22: CI exposed host-specific system-font anti-aliasing in 1,132 pixels of the open-state image. Downloaded expected/actual/diff artifacts showed identical layout and controls with differences limited to glyph edges. Added a 2% pixel ceiling while keeping semantic and interaction assertions exact.
 
 ## Answer
 

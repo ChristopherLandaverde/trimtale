@@ -18,6 +18,8 @@ Product behavior is unchanged. The harness now protects collapsed, open, navigat
 
 The existing Chromium extension journey captures committed assistant-locator screenshots with animations disabled. Existing role/name assertions remain the interaction contract, and collapse persistence remains covered across reload.
 
+Linux CI and the local Linux host rasterize identical system-font glyphs differently. Visual comparison permits at most a 2% differing-pixel ratio; layout, accessible text, focus, and state assertions remain exact.
+
 ## Verification
 
 `npm run verify` passes with change-document validation, strict TypeScript checks, 22 unit/scenario/acceptance-contract tests, all builds, four visual comparisons, and the Chromium extension E2E journey.
