@@ -39,6 +39,37 @@ test("mounts and streams through the floating tracking assistant", async () => {
     await expect(site.locator("#gtm-observability-targets")).toBeAttached();
     await expect(site.locator("#gtm-observability-targets").locator(".target.confirmed")).toHaveCount(5);
 
+    const setupResponse = await site.request.post("http://127.0.0.1:8787/api/setups", {
+      data: {
+        intent: "Track navigation links",
+        pageUrl: "http://127.0.0.1:4173/",
+        measurementId: "G-TEST123456",
+        navigation: [
+          {
+            id: "nav_services",
+            text: "Services",
+            href: "http://127.0.0.1:4173/services",
+            area: "header",
+            selector: "header a[href='/services']",
+          },
+        ],
+        container: {
+          accountId: "1",
+          containerId: "2",
+          publicId: "GTM-TEST123",
+          name: "E2E container",
+        },
+      },
+    });
+    expect(setupResponse.status()).toBe(201);
+    const setup = await setupResponse.json();
+    expect(setup.specification).toMatchObject({
+      schemaVersion: 1,
+      status: "confirmed",
+      interaction: { type: "navigation_click" },
+      event: { name: "navigation_click" },
+    });
+
     await root.getByRole("button", { name: "Collapse assistant" }).click();
     await expect(assistant).toHaveClass(/collapsed/);
     await site.reload();

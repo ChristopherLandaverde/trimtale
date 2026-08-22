@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "issue": ".scratch/conversational-tracking-specs/issues/09-verified-resolution-foundation.md",
+  "feature": "verified_resolution_foundation",
+  "behavioralTest": "apps/api/src/verified-resolutions.test.ts",
+  "cases": [
+    {
+      "id": "stores-human-confirmed-before-and-after-resolution",
+      "input": {
+        "humanConfirmed": true,
+        "confirmedCause": "listener_only_handles_native_submit",
+        "correctiveAction": "observe_confirmed_ajax_success",
+        "beforeEvidenceId": "run_before_failed",
+        "beforeVerdict": "outcome_observed_event_missing",
+        "afterEvidenceId": "run_after_passed",
+        "afterVerdict": "browser_verified"
+      },
+      "expected": {
+        "accepted": true,
+        "deterministicRulesChanged": false
+      }
+    },
+    {
+      "id": "rejects-unconfirmed-diagnosis",
+      "input": {
+        "humanConfirmed": false,
+        "confirmedCause": "listener_only_handles_native_submit",
+        "correctiveAction": "observe_confirmed_ajax_success",
+        "beforeEvidenceId": "run_before_failed",
+        "beforeVerdict": "outcome_observed_event_missing",
+        "afterEvidenceId": "run_after_passed",
+        "afterVerdict": "browser_verified"
+      },
+      "expected": {
+        "accepted": false,
+        "error": "human_confirmation_required",
+        "deterministicRulesChanged": false
+      }
+    },
+    {
+      "id": "rejects-missing-evidence-link",
+      "input": {
+        "humanConfirmed": true,
+        "confirmedCause": "listener_only_handles_native_submit",
+        "correctiveAction": "observe_confirmed_ajax_success",
+        "beforeEvidenceId": "missing_run",
+        "beforeVerdict": "outcome_observed_event_missing",
+        "afterEvidenceId": "run_after_passed",
+        "afterVerdict": "browser_verified"
+      },
+      "expected": {
+        "accepted": false,
+        "error": "evidence_not_found",
+        "deterministicRulesChanged": false
+      }
+    },
+    {
+      "id": "rejects-non-passing-after-evidence",
+      "input": {
+        "humanConfirmed": true,
+        "confirmedCause": "listener_only_handles_native_submit",
+        "correctiveAction": "observe_confirmed_ajax_success",
+        "beforeEvidenceId": "run_before_failed",
+        "beforeVerdict": "outcome_observed_event_missing",
+        "afterEvidenceId": "run_after_failed",
+        "afterVerdict": "tag_fired_request_missing"
+      },
+      "expected": {
+        "accepted": false,
+        "error": "passing_after_evidence_required",
+        "deterministicRulesChanged": false
+      }
+    },
+    {
+      "id": "redacts-forbidden-customer-data",
+      "input": {
+        "humanConfirmed": true,
+        "confirmedCause": "listener_only_handles_native_submit",
+        "correctiveAction": "observe_confirmed_ajax_success",
+        "beforeEvidenceId": "run_before_failed",
+        "beforeVerdict": "outcome_observed_event_missing",
+        "afterEvidenceId": "run_after_passed",
+        "afterVerdict": "browser_verified",
+        "forbiddenSentinels": [
+          "privacy-sentinel@example.invalid",
+          "PRIVATE_COOKIE_SENTINEL",
+          "DO_NOT_PERSIST_7F31"
+        ]
+      },
+      "expected": {
+        "accepted": true,
+        "persistedForbiddenSentinels": [],
+        "deterministicRulesChanged": false
+      }
+    }
+  ]
+}

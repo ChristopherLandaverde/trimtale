@@ -12,6 +12,14 @@ _Avoid_: Chatbot, AI tag generator, GTM copilot
 A plain-language description of the user behavior and analytics outcome a person wants to verify.
 _Avoid_: Prompt, tracking request, tagging instruction
 
+**Tracking specification**:
+A versioned, reviewable definition derived from a tracking intent that names the observed interaction, intended conversion outcome, analytics event contract, confirmed targets, and acceptable evidence of success. It is the reusable baseline for setup, verification, diagnosis, and later monitoring.
+_Avoid_: Prompt, generated tag, test script
+
+**Conversation intake**:
+The guided exchange that turns a person's potentially vague tracking intent into a draft tracking specification by discovering candidates, asking only questions that change the specification, and requiring confirmation before setup begins.
+_Avoid_: Free-form chatbot, prompt box, agent guess
+
 **Observed interaction**:
 A browser-visible action performed by a website visitor, such as clicking a link or submitting a form. It can provide evidence of a conversion outcome but is not itself necessarily a conversion.
 _Avoid_: Conversion, goal, event
@@ -87,6 +95,10 @@ _Avoid_: Agent reasoning, activity log, chain of thought
 **Scenario corpus**:
 A collection of reproducible website, consent, GTM, and destination configurations with known expected outcomes, used to test diagnoses, generated setups, and implementation-confidence calibration.
 _Avoid_: Training data, mock websites, examples
+
+**Run evidence**:
+The normalized, durable record of what a tracking check observed about the interaction, business outcome, data layer, destination requests, consent state, and relevant tracking configuration.
+_Avoid_: Log dump, screenshot, chain of thought
 
 **Time to verified setup**:
 The elapsed time from submitting a tracking intent to the generated tracking setup passing its browser check after import.
