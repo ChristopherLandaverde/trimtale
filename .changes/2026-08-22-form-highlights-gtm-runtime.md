@@ -1,5 +1,7 @@
 # Connect form targets and report observed GTM runtime
 
+Change record version: 2
+
 Issue: `.scratch/conversational-tracking-specs/issues/11-exploratory-intake-findings.md`
 
 ## Summary
