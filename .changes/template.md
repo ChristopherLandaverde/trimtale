@@ -1,5 +1,7 @@
 # Change title
 
+Change record version: 2
+
 Issue: `.scratch/<effort>/issues/<NN>-<slug>.md`
 
 ## Summary
@@ -21,6 +23,10 @@ Permanent tests or assertions added or updated. Explain any baseline replacement
 ## Verification
 
 Commands run and their results. `npm run verify` is required before completion.
+
+## Exploratory review
+
+For user-visible changes, link the `docs/reviews/` report and summarize scenarios and unresolved findings. For non-visual/internal work, state why interactive review is not applicable.
 
 ## Documentation
 
