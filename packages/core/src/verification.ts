@@ -55,6 +55,7 @@ export function evaluateEvidence(
         ...(clickedExpectedLink ? { evidenceType: "navigation_click" as const } : {}),
       },
       dataLayer: { matchingEvents: [] },
+      tagFired: analyticsRequests.length > 0 ? true : null,
       network: { ga4Requests: analyticsRequests },
       consent: { analyticsStorage: "unknown" },
     },
@@ -62,6 +63,11 @@ export function evaluateEvidence(
       code: verdictCode,
       browserVerification: passed ? "passed" : "failed",
       platformConfirmation: "unverified",
+      nextAction: passed
+        ? "No browser fix is needed; await platform confirmation."
+        : analyticsRequests.length > 1
+          ? "Inspect GTM for duplicate tags or overlapping triggers."
+          : "Open GTM Preview to determine whether the tag fired.",
     },
   };
   assertTrackingRunEvidence(runEvidence);

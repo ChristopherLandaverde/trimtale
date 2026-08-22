@@ -87,6 +87,7 @@ export interface TrackingRunEvidenceV1 {
       evidenceType?: SuccessEvidence["type"] | "navigation_click";
     };
     dataLayer: { matchingEvents: unknown[] };
+    tagFired: boolean | null;
     network: { ga4Requests: Array<{ url: string; observedAt: string }> };
     consent: { analyticsStorage: "granted" | "denied" | "unknown" };
   };
@@ -94,6 +95,7 @@ export interface TrackingRunEvidenceV1 {
     code: ScenarioVerdictCode;
     browserVerification: "passed" | "failed" | "inconclusive";
     platformConfirmation: "unverified";
+    nextAction: string;
   };
 }
 
@@ -228,11 +230,16 @@ export function validateTrackingRunEvidence(value: unknown): string[] {
   if (typeof value.runId !== "string" || !IDENTIFIER.test(value.runId)) errors.push("runId is invalid");
   if (typeof value.specificationId !== "string" || !IDENTIFIER.test(value.specificationId)) errors.push("specificationId is invalid");
   if (typeof value.startedAt !== "string" || Number.isNaN(Date.parse(value.startedAt))) errors.push("startedAt must be an ISO date");
-  if (!isRecord(value.observations)) errors.push("observations are required");
+  const observations = isRecord(value.observations) ? value.observations : undefined;
+  if (!observations) errors.push("observations are required");
+  if (observations && observations.tagFired !== true && observations.tagFired !== false && observations.tagFired !== null) {
+    errors.push("observations.tagFired must be true, false, or null");
+  }
   const verdict = isRecord(value.verdict) ? value.verdict : undefined;
   if (!verdict || typeof verdict.code !== "string" || !VERDICT_CODES.has(verdict.code as ScenarioVerdictCode)) errors.push("verdict.code is unsupported");
   if (!verdict || !["passed", "failed", "inconclusive"].includes(String(verdict.browserVerification))) errors.push("verdict.browserVerification is invalid");
   if (!verdict || verdict.platformConfirmation !== "unverified") errors.push("verdict.platformConfirmation must be unverified");
+  if (!verdict || typeof verdict.nextAction !== "string" || verdict.nextAction.trim().length === 0) errors.push("verdict.nextAction is required");
   return errors;
 }
 

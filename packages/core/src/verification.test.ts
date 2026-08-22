@@ -31,6 +31,7 @@ describe("browser evidence", () => {
       schemaVersion: 1,
       specificationId: "spec_navigation",
       verdict: { code: "browser_verified", browserVerification: "passed" },
+      observations: { tagFired: true },
     });
   });
 
