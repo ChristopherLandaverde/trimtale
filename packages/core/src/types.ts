@@ -38,6 +38,25 @@ export interface SetupProposal {
   containerFile: GtmContainerExport;
 }
 
+export interface FormSetupRequest {
+  specification: import("./contracts.js").TrackingSpecificationV1;
+  measurementId: string;
+  container: ContainerContext;
+}
+
+export interface FormSetupProposal {
+  id: string;
+  specification: import("./contracts.js").TrackingSpecificationV1;
+  eventName: "generate_lead";
+  measurementId: string;
+  warnings: string[];
+  preflight: {
+    status: "passed";
+    checks: string[];
+  };
+  containerFile: GtmContainerExport;
+}
+
 export interface BrowserEvidence {
   navigationId: string;
   clickedAt: string;

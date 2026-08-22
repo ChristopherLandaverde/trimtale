@@ -163,6 +163,21 @@ export function validateTrackingSpecification(value: unknown): string[] {
     errors.push("successEvidence must be an array");
   } else if (interaction === "form_submission" && value.successEvidence.length === 0) {
     errors.push("form submissions require success evidence");
+  } else {
+    value.successEvidence.forEach((evidence, index) => {
+      if (!isRecord(evidence)) {
+        errors.push(`successEvidence[${index}] is invalid`);
+        return;
+      }
+      const property = evidence.type === "visible_element" ? "selector"
+        : evidence.type === "thank_you_url" ? "urlPattern"
+          : evidence.type === "data_layer_event" ? "eventName"
+            : evidence.type === "same_page_success" ? "signal"
+              : undefined;
+      if (!property || typeof evidence[property] !== "string" || evidence[property].trim().length === 0) {
+        errors.push(`successEvidence[${index}] is invalid`);
+      }
+    });
   }
   if (value.status === "confirmed" && outcome?.practitionerConfirmed !== true) {
     errors.push("confirmed specifications require practitioner confirmation");

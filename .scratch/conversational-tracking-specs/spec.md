@@ -263,8 +263,8 @@ A verified resolution records normalized symptoms, relevant environment attribut
 - [x] Conversation intake turns a supported plain-language form intent into a draft specification.
 - [x] The assistant asks focused questions when target, business outcome, or success evidence is ambiguous.
 - [x] The practitioner can review and correct the draft before confirmation.
-- [ ] No form setup is generated without a confirmed target, outcome, and success signal.
-- [ ] Successful form outcomes can produce a `generate_lead` GTM import configuration.
+- [x] No form setup is generated without a confirmed target, outcome, and success signal.
+- [x] Successful form outcomes can produce a `generate_lead` GTM import configuration.
 - [ ] Submit attempts and validation failures do not produce passing conversion evidence.
 - [ ] All sixteen initial scenarios produce their expected deterministic verdicts.
 - [ ] Every run produces versioned, redacted run evidence.
