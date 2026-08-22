@@ -2,6 +2,7 @@ export * from "./contracts.js";
 export * from "./conversation.js";
 export * from "./generator.js";
 export * from "./form-evidence.js";
+export * from "./form-verdict.js";
 export * from "./gtm-runtime.js";
 export * from "./navigation.js";
 export * from "./types.js";

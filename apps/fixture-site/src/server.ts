@@ -88,7 +88,7 @@ function page(pathname: string, fixture: FormFixtureScenario, gtmContainerId?: s
             window.dataLayer.push({ event: 'generate_lead', form_id: form.id, form_name: form.getAttribute('aria-label') });
           }
           const parameters = formFixture.includeRequiredParameters
-            ? '&ep.form_id=' + encodeURIComponent(form.id) + '&ep.form_name=' + encodeURIComponent(form.getAttribute('aria-label'))
+            ? '&ep.form_id=' + encodeURIComponent(form.id) + '&ep.form_name=' + encodeURIComponent(form.getAttribute('aria-label')) + '&ep.page_location=' + encodeURIComponent(location.origin + location.pathname)
             : '';
           for (let index = 0; index < formFixture.ga4RequestCount; index += 1) {
             navigator.sendBeacon('/g/collect?v=2&tid=G-TEST123456&en=generate_lead' + parameters);

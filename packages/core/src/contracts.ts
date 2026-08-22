@@ -81,9 +81,11 @@ export interface TrackingRunEvidenceV1 {
       type: InteractionType;
       targetId: string;
       attempted: boolean;
+      submissionResult: "success" | "validation_error" | "server_error" | "unknown";
     };
     outcome: {
       observed: boolean;
+      observable: boolean;
       evidenceType?: SuccessEvidence["type"] | "navigation_click";
     };
     dataLayer: { matchingEvents: unknown[] };
@@ -232,6 +234,12 @@ export function validateTrackingRunEvidence(value: unknown): string[] {
   if (typeof value.startedAt !== "string" || Number.isNaN(Date.parse(value.startedAt))) errors.push("startedAt must be an ISO date");
   const observations = isRecord(value.observations) ? value.observations : undefined;
   if (!observations) errors.push("observations are required");
+  const interaction = observations && isRecord(observations.interaction) ? observations.interaction : undefined;
+  if (interaction && !["success", "validation_error", "server_error", "unknown"].includes(String(interaction.submissionResult))) {
+    errors.push("observations.interaction.submissionResult is invalid");
+  }
+  const outcome = observations && isRecord(observations.outcome) ? observations.outcome : undefined;
+  if (outcome && typeof outcome.observable !== "boolean") errors.push("observations.outcome.observable is required");
   if (observations && observations.tagFired !== true && observations.tagFired !== false && observations.tagFired !== null) {
     errors.push("observations.tagFired must be true, false, or null");
   }

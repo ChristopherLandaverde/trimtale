@@ -45,6 +45,8 @@ for (const fixture of Object.values(formFixtureScenarios)) {
     await expect.poll(() => analyticsRequests.length).toBe(fixture.ga4RequestCount);
     if (fixture.ga4RequestCount > 0) {
       expect(analyticsRequests[0].includes("ep.form_id=")).toBe(fixture.includeRequiredParameters);
+      expect(analyticsRequests[0].includes("ep.form_name=")).toBe(fixture.includeRequiredParameters);
+      expect(analyticsRequests[0].includes("ep.page_location=")).toBe(fixture.includeRequiredParameters);
     }
   });
 }

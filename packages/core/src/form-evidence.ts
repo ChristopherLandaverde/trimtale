@@ -7,7 +7,9 @@ export interface RawFormRunObservation {
   transport: "native" | "redirect" | "ajax" | "spa" | "unobservable";
   targetId: string;
   submitAttempted: boolean;
+  submissionResult: "success" | "validation_error" | "server_error" | "unknown";
   outcomeObserved: boolean;
+  outcomeObservable: boolean;
   outcomeEvidenceType?: SuccessEvidence["type"];
   dataLayerEvents: unknown[];
   tagFired: boolean | null;
@@ -67,9 +69,10 @@ export function normalizeFormRunEvidence(
     specificationId: raw.specificationId,
     startedAt: raw.startedAt,
     observations: {
-      interaction: { type: "form_submission", targetId: raw.targetId, attempted: raw.submitAttempted },
+      interaction: { type: "form_submission", targetId: raw.targetId, attempted: raw.submitAttempted, submissionResult: raw.submissionResult },
       outcome: {
         observed: raw.outcomeObserved,
+        observable: raw.outcomeObservable,
         ...(raw.outcomeEvidenceType ? { evidenceType: raw.outcomeEvidenceType } : {}),
       },
       dataLayer: { matchingEvents: safeDataLayerEvents(raw.dataLayerEvents) },
