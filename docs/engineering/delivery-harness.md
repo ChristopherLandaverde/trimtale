@@ -65,6 +65,16 @@ Use local fixtures and Playwright for native, redirect, AJAX, SPA, dynamic, mult
 
 Protect stable states with role/name assertions, keyboard and focus tests, accessibility checks, and reviewed screenshots. A changed screenshot is evidence requiring approval, not an automatic prohibition on UX improvement.
 
+Update an intentional Chromium baseline with:
+
+```bash
+npm run build
+npx playwright test tests/e2e/navigation-extension.spec.ts --update-snapshots
+npm run verify
+```
+
+Review every generated image and the Git diff before committing it. Never update snapshots merely to make a failing gate green.
+
 ### Reliability and performance regressions
 
 Repeat critical journeys to detect races, duplicate listeners, late requests, reload behavior, and multi-tab interference. Establish generous measured budgets before enforcing mount time, discovery time, bundle size, memory, or artifact-size thresholds.

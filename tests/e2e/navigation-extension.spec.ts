@@ -20,10 +20,13 @@ test("mounts and streams through the floating tracking assistant", async () => {
     const assistant = root.locator("section.assistant");
     await expect(root).toBeAttached();
     await expect(assistant).toHaveClass(/collapsed/);
+    await expect(assistant).toHaveScreenshot("assistant-collapsed.png", { animations: "disabled" });
 
     await root.getByRole("button", { name: "Open tracking assistant" }).click();
     await expect(assistant).not.toHaveClass(/collapsed/);
     await expect(root.getByText("What do you want to track on this page?")).toBeVisible();
+    await expect(root.getByLabel("Tracking request")).toBeFocused();
+    await expect(assistant).toHaveScreenshot("assistant-open.png", { animations: "disabled" });
 
     await root.getByLabel("Tracking request").fill("navigation");
     await root.getByRole("button", { name: "Send request" }).click();
@@ -31,6 +34,7 @@ test("mounts and streams through the floating tracking assistant", async () => {
     await expect(root.getByText(/I found 5 navigation links/)).toBeVisible();
     await root.getByRole("button", { name: "Choose links" }).click();
     await expect(root.locator(".pick")).toHaveCount(5);
+    await expect(assistant).toHaveScreenshot("assistant-navigation-scope.png", { animations: "disabled" });
     await root.getByRole("button", { name: "Confirm selection" }).click();
     await expect(root.getByText("5 navigation links selected and highlighted on the page.")).toBeVisible();
     await expect(root.getByRole("region", { name: "Tracking evidence path" })).toBeVisible();
@@ -38,6 +42,7 @@ test("mounts and streams through the floating tracking assistant", async () => {
     await expect(root.getByText("Not created from chat yet")).toBeVisible();
     await expect(site.locator("#gtm-observability-targets")).toBeAttached();
     await expect(site.locator("#gtm-observability-targets").locator(".target.confirmed")).toHaveCount(5);
+    await expect(assistant).toHaveScreenshot("assistant-evidence-path.png", { animations: "disabled" });
 
     const setupResponse = await site.request.post("http://127.0.0.1:8787/api/setups", {
       data: {
