@@ -18,7 +18,7 @@ Product behavior is unchanged. The harness now protects collapsed, open, navigat
 
 The existing Chromium extension journey captures committed assistant-locator screenshots with animations disabled. Existing role/name assertions remain the interaction contract, and collapse persistence remains covered across reload.
 
-Linux CI and the local Linux host rasterize identical system-font glyphs differently. Visual comparison permits at most a 2% differing-pixel ratio; layout, accessible text, focus, and state assertions remain exact.
+Linux CI and the local Linux host resolve the production system-font fallback differently. Screenshots apply a deterministic test-only font so comparisons remain strict across hosts; a separate computed-style assertion protects the production `Inter` font-family contract. Layout, accessible text, focus, and state assertions remain exact.
 
 ## Verification
 

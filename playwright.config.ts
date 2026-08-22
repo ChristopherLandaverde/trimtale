@@ -4,14 +4,7 @@ export default defineConfig({
   testDir: "./tests/e2e",
   outputDir: "./test-results",
   timeout: 45_000,
-  expect: {
-    timeout: 8_000,
-    toHaveScreenshot: {
-      // Linux hosts rasterize identical system-font glyphs slightly differently.
-      // Structural, role/name, focus, and state assertions remain exact.
-      maxDiffPixelRatio: 0.02,
-    },
-  },
+  expect: { timeout: 8_000 },
   fullyParallel: false,
   workers: 1,
   retries: process.env.CI ? 1 : 0,
