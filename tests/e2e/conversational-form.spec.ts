@@ -39,6 +39,7 @@ for (const acceptance of contract.journeys) {
       await expect(root.getByText(/Event: generate_lead/)).toBeVisible();
       await root.getByRole("button", { name: "Confirm setup" }).click();
       await expect(root.getByText("Form tracking specification confirmed.", { exact: true })).toBeVisible();
+      await expect(root.getByText("Reviewable generate_lead setup generated")).toBeVisible();
       await expect(page.locator('meta[name="gtm-observability-measurement-id"]')).toHaveAttribute("content", "G-TEST123456");
       await expect(page.locator('meta[name="gtm-observability-container-id"]')).toHaveAttribute("content", "GTM-TEST123");
 

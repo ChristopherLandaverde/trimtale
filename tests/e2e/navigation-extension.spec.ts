@@ -1,5 +1,6 @@
 import { expect, test, chromium } from "@playwright/test";
 import { mkdtemp, rm } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -46,12 +47,25 @@ test("mounts and streams through the floating tracking assistant", async () => {
     await expect(root.getByText("5 navigation links selected and highlighted on the page.")).toBeVisible();
     await expect(root.getByRole("region", { name: "Tracking evidence path" })).toBeVisible();
     await expect(root.getByText("Navigation clicks → navigation_click")).toBeVisible();
-    await expect(root.getByText("No setup generated from this conversation yet")).toBeVisible();
+    await expect(root.getByText("Reviewable navigation_click setup generated")).toBeVisible();
     await expect(root.getByText("No GTM container detected on this page")).toBeVisible();
     await expect(root.getByText("Unverified — browser evidence cannot confirm GA4 processing")).toBeVisible();
     await expect(site.locator("#gtm-observability-targets")).toBeAttached();
     await expect(site.locator("#gtm-observability-targets").locator(".target.confirmed")).toHaveCount(5);
     await expect(assistant).toHaveScreenshot("assistant-evidence-path.png", screenshotOptions);
+
+    const downloadPromise = site.waitForEvent("download");
+    await root.getByRole("button", { name: "Download GTM setup" }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe("gtm-observability-navigation-click.json");
+    const downloadPath = await download.path();
+    if (!downloadPath) throw new Error("The navigation setup download did not produce a local artifact.");
+    const generated = JSON.parse(readFileSync(downloadPath, "utf8")) as {
+      containerVersion?: { tag?: unknown[]; trigger?: unknown[] };
+    };
+    expect(generated.containerVersion?.tag).toHaveLength(1);
+    expect(generated.containerVersion?.trigger).toHaveLength(1);
+    await expect(root.getByText(/Nothing was applied or published/)).toBeVisible();
 
     const setupResponse = await site.request.post("http://127.0.0.1:8787/api/setups", {
       data: {
@@ -111,7 +125,33 @@ test("reports an observed GTM public container ID separately from setup generati
     await root.getByRole("button", { name: "Send request" }).click();
     await root.getByRole("button", { name: "Track all" }).click();
     await expect(root.getByText("Detected GTM-TEST123")).toBeVisible();
-    await expect(root.getByText("No setup generated from this conversation yet")).toBeVisible();
+    await expect(root.getByText("Reviewable navigation_click setup generated")).toBeVisible();
+  } finally {
+    await context.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});
+
+test("does not claim setup generation without measurement context", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "gtm-observability-missing-measurement-"));
+  const extensionPath = resolve("apps/extension/dist");
+  const context = await chromium.launchPersistentContext(profile, {
+    channel: "chromium",
+    headless: true,
+    args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+  });
+  try {
+    const site = await context.newPage();
+    await site.goto("http://127.0.0.1:4173/?gtm=GTM-TEST123");
+    await site.locator('meta[name="gtm-observability-measurement-id"]').evaluate((meta) => meta.remove());
+    const root = site.locator("#gtm-observability-root");
+    await root.getByRole("button", { name: "Open tracking assistant" }).click();
+    await root.getByLabel("Tracking request").fill("navigation");
+    await root.getByRole("button", { name: "Send request" }).click();
+    await root.getByRole("button", { name: "Track all" }).click();
+
+    await expect(root.getByText("Connect a GTM container and GA4 measurement ID to generate setup")).toBeVisible();
+    await expect(root.getByRole("button", { name: "Download GTM setup" })).toHaveCount(0);
   } finally {
     await context.close();
     await rm(profile, { recursive: true, force: true });

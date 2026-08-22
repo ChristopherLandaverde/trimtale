@@ -35,6 +35,8 @@ describe("navigation setup scenario corpus", () => {
       expect(proposal.containerFile.containerVersion.tag).toHaveLength(1);
       expect(proposal.containerFile.containerVersion.trigger).toHaveLength(1);
       expect(proposal.containerFile.containerVersion.builtInVariable).toHaveLength(2);
+      expect(proposal.warnings.join(" ")).toMatch(/managed workspace.*Merge.*existing review workspace/);
+      expect(proposal.warnings.join(" ")).not.toContain("new GTM workspace");
     });
   }
 });
