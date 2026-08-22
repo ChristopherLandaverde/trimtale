@@ -153,6 +153,16 @@ Update the active `.scratch` issue as work progresses. When acceptance criteria 
 - Stack a dependent pull request only when waiting would stop useful work; state the dependency prominently.
 - Do not mix unrelated cleanup with product behavior unless it is required for the slice.
 
+### CI-parity documentation check
+
+Before marking a pull request ready, run the same base-aware documentation validation as CI against the final committed branch:
+
+1. Resolve the merge base with `git merge-base main HEAD`.
+2. Pass that explicit revision to `npm run check:change-docs -- --base <merge-base>`.
+3. Run `npm run verify` and push only after both gates pass.
+
+Ordinary `npm run verify` validates every record's structure but does not infer a pull-request base. It therefore cannot replace the base-aware check that requires every new code-bearing pull request record to use the current record version and include exploratory-review evidence or a no-visible-surface explanation.
+
 ## Enforcement
 
 `npm run check:change-docs` validates every committed change record. In pull-request CI, it also compares the branch to the base revision and fails a code-bearing change with no new record. `npm run verify` runs documentation validation before type checks, unit/scenario tests, builds, and browser E2E.

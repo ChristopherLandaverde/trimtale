@@ -37,6 +37,11 @@ describe("issue 09 verified-resolution acceptance contract", () => {
       "rejects-unconfirmed-diagnosis",
       "rejects-missing-evidence-link",
       "rejects-non-passing-after-evidence",
+      "rejects-evidence-verdict-mismatch",
+      "rejects-passing-before-evidence",
+      "rejects-missing-confirmed-cause",
+      "rejects-missing-corrective-action",
+      "rejects-unknown-schema-version",
       "redacts-forbidden-customer-data",
     ]);
   });

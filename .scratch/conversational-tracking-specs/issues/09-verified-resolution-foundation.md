@@ -1,6 +1,6 @@
 # Persist verified resolutions for later retrieval
 
-Status: open
+Status: resolved
 
 Blocked by: 07, 08
 
@@ -41,3 +41,12 @@ Required invariants:
 - `apps/api/src/verified-resolutions.test.ts` consumes every acceptance case with no skips.
 
 ## Comments
+
+- 2026-08-22: Claimed after Issue 08 merged. The behavioral test now consumes ten acceptance cases, including confirmation, missing/mismatched evidence, before/after ordering, schema rejection, and privacy sentinels.
+- 2026-08-22: Added a versioned verified-resolution contract and file-backed API repository. Focused acceptance and persistence tests pass; full completion verification remains in progress.
+- 2026-08-22: Persistence review added a fail-closed regression for unknown collection schemas. The repository reopens accepted records, ignores arbitrary customer-data fields, and leaves deterministic verdict output unchanged.
+- 2026-08-22: Final `npm run verify` passed with 100 deterministic tests and 22 Chromium workflows.
+
+## Answer
+
+A verified resolution is now a versioned, human-confirmed record linking one non-passing run to one passing run through a controlled confirmed cause and corrective action. The API repository writes an atomic, owner-readable JSON collection, exposes save/get/list operations for later retrieval, derives only normalized environment attributes from run evidence, and rejects incomplete, inconsistent, missing, or unsupported-schema inputs. It does not train a model or mutate deterministic verdict rules.
