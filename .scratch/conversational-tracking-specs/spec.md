@@ -152,6 +152,23 @@ confirmation are hard failures. Provider summaries include every corpus case in 
 average, retain hard-failure and inconclusive counts separately, and report latency,
 token usage, estimated cost, and usage coverage without treating missing usage as zero.
 
+## Backend comparison reports
+
+The backend can orchestrate two or three injected providers across the complete corpus
+and atomically persist one versioned comparison report. Provider configuration is
+validated before execution. The runner uses the shadow harness and weighted evaluator,
+then discards shadow records and interpretations before persistence.
+
+Durable reports contain only opaque report, provider, and case IDs; case outcomes;
+dimension scores; hard-failure and safe harness codes; timing; and bounded usage
+metrics. They omit messages, candidate labels, expected and provider interpretations,
+raw responses, prompts, credentials, and exception details. Report files use owner-only
+permissions and reject corrupted, unsupported, invalid, or duplicate records.
+
+No server route invokes the runner. A later credentialed backend command must explicitly
+configure real adapters and the report path without making paid model execution
+publicly triggerable.
+
 ## Tracking specification contract
 
 ```ts
@@ -315,6 +332,8 @@ A verified resolution records normalized symptoms, relevant environment attribut
   inconclusive evaluation with fixed weighted dimensions.
 - [x] Provider summaries include complete corpus coverage and separate accuracy,
   safety, latency, cost, and missing-usage evidence.
+- [x] The backend can run two or three injected providers and atomically persist a
+  privacy-safe, runtime-validated comparison report.
 - [x] `npm run verify` passes without real Google credentials or external services.
 
 ## Success measures
