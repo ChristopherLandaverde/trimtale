@@ -174,6 +174,14 @@ runner forces them onto Node 24. This is not blocking today. Upgrade those actio
 their current Node-24-compatible major versions before GitHub removes the compatibility
 path, then rerun the full verification gate and inspect any checkout/cache differences.
 
+Merged-main run `32619438610` also reported one flaky Chromium visual assertion. The
+first `form-candidate-highlights.png` comparison differed by 3,293 pixels, or 1%, and
+the Playwright retry passed without a code change. Treat this as unresolved timing or
+rendering instability, not an approved visual change. Reproduce the candidate-highlight
+journey repeatedly, inspect failure artifacts, and stabilize fonts/layout/capture timing
+before considering any reviewed baseline update. The follow-up is tracked in
+`.scratch/conversational-tracking-specs/issues/12-form-candidate-highlight-snapshot-flake.md`.
+
 ## First live operation handoff
 
 The disposable exercise used container `GTM-PCJ3Q5RK` only:
