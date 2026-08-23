@@ -36,6 +36,7 @@ Use these controls deliberately:
 | `TRACKING_OPERATION_STORE` | Selects the durable operation collection; defaults under `.data/`. |
 | `GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED=true` | Includes publish scope during one-time consent without enabling publication. |
 | `GOOGLE_GTM_PUBLICATION_ENABLED=true` | Makes guarded publish and rollback methods reachable for one approved session. |
+| `GOOGLE_ANALYTICS_READS_ENABLED=true` | Enables read-only Analytics Admin and Realtime verification; it does not enable GTM or GA4 writes. |
 
 Run `npm run preflight:google` before credentialed planning and
 `npm run preflight:publication` before an approved publication session. Keep
@@ -102,7 +103,7 @@ lead-form run requires:
 - the expected data-layer event;
 - exactly one GA4 request;
 - required `form_id`, `form_name`, and semantic `page_location`; and
-- a `browser_verified` verdict with platform confirmation still `unverified`.
+- a `browser_verified` verdict independent of any platform state.
 
 GA4 commonly transports the standard `page_location` field as `dl`, not
 `ep.page_location`. Normalize both representations to the same semantic requirement
@@ -111,6 +112,28 @@ and remove query parameters before persisting evidence.
 Only passing evidence completes the operation. A genuine non-passing run records the
 evidence and prepares the exact prior-live rollback target. An incomplete synthetic
 diagnostic should remain diagnostic rather than being persisted as a completed journey.
+
+### Optional read-only GA4 correlation
+
+With Analytics reads explicitly enabled and the saved grant containing
+`analytics.readonly`, the visible guided run can add ephemeral destination evidence:
+
+1. Require exactly one GA4 measurement ID in the exact matched live GTM version.
+2. Require that ID to match exactly one Analytics Admin property/data stream.
+3. Record the expected event's Realtime count before enabling the submission.
+4. Require browser verification to pass.
+5. Re-read the same property/event and pass only after its aggregate count increases.
+
+Equal counts remain pending; they are not failures and do not weaken browser evidence.
+Verification handles expire after ten minutes and exist only in bounded process memory.
+The comparison is aggregate timing correlation, not proof of which user or individual
+event Analytics processed. Do not use it to expose form values, cookies, tokens, or
+submitted personal information.
+
+The Google Cloud project behind the OAuth client must have both Analytics Admin API and
+Google Analytics Data API enabled. A provider denial is different from the local read
+gate and should prompt an operator to check API enablement and the saved grant. The
+product never renders Google's raw response body.
 
 ## Live-integration findings
 
@@ -213,7 +236,8 @@ without invoking rollback.
 | Version exists but workspace disappeared | This is expected after version creation; resume at version review. |
 | Publish approval is older than 30 minutes | Re-read the immutable and live versions and obtain a new exact-fingerprint approval. |
 | Published signal fires but full journey cannot run | Fix or identify the real website target and success outcome; do not fabricate completion evidence. |
-| Browser request passes but GA4 is not confirmed | Keep platform confirmation `unverified` until destination-side evidence exists. |
+| Browser request passes but GA4 count is unchanged | Keep platform confirmation pending, allow the explicit retry, and retain the independent browser pass. Do not submit repeatedly merely to outrun Realtime latency. |
+| Analytics Data API read is denied | Confirm the API is enabled for the OAuth project and the saved grant includes `analytics.readonly`; do not broaden to an edit scope. |
 
 ## Related documentation
 

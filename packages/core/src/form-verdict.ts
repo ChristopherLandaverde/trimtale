@@ -37,20 +37,20 @@ export function determineFormVerdict(observations: FormObservations): TrackingRu
     code = observations.outcome.observable ? "expected_non_conversion" : "insufficient_observable_evidence";
   } else if (observations.consent.analyticsStorage === "denied") {
     code = "consent_limited";
+  } else if (observations.network.ga4Requests.length > 1) {
+    code = "duplicate_fire";
+  } else if (observations.network.ga4Requests.length === 1) {
+    code = requestHasRequiredParameters(observations.network.ga4Requests[0]!.url)
+      ? "browser_verified"
+      : "missing_parameter";
   } else if (observations.dataLayer.matchingEvents.length === 0) {
     code = "outcome_observed_event_missing";
   } else if (observations.tagFired === false) {
     code = "datalayer_event_observed_tag_not_firing";
   } else if (observations.tagFired === null) {
     code = "insufficient_observable_evidence";
-  } else if (observations.network.ga4Requests.length === 0) {
-    code = "tag_fired_request_missing";
-  } else if (observations.network.ga4Requests.length > 1) {
-    code = "duplicate_fire";
-  } else if (!requestHasRequiredParameters(observations.network.ga4Requests[0]!.url)) {
-    code = "missing_parameter";
   } else {
-    code = "browser_verified";
+    code = "tag_fired_request_missing";
   }
 
   return {

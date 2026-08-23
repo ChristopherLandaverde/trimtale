@@ -9,6 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
+import { ANALYTICS_READONLY_SCOPE } from "./analytics.js";
 import {
   assertTrackingOperation,
   createTrackingChangePlan,
@@ -116,6 +117,7 @@ export type GtmObservedContainerInspection =
     publicId: string;
     account: Pick<GtmAccount, "accountId" | "name">;
     container: GtmContainer;
+    measurementIds: string[];
     liveVersion: GtmContainerVersion;
     workspace: ManagedWorkspaceInspection<GtmWorkspace>;
   };
@@ -303,6 +305,7 @@ export class GoogleOAuthSession {
     private readonly containerWritesEnabled = false,
     private readonly publicationScopeRequested = false,
     private readonly tokenStore?: GoogleOAuthTokenStore,
+    private readonly analyticsReadEnabled = false,
   ) {
     const refreshToken = tokenStore?.load();
     if (refreshToken) {
@@ -323,9 +326,12 @@ export class GoogleOAuthSession {
       client_id: this.config.clientId,
       redirect_uri: this.config.redirectUri,
       response_type: "code",
-      scope: this.containerWritesEnabled
-        ? `${GTM_READONLY_SCOPE} ${GTM_EDIT_CONTAINERS_SCOPE} ${GTM_EDIT_CONTAINER_VERSIONS_SCOPE}${this.publicationScopeRequested ? ` ${GTM_PUBLISH_SCOPE}` : ""}`
-        : GTM_READONLY_SCOPE,
+      scope: [
+        GTM_READONLY_SCOPE,
+        ...(this.containerWritesEnabled ? [GTM_EDIT_CONTAINERS_SCOPE, GTM_EDIT_CONTAINER_VERSIONS_SCOPE] : []),
+        ...(this.publicationScopeRequested ? [GTM_PUBLISH_SCOPE] : []),
+        ...(this.analyticsReadEnabled ? [ANALYTICS_READONLY_SCOPE] : []),
+      ].join(" "),
       access_type: "offline",
       include_granted_scopes: "true",
       prompt: "consent",
@@ -545,6 +551,7 @@ export class GtmDiscoveryClient {
     return {
       ...recognition,
       container: context.container,
+      measurementIds: ga4MeasurementIds(context.liveVersion),
       liveVersion: context.liveVersion,
       workspace: inspectManagedWorkspace(context.workspaces),
     };
@@ -1117,6 +1124,27 @@ export class GtmDiscoveryClient {
     }
     return 65_000;
   }
+}
+
+export function ga4MeasurementIds(value: unknown): string[] {
+  const found = new Set<string>();
+  const visit = (candidate: unknown, depth: number): void => {
+    if (depth > 12 || found.size >= 32) return;
+    if (typeof candidate === "string") {
+      const normalized = candidate.trim().toUpperCase();
+      if (/^G-[A-Z0-9]+$/.test(normalized)) found.add(normalized);
+      return;
+    }
+    if (Array.isArray(candidate)) {
+      candidate.slice(0, 2_000).forEach((item) => visit(item, depth + 1));
+      return;
+    }
+    if (typeof candidate === "object" && candidate !== null) {
+      Object.values(candidate).slice(0, 2_000).forEach((item) => visit(item, depth + 1));
+    }
+  };
+  visit(value, 0);
+  return [...found].sort();
 }
 
 type JsonRecord = Record<string, unknown>;

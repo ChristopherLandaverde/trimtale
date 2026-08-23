@@ -54,7 +54,8 @@ interface GtmContainerResult {
   publicId: string;
   matchCount?: number;
   account?: { accountId: string; name: string };
-  container?: { name: string; publicId: string };
+  container?: { accountId: string; containerId: string; name: string; publicId: string };
+  measurementIds?: string[];
   workspace?: GtmWorkspaceResult;
 }
 
@@ -73,6 +74,7 @@ interface GtmConnectionStatus {
   publicationScopeRequested: boolean;
   publicationEnabled: boolean;
   tokenPersistenceEnabled: boolean;
+  analyticsReadEnabled: boolean;
 }
 
 interface GtmConnectionContext {
@@ -98,8 +100,34 @@ type GtmConnectionView =
     status: GtmConnectionStatus;
     publicId: string;
     account: { accountId: string; name: string };
-    container: { name: string; publicId: string };
+    container: { accountId: string; containerId: string; name: string; publicId: string };
+    measurementIds: string[];
   };
+
+interface EvidencePathHandle {
+  browserRow: HTMLElement;
+  platformRow: HTMLElement;
+}
+
+interface Ga4VerificationStarted {
+  status: "started";
+  verificationId: string;
+  measurementId: string;
+  eventName: string;
+  baselineEventCount: number;
+  property: { propertyId: string; name: string };
+  stream: { streamId: string; name: string };
+}
+
+interface Ga4VerificationConfirmation {
+  status: "pending" | "confirmed";
+  verificationId: string;
+  baselineEventCount: number;
+  currentEventCount: number;
+  property: { propertyId: string; name: string };
+  stream: { streamId: string; name: string };
+  correlation: "aggregate_realtime_count_increase";
+}
 
 type ExtensionRequest =
   | { type: "SCAN_NAVIGATION" }
@@ -129,6 +157,11 @@ const intakeByRequest = new Map<string, ConversationIntakeResult>();
 const formsByRequest = new Map<string, FormCandidate[]>();
 const recentFormRequests: Array<{ url: string; observedAt: string }> = [];
 let activeFormVerification: { requestId: string; intake: ConversationIntakeResult } | undefined;
+const evidencePaths = new Map<string, EvidencePathHandle>();
+const ga4VerificationByRequest = new Map<string, Ga4VerificationStarted>();
+const ga4ConfirmationAttempts = new Map<string, number>();
+const formVerdictMessages = new Map<string, HTMLElement>();
+let recognizedGtmContext: Extract<GtmConnectionView, { kind: "recognized" }> | undefined;
 let gtmConnectionLoaded = false;
 let gtmConnectionRequestSequence = 0;
 
@@ -171,31 +204,49 @@ function fixtureMeta(name: string): string | undefined {
   return document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)?.content || undefined;
 }
 
+function connectedSetupContext() {
+  const context = recognizedGtmContext;
+  if (!context || context.measurementIds.length !== 1) return undefined;
+  return {
+    measurementId: context.measurementIds[0]!,
+    container: {
+      accountId: context.container.accountId,
+      containerId: context.container.containerId,
+      publicId: context.publicId,
+      name: context.container.name,
+    },
+  };
+}
+
 function formSetupProposal(result: ConversationIntakeResult) {
   const specification = confirmedFormSpecification(result);
-  const measurementId = fixtureMeta("gtm-observability-measurement-id");
-  const publicId = fixtureMeta("gtm-observability-container-id");
+  const connected = connectedSetupContext();
+  const measurementId = connected?.measurementId ?? fixtureMeta("gtm-observability-measurement-id");
+  const publicId = connected?.container.publicId ?? fixtureMeta("gtm-observability-container-id");
   if (!specification || !measurementId || !publicId) return undefined;
   return createFormSetupProposal({
     specification,
     measurementId,
-    container: { accountId: "0", containerId: "0", publicId, name: "GTM Observability import" },
+    container: connected?.container
+      ?? { accountId: "0", containerId: "0", publicId, name: "GTM Observability import" },
   });
 }
 
 function navigationSetupProposal(navigation: NavigationElement[]): SetupProposal | undefined {
-  const measurementId = fixtureMeta("gtm-observability-measurement-id");
+  const connected = connectedSetupContext();
+  const measurementId = connected?.measurementId ?? fixtureMeta("gtm-observability-measurement-id");
   const runtime = inspectGtmRuntime();
-  const publicId = runtime.status === "detected" && runtime.containerIds.length === 1
+  const publicId = connected?.container.publicId ?? (runtime.status === "detected" && runtime.containerIds.length === 1
     ? runtime.containerIds[0]
-    : fixtureMeta("gtm-observability-container-id");
+    : fixtureMeta("gtm-observability-container-id"));
   if (!measurementId || !publicId || navigation.length === 0) return undefined;
   return createSetupProposal({
     intent: "Track navigation links",
     pageUrl: location.href,
     measurementId,
     navigation,
-    container: { accountId: "0", containerId: "0", publicId, name: "GTM Observability import" },
+    container: connected?.container
+      ?? { accountId: "0", containerId: "0", publicId, name: "GTM Observability import" },
   });
 }
 
@@ -210,14 +261,112 @@ function formSetupDownloadHref(result: ConversationIntakeResult): string | undef
   return containerFileDownloadHref(proposal.containerFile);
 }
 
-function formExplanation(verdict: TrackingRunEvidenceV1["verdict"]): string {
+function formExplanation(
+  verdict: TrackingRunEvidenceV1["verdict"],
+  platformCheckStarted = false,
+): string {
   if (verdict.code === "browser_verified") {
-    return "Browser verification passed because one generate_lead request was observed. Platform confirmation remains unverified.";
+    return platformCheckStarted
+      ? "Browser verification passed because one generate_lead request was observed. Checking the pre-run GA4 Realtime baseline now."
+      : "Browser verification passed because one generate_lead request was observed. Platform confirmation remains unverified.";
   }
   if (verdict.code === "expected_non_conversion") {
     return "The form was stopped by validation, so this attempt was not counted. Correct the input and submit again. Platform confirmation remains unverified.";
   }
   return `${verdict.code.replaceAll("_", " ")}. ${verdict.nextAction} Platform confirmation remains unverified.`;
+}
+
+function analyticsFailureDetail(error: string | undefined): string {
+  if (error === "analytics_disabled") return "Analytics reads are disabled on this backend";
+  if (error === "analytics_provider_forbidden") return "The Analytics Data API is unavailable or the saved grant cannot read it";
+  if (error === "measurement_not_accessible") return "The GA4 destination is not accessible through the saved grant";
+  if (error === "measurement_ambiguous") return "The GA4 destination matched multiple accessible streams";
+  if (error === "verification_expired") return "The GA4 verification window expired; start a new browser run";
+  if (error === "service_offline") return "The local Analytics service is offline";
+  return "GA4 Realtime evidence is currently unavailable";
+}
+
+async function confirmGa4Platform(requestId: string): Promise<void> {
+  const started = ga4VerificationByRequest.get(requestId);
+  const row = evidencePaths.get(requestId)?.platformRow;
+  if (!started || !row) return;
+  const attempt = (ga4ConfirmationAttempts.get(requestId) ?? 0) + 1;
+  ga4ConfirmationAttempts.set(requestId, attempt);
+  updateEvidenceStage(row, "pending", "Checking GA4 Realtime against the pre-run baseline…");
+  const response = await requestGa4Verification({ operation: "confirm", verificationId: started.verificationId });
+  const result = response.ok ? parseGa4Confirmation(response.result) : undefined;
+  if (!result) {
+    ga4ConfirmationAttempts.delete(requestId);
+    updateEvidenceStage(row, "failed", analyticsFailureDetail(response.error));
+    return;
+  }
+  if (result.status === "confirmed") {
+    ga4VerificationByRequest.delete(requestId);
+    ga4ConfirmationAttempts.delete(requestId);
+    updateEvidenceStage(
+      row,
+      "passed",
+      `GA4 Realtime count increased from ${result.baselineEventCount} to ${result.currentEventCount}. Aggregate correlation; no user or event-level identity.`,
+    );
+    const verdict = formVerdictMessages.get(requestId);
+    if (verdict) {
+      verdict.textContent = "Verdict: browser_verified\nBrowser verification: passed\nPlatform confirmation: passed\nNext action: No further verification action is required.";
+    }
+    addMessage(
+      `Platform confirmation: passed\nGA4 Realtime observed an aggregate generate_lead count increase on ${result.property.name}.`,
+      "assistant",
+    );
+    return;
+  }
+  updateEvidenceStage(
+    row,
+    "pending",
+    `GA4 Realtime has not increased yet (${result.baselineEventCount} → ${result.currentEventCount}). ${attempt < 12 ? "Checking again automatically…" : "Check again when reporting catches up."}`,
+  );
+  if (attempt < 12) {
+    window.setTimeout(() => void confirmGa4Platform(requestId), 5_000);
+    return;
+  }
+  const path = row.closest<HTMLElement>(".evidence-path");
+  path?.querySelector(".platform-action")?.remove();
+  const retry = document.createElement("button");
+  retry.className = "quick platform-action";
+  retry.textContent = "Check GA4 again";
+  retry.addEventListener("click", () => {
+    retry.remove();
+    void confirmGa4Platform(requestId);
+  }, { once: true });
+  path?.append(retry);
+}
+
+async function prepareFormVerification(requestId: string, intake: ConversationIntakeResult): Promise<void> {
+  recentFormRequests.length = 0;
+  const rows = evidencePaths.get(requestId);
+  if (rows) updateEvidenceStage(rows.browserRow, "pending", "Preparing a guided browser run…");
+  const context = recognizedGtmContext;
+  if (rows && context?.status.analyticsReadEnabled && context.measurementIds.length === 1) {
+    updateEvidenceStage(rows.platformRow, "pending", "Recording the pre-run GA4 Realtime baseline…");
+    const response = await requestGa4Verification({
+      operation: "start",
+      measurementId: context.measurementIds[0],
+      eventName: "generate_lead",
+    });
+    const started = response.ok ? parseGa4Started(response.result) : undefined;
+    if (started && started.measurementId === context.measurementIds[0] && started.eventName === "generate_lead") {
+      ga4VerificationByRequest.set(requestId, started);
+      ga4ConfirmationAttempts.set(requestId, 0);
+      updateEvidenceStage(
+        rows.platformRow,
+        "pending",
+        `Baseline ${started.baselineEventCount} on ${started.property.name}; waiting for browser verification`,
+      );
+    } else {
+      updateEvidenceStage(rows.platformRow, "failed", analyticsFailureDetail(response.error));
+    }
+  }
+  activeFormVerification = { requestId, intake };
+  if (rows) updateEvidenceStage(rows.browserRow, "pending", "Waiting for one successful browser run…");
+  addMessage(`Verification is ready. Submit ${intake.target?.label ?? "the selected form"} once.`, "assistant");
 }
 
 function classifySubmissionResult(value: string | undefined): "success" | "validation_error" | "server_error" | "unknown" {
@@ -232,15 +381,64 @@ function classifyConsent(value: string | undefined): "granted" | "denied" | "unk
   return value === "granted" || value === "denied" ? value : "unknown";
 }
 
-function finishFormVerification(result: ConversationIntakeResult, startedAt: string): void {
+function observableSuccess(result: ConversationIntakeResult): {
+  observed: boolean;
+  dataLayerEvents: Array<{ event: string }>;
+} {
+  const signal = result.successSignal;
+  if (!signal) return { observed: false, dataLayerEvents: [] };
+  if (signal.type === "visible_element") {
+    try {
+      const element = document.querySelector<HTMLElement>(signal.value);
+      const style = element ? getComputedStyle(element) : undefined;
+      const observed = Boolean(element
+        && !element.hidden
+        && element.getAttribute("aria-hidden") !== "true"
+        && style?.display !== "none"
+        && style?.visibility !== "hidden"
+        && element.getClientRects().length > 0);
+      return { observed, dataLayerEvents: [] };
+    } catch {
+      return { observed: false, dataLayerEvents: [] };
+    }
+  }
+  if (signal.type === "thank_you_url") {
+    return { observed: location.href.includes(signal.value), dataLayerEvents: [] };
+  }
+  if (signal.type === "data_layer_event") {
+    const layer = (window as Window & { dataLayer?: unknown[] }).dataLayer;
+    const observed = Array.isArray(layer) && layer.some(
+      (item) => isRecord(item) && item.event === signal.value,
+    );
+    return { observed, dataLayerEvents: observed ? [{ event: signal.value }] : [] };
+  }
+  return { observed: false, dataLayerEvents: [] };
+}
+
+function analyticsUrlsSince(startedAt: string, startedAtPerformance: number): string[] {
+  return [...new Set([
+    ...recentFormRequests
+      .filter((request) => Date.parse(request.observedAt) >= Date.parse(startedAt))
+      .map((request) => request.url),
+    ...recentAnalyticsRequests(startedAtPerformance).map((request) => request.url),
+  ])];
+}
+
+function finishFormVerification(
+  requestId: string,
+  result: ConversationIntakeResult,
+  startedAt: string,
+  startedAtPerformance: number,
+): void {
   const specification = confirmedFormSpecification(result);
   const target = result.target;
   const success = result.successSignal;
   if (!specification || !target || !success) return;
   const pageState = document.documentElement.dataset;
-  const requestUrls = recentFormRequests
-    .filter((request) => Date.parse(request.observedAt) >= Date.parse(startedAt))
-    .map((request) => request.url);
+  const requestUrls = analyticsUrlsSince(startedAt, startedAtPerformance);
+  const observedSuccess = observableSuccess(result);
+  const outcomeObserved = pageState.outcomeObserved === "true" || observedSuccess.observed;
+  const submissionResult = classifySubmissionResult(pageState.submissionResult);
   const provisionalVerdict: TrackingRunEvidenceV1["verdict"] = {
     code: "insufficient_observable_evidence",
     browserVerification: "inconclusive",
@@ -253,26 +451,74 @@ function finishFormVerification(result: ConversationIntakeResult, startedAt: str
     startedAt,
     transport: classifyTransport(pageState.transport),
     targetId: target.id,
-    submitAttempted: pageState.submitAttempted === "true",
-    submissionResult: classifySubmissionResult(pageState.submissionResult),
-    outcomeObserved: pageState.outcomeObserved === "true",
+    submitAttempted: true,
+    submissionResult: submissionResult === "unknown" && outcomeObserved ? "success" : submissionResult,
+    outcomeObserved,
     outcomeObservable: pageState.outcomeObservable !== "false",
     outcomeEvidenceType: success.type,
     dataLayerEvents: pageState.dataLayerEvent === "true"
       ? [{ event: "generate_lead", form_id: target.id, form_name: target.label.replaceAll(" ", "_") }]
-      : [],
-    tagFired: pageState.tagFired === "true" ? true : pageState.tagFired === "false" ? false : null,
+      : observedSuccess.dataLayerEvents,
+    tagFired: pageState.tagFired === "true"
+      ? true
+      : pageState.tagFired === "false"
+        ? false
+        : requestUrls.length > 0
+          ? true
+          : null,
     networkUrls: requestUrls,
     consent: classifyConsent(pageState.consent),
   }, provisionalVerdict);
   const verdict = determineFormVerdict(provisional.observations);
+  const rows = evidencePaths.get(requestId);
+  if (rows) {
+    updateEvidenceStage(
+      rows.browserRow,
+      verdict.browserVerification === "passed" ? "passed" : "failed",
+      verdict.browserVerification === "passed"
+        ? "Browser request verified — one generate_lead request observed"
+        : `${verdict.browserVerification === "inconclusive" ? "Inconclusive" : "Failed"} — ${verdict.nextAction}`,
+    );
+  }
+  const platformCheckStarted = verdict.browserVerification === "passed"
+    && ga4VerificationByRequest.has(requestId);
+  if (verdict.browserVerification !== "passed" && ga4VerificationByRequest.delete(requestId) && rows) {
+    ga4ConfirmationAttempts.delete(requestId);
+    updateEvidenceStage(rows.platformRow, "failed", "Not checked because browser verification did not pass");
+  }
   const verdictMessage = addMessage(
-    `Verdict: ${verdict.code}\nBrowser verification: ${verdict.browserVerification}\nPlatform confirmation: ${verdict.platformConfirmation}\nNext action: ${verdict.nextAction}`,
+    `Verdict: ${verdict.code}\nBrowser verification: ${verdict.browserVerification}\nPlatform confirmation: ${platformCheckStarted ? "checking" : verdict.platformConfirmation}\nNext action: ${verdict.nextAction}`,
     "assistant",
   );
-  addMessage(formExplanation(verdict), "assistant").classList.add("explanation");
+  formVerdictMessages.set(requestId, verdictMessage);
+  addMessage(formExplanation(verdict, platformCheckStarted), "assistant").classList.add("explanation");
   window.requestAnimationFrame(() => verdictMessage.scrollIntoView({ block: "start" }));
+  if (platformCheckStarted) void confirmGa4Platform(requestId);
   activeFormVerification = undefined;
+}
+
+function settleFormVerification(
+  requestId: string,
+  result: ConversationIntakeResult,
+  startedAt: string,
+  startedAtPerformance: number,
+  deadline: number,
+): void {
+  const pageState = document.documentElement.dataset;
+  const deterministicStateAvailable = pageState.submissionResult !== undefined
+    || pageState.tagFired !== undefined;
+  if (
+    analyticsUrlsSince(startedAt, startedAtPerformance).length > 0
+    || deterministicStateAvailable
+    || performance.now() >= deadline
+  ) {
+    finishFormVerification(requestId, result, startedAt, startedAtPerformance);
+    return;
+  }
+  window.setTimeout(
+    () => settleFormVerification(requestId, result, startedAt, startedAtPerformance, deadline),
+    250,
+  );
 }
 
 function areaFor(element: Element): NavigationArea {
@@ -403,7 +649,8 @@ function parseConnectionStatus(value: unknown): GtmConnectionStatus | undefined 
     || typeof value.containerWritesEnabled !== "boolean"
     || typeof value.publicationScopeRequested !== "boolean"
     || typeof value.publicationEnabled !== "boolean"
-    || typeof value.tokenPersistenceEnabled !== "boolean") return undefined;
+    || typeof value.tokenPersistenceEnabled !== "boolean"
+    || typeof value.analyticsReadEnabled !== "boolean") return undefined;
   if (value.containerWritesEnabled !== (value.scope === "container-edit")) return undefined;
   if (value.publicationEnabled && (!value.publicationScopeRequested || !value.containerWritesEnabled)) return undefined;
   return {
@@ -414,6 +661,7 @@ function parseConnectionStatus(value: unknown): GtmConnectionStatus | undefined 
     publicationScopeRequested: value.publicationScopeRequested,
     publicationEnabled: value.publicationEnabled,
     tokenPersistenceEnabled: value.tokenPersistenceEnabled,
+    analyticsReadEnabled: value.analyticsReadEnabled,
   };
 }
 
@@ -425,15 +673,30 @@ function parseConnectionResult(value: unknown, publicId: string): GtmContainerRe
     return { status: value.status, publicId, matchCount: value.matchCount as number };
   }
   if (value.status !== "recognized" || !isRecord(value.account) || !isRecord(value.container)) return undefined;
+  const measurementIds = value.measurementIds;
   if (!isBoundedText(value.account.accountId, 64)
     || !isBoundedText(value.account.name)
+    || !isBoundedText(value.container.accountId, 64)
+    || !isBoundedText(value.container.containerId, 64)
     || !isBoundedText(value.container.name)
-    || value.container.publicId !== publicId) return undefined;
+    || value.container.publicId !== publicId
+    || value.container.accountId !== value.account.accountId
+    || !Array.isArray(measurementIds)
+    || measurementIds.length > 32
+    || measurementIds.some((item) => typeof item !== "string" || !/^G-[A-Z0-9]+$/.test(item))
+    || new Set(measurementIds).size !== measurementIds.length
+    || [...measurementIds].sort().some((item, index) => item !== measurementIds[index])) return undefined;
   return {
     status: value.status,
     publicId,
     account: { accountId: value.account.accountId, name: value.account.name },
-    container: { name: value.container.name, publicId },
+    container: {
+      accountId: value.container.accountId,
+      containerId: value.container.containerId,
+      name: value.container.name,
+      publicId,
+    },
+    measurementIds,
   };
 }
 
@@ -456,6 +719,83 @@ function parseConnectionContext(value: unknown, observedContainerIds: string[]):
   if (!result || typeof value.recognition.containerWritesEnabled !== "boolean"
     || value.recognition.containerWritesEnabled !== status.containerWritesEnabled) return undefined;
   return { status, containerIds, result };
+}
+
+function parseAnalyticsResource(
+  value: unknown,
+  idKey: "propertyId" | "streamId",
+): { id: string; name: string } | undefined {
+  if (!isRecord(value) || !isBoundedText(value[idKey], 64) || !/^\d+$/.test(value[idKey])
+    || !isBoundedText(value.name)) return undefined;
+  return { id: value[idKey], name: value.name };
+}
+
+function parseGa4Started(value: unknown): Ga4VerificationStarted | undefined {
+  if (!isRecord(value) || value.status !== "started"
+    || !isBoundedText(value.verificationId, 128) || !/^[A-Za-z0-9_-]+$/.test(value.verificationId)
+    || typeof value.measurementId !== "string" || !/^G-[A-Z0-9]+$/.test(value.measurementId)
+    || typeof value.eventName !== "string" || !/^[a-z][a-z0-9_]{0,39}$/.test(value.eventName)
+    || !Number.isSafeInteger(value.baselineEventCount) || (value.baselineEventCount as number) < 0) return undefined;
+  const property = parseAnalyticsResource(value.property, "propertyId");
+  const stream = parseAnalyticsResource(value.stream, "streamId");
+  if (!property || !stream) return undefined;
+  return {
+    status: value.status,
+    verificationId: value.verificationId,
+    measurementId: value.measurementId,
+    eventName: value.eventName,
+    baselineEventCount: value.baselineEventCount as number,
+    property: { propertyId: property.id, name: property.name },
+    stream: { streamId: stream.id, name: stream.name },
+  };
+}
+
+function parseGa4Confirmation(value: unknown): Ga4VerificationConfirmation | undefined {
+  if (!isRecord(value) || (value.status !== "pending" && value.status !== "confirmed")
+    || !isBoundedText(value.verificationId, 128) || !/^[A-Za-z0-9_-]+$/.test(value.verificationId)
+    || !Number.isSafeInteger(value.baselineEventCount) || (value.baselineEventCount as number) < 0
+    || !Number.isSafeInteger(value.currentEventCount) || (value.currentEventCount as number) < 0
+    || value.correlation !== "aggregate_realtime_count_increase") return undefined;
+  const property = parseAnalyticsResource(value.property, "propertyId");
+  const stream = parseAnalyticsResource(value.stream, "streamId");
+  if (!property || !stream) return undefined;
+  if (value.status === "confirmed" && (value.currentEventCount as number) <= (value.baselineEventCount as number)) {
+    return undefined;
+  }
+  return {
+    status: value.status,
+    verificationId: value.verificationId,
+    baselineEventCount: value.baselineEventCount as number,
+    currentEventCount: value.currentEventCount as number,
+    property: { propertyId: property.id, name: property.name },
+    stream: { streamId: stream.id, name: stream.name },
+    correlation: value.correlation,
+  };
+}
+
+async function requestGa4Verification(message: Record<string, unknown>): Promise<{
+  ok: boolean;
+  error?: string;
+  result?: unknown;
+}> {
+  try {
+    const response: unknown = await chrome.runtime.sendMessage({ type: "GA4_VERIFICATION_REQUEST", ...message });
+    if (!isRecord(response) || typeof response.ok !== "boolean") return { ok: false, error: "invalid_response" };
+    const safeErrors = new Set([
+      "analytics_disabled",
+      "analytics_provider_forbidden",
+      "measurement_not_accessible",
+      "measurement_ambiguous",
+      "verification_expired",
+      "analytics_unavailable",
+      "service_offline",
+    ]);
+    return response.ok
+      ? { ok: true, result: response.result }
+      : { ok: false, error: typeof response.error === "string" && safeErrors.has(response.error) ? response.error : "invalid_response" };
+  } catch {
+    return { ok: false, error: "service_offline" };
+  }
 }
 
 function effectiveAccess(status: GtmConnectionStatus): string {
@@ -567,7 +907,12 @@ function renderGtmConnection(view: GtmConnectionView): void {
     appendConnectionRow(body, "Page", view.publicId);
     appendConnectionRow(body, "Account", view.account.name);
     appendConnectionRow(body, "Container", view.container.name);
-    note.textContent = accessExplanation(view.status);
+    appendConnectionRow(
+      body,
+      "GA4",
+      view.measurementIds.length > 0 ? view.measurementIds.join(" · ") : "No live destination found",
+    );
+    note.textContent = `${accessExplanation(view.status)} Analytics reads are ${view.status.analyticsReadEnabled ? "enabled" : "off"}.`;
   }
 
   body.prepend(summary);
@@ -578,6 +923,7 @@ function renderGtmConnection(view: GtmConnectionView): void {
 async function loadGtmConnectionContext(force = false): Promise<void> {
   if (gtmConnectionLoaded && !force) return;
   const requestSequence = ++gtmConnectionRequestSequence;
+  recognizedGtmContext = undefined;
   renderGtmConnection({ kind: "loading" });
   const runtime = inspectGtmRuntime();
   const containerIds = runtime.status === "detected" ? runtime.containerIds : [];
@@ -635,13 +981,16 @@ async function loadGtmConnectionContext(force = false): Promise<void> {
     return;
   }
   if (context.result?.status === "recognized" && context.result.account && context.result.container) {
-    renderGtmConnection({
+    const view: Extract<GtmConnectionView, { kind: "recognized" }> = {
       kind: "recognized",
       status: context.status,
       publicId: context.result.publicId,
       account: context.result.account,
       container: context.result.container,
-    });
+      measurementIds: context.result.measurementIds ?? [],
+    };
+    recognizedGtmContext = view;
+    renderGtmConnection(view);
     return;
   }
   renderGtmConnection({ kind: "check_failed" });
@@ -649,14 +998,15 @@ async function loadGtmConnectionContext(force = false): Promise<void> {
 
 function updateEvidenceStage(
   row: HTMLElement,
-  state: "passed" | "pending",
+  state: "passed" | "pending" | "failed",
   detail: string,
 ): void {
   row.classList.toggle("passed", state === "passed");
   row.classList.toggle("pending", state === "pending");
+  row.classList.toggle("failed", state === "failed");
   const icon = row.querySelector("i");
   const copy = row.querySelector("small");
-  if (icon) icon.textContent = state === "passed" ? "✓" : "○";
+  if (icon) icon.textContent = state === "passed" ? "✓" : state === "failed" ? "×" : "○";
   if (copy) copy.textContent = detail;
 }
 
@@ -800,7 +1150,7 @@ function clearTargetHighlights(): void {
   targetHost?.shadowRoot?.querySelectorAll(".target").forEach((node) => node.remove());
 }
 
-function renderEvidencePath(context: EvidencePathContext): void {
+function renderEvidencePath(context: EvidencePathContext, requestId?: string): void {
   const path = document.createElement("section");
   path.className = "evidence-path";
   path.setAttribute("aria-label", "Tracking evidence path");
@@ -817,14 +1167,22 @@ function renderEvidencePath(context: EvidencePathContext): void {
     { state: context.setupGenerated ? "passed" : "pending", label: "Setup generation", detail: context.setupDetail },
     { state: runtime.status === "detected" ? "passed" : "pending", label: "GTM runtime", detail: runtimeDetail },
     { state: "pending", label: "GTM access", detail: runtime.status === "detected" ? "Observed container has not been matched to Google access" : "Requires an observed container" },
-    { state: "pending", label: "Browser verification", detail: "Runs after the GTM setup is installed" },
-    { state: "pending", label: "Platform confirmation", detail: "Unverified — browser evidence cannot confirm GA4 processing" },
+    { state: "pending", label: "Browser verification", detail: "Ready for a guided browser run" },
+    {
+      state: "pending",
+      label: "Platform confirmation",
+      detail: recognizedGtmContext?.status.analyticsReadEnabled
+        ? "Starts with a pre-run GA4 Realtime baseline"
+        : "Analytics reads are not enabled on this backend",
+    },
   ];
   const heading = document.createElement("div");
   heading.className = "evidence-heading";
   heading.innerHTML = `<span>Evidence path</span><small>What the assistant used</small>`;
   path.append(heading);
   let accessRow: HTMLElement | undefined;
+  let browserRow: HTMLElement | undefined;
+  let platformRow: HTMLElement | undefined;
   for (const stage of stages) {
     const row = document.createElement("div");
     row.className = `evidence-stage ${stage.state}`;
@@ -840,8 +1198,23 @@ function renderEvidencePath(context: EvidencePathContext): void {
     row.append(icon, copy);
     path.append(row);
     if (stage.label === "GTM access") accessRow = row;
+    if (stage.label === "Browser verification") browserRow = row;
+    if (stage.label === "Platform confirmation") platformRow = row;
   }
-  if (runtime.status === "detected" && runtime.containerIds.length === 1 && accessRow) {
+  const connected = recognizedGtmContext;
+  if (runtime.status === "detected" && runtime.containerIds.length === 1 && accessRow
+    && connected && connected.publicId === runtime.containerIds[0]) {
+    const measurement = connected.measurementIds.length === 1
+      ? ` · ${connected.measurementIds[0]}`
+      : connected.measurementIds.length > 1
+        ? " · multiple GA4 destinations"
+        : " · no GA4 destination";
+    updateEvidenceStage(
+      accessRow,
+      "passed",
+      `${connected.account.name} → ${connected.container.name}${measurement}`,
+    );
+  } else if (runtime.status === "detected" && runtime.containerIds.length === 1 && accessRow) {
     const publicId = runtime.containerIds[0]!;
     const inspectAccess = (): void => {
       const action = path.querySelector<HTMLButtonElement>(".gtm-action");
@@ -898,6 +1271,10 @@ function renderEvidencePath(context: EvidencePathContext): void {
     updateEvidenceStage(accessRow, "pending", "Multiple GTM containers were observed; choose one before checking Google access");
   }
   responseList?.append(path);
+  if (requestId && browserRow && platformRow) evidencePaths.set(requestId, { browserRow, platformRow });
+  preferences.height = Math.max(preferences.height, 520);
+  applyPreferences();
+  persistPreferences();
   responseList?.scrollTo({ top: responseList.scrollHeight });
 }
 
@@ -1041,7 +1418,7 @@ function handleAssistantAction(actionId: string, requestId: string): void {
       setupDetail: proposal
         ? "Reviewable generate_lead setup generated"
         : "Connect a GTM container and GA4 measurement ID to generate setup",
-    });
+    }, requestId);
     renderQuickActions(requestId, [
       { id: "download-form-setup", label: "Download GTM setup" },
       { id: "start-form-verification", label: "Start verification" },
@@ -1058,9 +1435,7 @@ function handleAssistantAction(actionId: string, requestId: string): void {
     return;
   }
   if (actionId === "start-form-verification" && intake?.canConfirm) {
-    recentFormRequests.length = 0;
-    activeFormVerification = { requestId, intake };
-    addMessage(`Verification is ready. Submit ${intake.target?.label ?? "the selected form"} once.`, "assistant");
+    void prepareFormVerification(requestId, intake);
     return;
   }
   if (actionId === "cancel") { clearTargetHighlights(); addMessage("Okay — nothing was selected.", "assistant"); }
@@ -1215,7 +1590,8 @@ async function mountOverlay(): Promise<void> {
       button { border: 0; cursor: pointer; font: inherit; }
       .icon { width: 24px; height: 24px; border-radius: 50%; color: #aab4bc; background: transparent; font-size: 17px; }
       .icon:hover { color: white; background: rgba(255,255,255,.08); }
-      .messages { overflow: auto; padding: 4px 16px 12px; display: flex; flex-direction: column; gap: 10px; }
+      .messages { overflow-y: auto; overflow-x: hidden; padding: 4px 16px 12px; display: flex; flex-direction: column; gap: 10px; }
+      .messages > * { min-width: 0; }
       .gtm-context { flex: none; display: grid; gap: 8px; padding: 11px 12px; border: 1px solid rgba(167,243,208,.16); border-radius: 14px; background: linear-gradient(145deg, rgba(21,36,32,.82), rgba(18,27,31,.78)); box-shadow: inset 0 1px 0 rgba(255,255,255,.045); }
       .gtm-context-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
       .gtm-context-heading > strong { color: #f1f7f4; font-size: 12px; font-weight: 650; }
@@ -1253,9 +1629,10 @@ async function mountOverlay(): Promise<void> {
       .evidence-stage:not(:last-child)::after { content: ""; position: absolute; top: 21px; bottom: -1px; left: 9px; width: 1px; background: rgba(255,255,255,.12); }
       .evidence-stage i { position: relative; z-index: 1; display: grid; place-items: center; width: 19px; height: 19px; border-radius: 50%; color: #092419; background: #8de8bd; font: 700 11px/1 Inter, sans-serif; }
       .evidence-stage.pending i { color: #849098; background: #253038; box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
+      .evidence-stage.failed i { color: #ffd7d7; background: #713838; box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
       .evidence-stage span { display: grid; align-content: start; gap: 1px; padding-bottom: 8px; }
       .evidence-stage strong { color: #e8efec; font-size: 12px; font-weight: 600; }
-      .evidence-stage small { color: #89969e; font-size: 10px; }
+      .evidence-stage small { color: #89969e; font-size: 10px; overflow-wrap: anywhere; }
       .composer { margin: 0 12px 12px; padding: 6px 6px 6px 12px; display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 8px; border: 1px solid rgba(255,255,255,.14); border-radius: 15px; background: rgba(31,39,45,.72); box-shadow: inset 0 1px 0 rgba(255,255,255,.035); transition: border-color .16s ease, background .16s ease, box-shadow .16s ease; }
       .composer:focus-within { border-color: rgba(167,243,208,.38); background: rgba(34,43,49,.88); box-shadow: 0 0 0 3px rgba(167,243,208,.06), inset 0 1px 0 rgba(255,255,255,.05); }
       textarea { resize: none; min-height: 38px; max-height: 120px; padding: 8px 0; border: 0; outline: 0; color: white; background: transparent; font: inherit; }
@@ -1292,9 +1669,8 @@ async function mountOverlay(): Promise<void> {
   enableDragging(shadow.querySelector<HTMLElement>(".drag")!);
   new ResizeObserver(() => {
     if (!frame || preferences.collapsed) return;
-    const bounds = frame.getBoundingClientRect();
-    preferences.width = Math.round(bounds.width);
-    preferences.height = Math.round(bounds.height);
+    preferences.width = Math.round(frame.clientWidth);
+    preferences.height = Math.round(frame.clientHeight);
     persistPreferences();
   }).observe(frame);
   document.documentElement.append(host);
@@ -1324,7 +1700,17 @@ document.addEventListener("submit", (event) => {
   const target = active?.intake.target;
   if (!active || !form || !target || !form.matches(target.selector)) return;
   const startedAt = new Date().toISOString();
-  window.setTimeout(() => finishFormVerification(active.intake, startedAt), 800);
+  const startedAtPerformance = performance.now();
+  window.setTimeout(
+    () => settleFormVerification(
+      active.requestId,
+      active.intake,
+      startedAt,
+      startedAtPerformance,
+      startedAtPerformance + 5_000,
+    ),
+    1_200,
+  );
 }, true);
 
 if (!window.__gtmObservabilityInstalled) {

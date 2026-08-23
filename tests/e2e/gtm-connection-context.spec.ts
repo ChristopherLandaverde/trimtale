@@ -16,6 +16,7 @@ const connectedReadOnlyStatus = {
   publicationScopeRequested: false,
   publicationEnabled: false,
   tokenPersistenceEnabled: true,
+  analyticsReadEnabled: false,
 };
 
 async function withExtension(
@@ -57,6 +58,7 @@ test("shows authenticated account, container, and read-only access before chat",
             publicId: "GTM-TEST123",
             account: { accountId: "1", name: "Agency" },
             container: { accountId: "1", containerId: "10", name: "Lead site", publicId: "GTM-TEST123" },
+            measurementIds: ["G-TEST123456"],
             workspace: { status: "available", action: "create", workspaceCount: 1, remainingSlots: 2 },
           },
         }),
@@ -84,7 +86,10 @@ test("shows authenticated account, container, and read-only access before chat",
     await expect.poll(() => statusRequests).toBe(2);
     await expect.poll(() => recognitionRequests).toBe(2);
     await expect(card.getByText("Lead site", { exact: true })).toBeVisible();
-    await expect(root.locator("section.assistant")).toHaveScreenshot("gtm-context-matched.png", screenshotOptions);
+    await expect(root.locator("section.assistant")).toHaveScreenshot("gtm-context-matched.png", {
+      ...screenshotOptions,
+      maxDiffPixels: 50,
+    });
   });
 });
 

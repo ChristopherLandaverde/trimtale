@@ -11,6 +11,7 @@ import {
   googleGtmWritesEnabled,
   googleOAuthConfig,
 } from "./google.js";
+import { ANALYTICS_READONLY_SCOPE } from "./analytics.js";
 import {
   createSetupProposal,
   GTM_MANAGED_WORKSPACE_DESCRIPTION,
@@ -78,6 +79,23 @@ describe("Google OAuth configuration", () => {
     expect(googleGtmPublicationScopeRequested({ GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED: "true" })).toBe(true);
     const session = new GoogleOAuthSession(config, vi.fn<typeof fetch>(), Date.now, true, true);
     expect(new URL(session.authorizationUrl()).searchParams.get("scope")?.split(" ")).toContain(GTM_PUBLISH_SCOPE);
+  });
+
+  it("requests Analytics read access only when separately enabled", () => {
+    const withoutAnalytics = new GoogleOAuthSession(config, vi.fn<typeof fetch>());
+    expect(new URL(withoutAnalytics.authorizationUrl()).searchParams.get("scope"))
+      .not.toContain(ANALYTICS_READONLY_SCOPE);
+    const withAnalytics = new GoogleOAuthSession(
+      config,
+      vi.fn<typeof fetch>(),
+      Date.now,
+      false,
+      false,
+      undefined,
+      true,
+    );
+    expect(new URL(withAnalytics.authorizationUrl()).searchParams.get("scope")?.split(" "))
+      .toContain(ANALYTICS_READONLY_SCOPE);
   });
 });
 
@@ -232,7 +250,16 @@ function googleFixtureFetch(options: {
     if (url.pathname.endsWith(":sync")) return Response.json(options.sync ?? { syncStatus: {} });
     if (url.pathname.endsWith("/status")) return Response.json({ workspaceChange: [], mergeConflict: [] });
     if (url.pathname.endsWith("/versions:live")) {
-      return Response.json({ containerVersionId: "7", fingerprint: "live-7" });
+      return Response.json({
+        containerVersionId: "7",
+        fingerprint: "live-7",
+        tag: [{
+          parameter: [
+            { key: "measurementIdOverride", type: "template", value: "G-TEST123456" },
+            { key: "ignored", type: "template", value: "private@example.test" },
+          ],
+        }],
+      });
     }
     return Response.json({
       accountId: "1",
@@ -274,6 +301,7 @@ describe("recognized container workspace workflow", () => {
       publicId: "GTM-ABC123",
       account: { accountId: "1", name: "Agency" },
       container: { name: "Lead site" },
+      measurementIds: ["G-TEST123456"],
       workspace: { status: "available", action: "create", workspaceCount: 1 },
     });
     expect(fetcher.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);

@@ -20,7 +20,8 @@ The first new interaction type is a lead-form submission represented by the GA4 
 - An observed interaction is not automatically a conversion outcome.
 - The assistant may propose candidates and defaults but must expose uncertainty and request confirmation where business meaning changes the specification.
 - No setup is generated from an incomplete or unconfirmed specification.
-- Browser evidence never claims GA4 or advertising-platform confirmation.
+- A browser verdict never claims GA4 or advertising-platform confirmation. Optional
+  destination evidence is a separate, explicitly labeled aggregate correlation.
 - New diagnostic behavior enters the deterministic engine only through reviewed rules and scenario-corpus coverage.
 - Unsupported or unobservable cases produce a diagnostic handoff rather than a fabricated pass or failure.
 
@@ -39,6 +40,13 @@ check. The extension does not inspect Google cookies or browser login, request p
 or email scope, render raw backend errors, mutate GTM, or infer account identity from a
 public container ID. All provider names are strictly decoded and rendered as inert
 text.
+
+One exact GTM match also returns the sorted, unique GA4 measurement IDs found in the
+container's live version. Exactly one destination can supply setup generation and
+read-only Analytics verification context without page-owned proprietary meta tags.
+Zero or multiple destinations remain unresolved. The card shows whether the separately
+gated Analytics read capability is enabled; GTM access and Analytics access remain
+different claims.
 
 ## Supported first slice
 
@@ -73,6 +81,8 @@ A submit-button click, native `submit` event, or outgoing request alone is evide
 - Native submissions, same-origin redirects, and AJAX/SPA submissions with an observable success signal.
 - One or more forms on the active page, with practitioner confirmation of every included target.
 - GA4 browser-request verification.
+- Optional read-only GA4 Realtime before/after confirmation when one exact authorized
+  container exposes one measurement ID and that ID maps to one accessible data stream.
 
 ### Initially unsupported
 
@@ -80,7 +90,7 @@ A submit-button click, native `submit` event, or outgoing request alone is evide
 - CAPTCHA completion automation.
 - Multi-step forms whose final outcome cannot yet be identified.
 - CRM-side lead qualification.
-- GA4 or Google Ads platform confirmation.
+- Event-level or user-level GA4 receipt proof and Google Ads platform confirmation.
 - Automatic production publishing.
 - Collection or assertion of submitted personal data.
 
@@ -343,6 +353,13 @@ type TrackingRunEvidenceV1 = {
 
 Evidence persistence must redact or omit form values and other personal information.
 
+The persisted browser run contract remains independently classifiable when Analytics
+is disabled or unavailable. An optional page-session platform check records a bounded,
+expiring server-side Realtime `eventCount` baseline before submission and confirms only
+when the same property's count for the expected event increases after browser
+verification passes. Its opaque handle and aggregate counts contain no field values,
+cookies, access tokens, or user/event identity and are not durable evidence.
+
 ## Initial deterministic verdicts
 
 - `expected_non_conversion`
@@ -384,6 +401,8 @@ A verified resolution records normalized symptoms, relevant environment attribut
 - [x] All sixteen initial scenarios produce their expected deterministic verdicts.
 - [x] Every run produces versioned, redacted run evidence.
 - [x] Browser verification remains distinct from platform confirmation.
+- [x] One exactly connected GTM/GA4 page can carry authenticated context through setup
+  generation, browser verification, and optional aggregate Realtime confirmation.
 - [x] Unsupported or unobservable forms produce a diagnostic handoff.
 - [x] The intake acceptance corpus runs through a provider-neutral shadow harness.
 - [x] Shadow records discard invalid output, raw responses, exception text, and private
@@ -409,4 +428,8 @@ A verified resolution records normalized symptoms, relevant environment attribut
 
 ## Delivery boundary
 
-This effort ends with deterministic local form generation and browser verification backed by reusable contracts and scenario coverage. Persistence may begin with local JSON or SQLite, but scheduled scans, resolution retrieval, GTM writes, destination confirmation, and production publishing remain separate follow-on efforts.
+This effort includes deterministic form generation and browser verification backed by
+reusable contracts and scenario coverage, plus an optional ephemeral read-only GA4
+Realtime count correlation for one exact destination. Durable platform evidence,
+event-level attribution, scheduled scans, resolution retrieval, GTM writes, and
+production publishing remain separate follow-on efforts.

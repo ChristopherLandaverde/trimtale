@@ -51,7 +51,7 @@ test("mounts and streams through the floating tracking assistant", async () => {
     await expect(root.getByText("Navigation clicks → navigation_click")).toBeVisible();
     await expect(root.getByText("Reviewable navigation_click setup generated")).toBeVisible();
     await expect(root.getByText("No GTM container detected on this page")).toBeVisible();
-    await expect(root.getByText("Unverified — browser evidence cannot confirm GA4 processing")).toBeVisible();
+    await expect(root.getByText("Analytics reads are not enabled on this backend")).toBeVisible();
     await expect(site.locator("#gtm-observability-targets")).toBeAttached();
     await expect(site.locator("#gtm-observability-targets").locator(".target.confirmed")).toHaveCount(5);
     await expect(assistant).toHaveScreenshot("assistant-evidence-path.png", screenshotOptions);
