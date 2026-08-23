@@ -150,13 +150,19 @@ export function validateTrackingOperation(value: unknown): string[] {
   const planActions = plan && Array.isArray(plan.actions) ? plan.actions : [];
   const malformedPlanAction = planActions.some((action) => !isRecord(action)
     || !["tag", "trigger", "variable", "builtInVariable"].includes(String(action.kind))
-    || !["create", "reuse", "no_op", "conflict"].includes(String(action.action))
+    || !["create", "reuse", "no_op", "update", "conflict"].includes(String(action.action))
     || !nonempty(action.generatedName)
-    || !nonempty(action.entitySignature));
+    || !nonempty(action.entitySignature)
+    || (action.action === "update" && !nonempty(action.existingId)));
   if (malformedPlanAction) errors.push("plan.actions contains an invalid action");
   if (plan && Array.isArray(plan.actions)) {
     const hasConflict = planActions.some((action) => isRecord(action) && action.action === "conflict");
     if ((plan.status === "conflict") !== hasConflict) errors.push("plan.status must reflect conflict actions");
+  }
+  const actionSignatures = planActions.flatMap((action) =>
+    isRecord(action) && nonempty(action.entitySignature) ? [action.entitySignature] : []);
+  if (new Set(actionSignatures).size !== actionSignatures.length) {
+    errors.push("plan action signatures must be unique");
   }
   if (!Array.isArray(value.completedActionSignatures)
     || value.completedActionSignatures.some((item) => !nonempty(item))) {

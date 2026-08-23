@@ -76,6 +76,10 @@ _Avoid_: Detected account, assumed container, selected container
 The single custom GTM workspace reserved by the site-aware analytics assistant for reviewable tracking-setup changes in one recognized container.
 _Avoid_: Temporary workspace, workspace per request, default workspace
 
+**Managed GTM entity**:
+A tag, trigger, or custom variable created by the site-aware analytics assistant in the managed workspace and carrying its exact ownership note. Only such an entity may be updated automatically.
+_Avoid_: AI tag, owned tag, generated entity
+
 **Tracking practitioner**:
 A freelancer or agency team member responsible for implementing and verifying tracking on client websites.
 _Avoid_: GTM person, marketer, user
