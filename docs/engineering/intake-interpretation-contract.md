@@ -9,6 +9,20 @@ The deterministic conversation workflow remains authoritative. An intake
 interpretation is only a structured reading that the existing workflow can validate,
 clarify, and eventually present for practitioner confirmation.
 
+## Deterministic page-evidence discovery
+
+Before any interpretation boundary, the content script constructs bounded form and
+success-evidence candidates. Explicit `data-success-selector` and `data-success-url`
+metadata take precedence. Without either, the scanner may propose one visible-element
+signal only when the form's nearest `section`, `article`, or named region contains
+exactly one ID-addressable `role=status` or active `aria-live` element.
+
+The scanner does not search the whole page, retain status text, or choose among
+multiple candidates. Zero, multiple, or ID-less candidates produce no discovered
+signal and preserve clarification or diagnostic handoff. A discovered selector remains
+proposed evidence subject to practitioner confirmation; it does not establish that a
+submission succeeded, a tag fired, or a platform received data.
+
 ## Model-facing input
 
 Schema version 1 accepts only:

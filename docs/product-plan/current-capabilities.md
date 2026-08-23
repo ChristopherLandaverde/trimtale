@@ -57,6 +57,8 @@ The lead-generation flow can:
 
 - Discover and distinguish multiple forms.
 - Highlight candidate forms and retain only the confirmed target.
+- Propose one stable status/live region in the form's nearest semantic section as
+  visible success evidence while rejecting ambiguous or ID-less candidates.
 - Distinguish a submit attempt from a successful conversion outcome.
 - Confirm success through a visible element, thank-you URL, data-layer event, or same-page success signal.
 - Generate a `generate_lead` setup with `form_id`, `form_name`, and `page_location`.
@@ -208,7 +210,7 @@ npm run verify
 ```
 
 The most recent full completion run passed 264 deterministic tests across 37 files and
-all 27 Chromium workflows.
+all 28 Chromium workflows.
 
 ## Credentialed disposable-container evidence
 
