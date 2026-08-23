@@ -53,6 +53,8 @@ local readiness
 ## Acceptance criteria
 
 - [x] One local preflight checks repository, runtime, dependency, and browser readiness.
+- [x] Local runtime detection remains truthful when a managed sandbox suppresses a
+  nested npm version subprocess result.
 - [x] One separate credential-safe preflight checks Google integration configuration.
 - [x] Pull requests run one current verification job; merged `main` is verified again.
 - [x] Tracking change plans classify create, reuse, no-op, and conflict behavior.

@@ -4,11 +4,34 @@ import {
   evaluateLocalReadiness,
   evaluatePublicationReadiness,
   formatPreflightReport,
+  resolveNpmVersion,
 } from "./workflow-preflight.mjs";
 
 const requiredScripts = ["agent", "build", "check", "test", "test:e2e", "verify"];
 
 describe("workflow preflight", () => {
+  it("prefers npm version subprocess output when it is available", () => {
+    expect(resolveNpmVersion(
+      { status: 0, stdout: "10.9.8\n" },
+      { npm_config_user_agent: "npm/11.2.0 node/v22.23.1 linux x64" },
+    )).toBe("10.9.8");
+  });
+
+  it("uses npm lifecycle metadata when a managed sandbox suppresses subprocess output", () => {
+    expect(resolveNpmVersion(
+      { status: 0, stdout: "", error: { code: "EPERM" } },
+      { npm_config_user_agent: "npm/10.9.8 node/v22.23.1 linux x64" },
+    )).toBe("10.9.8");
+  });
+
+  it.each([
+    [{ status: 1, stdout: "" }, {}],
+    [{ status: 0, stdout: "" }, { npm_config_user_agent: "node/v22.23.1 linux x64" }],
+    [{ status: 0, stdout: "not-a-version" }, { npm_config_user_agent: "npm/not-a-version node/v22.23.1" }],
+  ])("fails closed when npm version evidence is unavailable or malformed", (result, environment) => {
+    expect(resolveNpmVersion(result, environment)).toBe("0");
+  });
+
   it("accepts a complete local workflow environment", () => {
     const checks = evaluateLocalReadiness({
       nodeVersion: "22.23.1",
