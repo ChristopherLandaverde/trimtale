@@ -75,12 +75,24 @@ export function evaluateGoogleReadiness(environment) {
       "explicitly enabled",
       "set GOOGLE_GTM_CONTAINER_WRITES_ENABLED=true",
     ),
+    check(
+      "OAuth token persistence",
+      configured(environment, "GOOGLE_OAUTH_TOKEN_STORE"),
+      "owner-only refresh-token store configured",
+      "set GOOGLE_OAUTH_TOKEN_STORE to a backend-local file path",
+    ),
   ];
 }
 
 export function evaluatePublicationReadiness(environment) {
   return [
     ...evaluateGoogleReadiness(environment),
+    check(
+      "publication OAuth scope",
+      environment.GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED === "true",
+      "requested separately",
+      "set GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED=true before the one-time consent",
+    ),
     check(
       "production publication",
       environment.GOOGLE_GTM_PUBLICATION_ENABLED === "true",

@@ -12,6 +12,15 @@ unordered collections, and translates tag firing-trigger references through each
 trigger's canonical semantics so equivalent entities can be recognized even when GTM
 assigned different IDs.
 
+Generated container imports and GTM REST responses use different notation for the
+same values. The comparison canonicalizes aliases such as `PAGE_URL`/`pageUrl`,
+`JUST_LINKS`/`linkClick`, parameter type casing,
+`measurementId`/`measurementIdOverride`, and
+`eventParameters`/`eventSettingsTable`. Canonical property ordering occurs after alias
+resolution so equivalent import and REST objects produce the same signature. Entity
+writes use the REST representation; ownership and genuine semantic differences remain
+conflicts.
+
 Display names do not establish semantic equivalence. They remain a safety boundary:
 an existing entity with the requested name but different semantics is a
 `name_collision`. More than one semantic match is `ambiguous_equivalent`. Both make

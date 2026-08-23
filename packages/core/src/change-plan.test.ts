@@ -102,6 +102,49 @@ describe("tracking change plan", () => {
       ]));
   });
 
+  it("recognizes Google REST notation as equivalent to generated import notation", () => {
+    const setup = formSetup();
+    const current = entities(setup);
+    const trigger = current.trigger?.[0] as Record<string, unknown>;
+    const tag = current.tag?.[0] as Record<string, unknown> & { parameter?: Array<Record<string, unknown>> };
+    const builtIn = current.builtInVariable?.[0] as Record<string, unknown>;
+    trigger.triggerId = "42";
+    trigger.type = "elementVisibility";
+    trigger.uniqueTriggerId = { type: "template" };
+    trigger.waitForTagsTimeout = { type: "template" };
+    tag.tagId = "43";
+    tag.firingTriggerId = ["42"];
+    tag.tagFiringOption = "oncePerEvent";
+    const eventName = tag.parameter?.find(({ key }) => key === "eventName");
+    if (eventName) eventName.type = "template";
+    const measurement = tag.parameter?.find(({ key }) => key === "measurementId");
+    if (measurement) {
+      measurement.key = "measurementIdOverride";
+      measurement.type = "template";
+    }
+    const eventParameters = tag.parameter?.find(({ key }) => key === "eventParameters");
+    if (eventParameters) {
+      eventParameters.key = "eventSettingsTable";
+      eventParameters.type = "list";
+      for (const item of eventParameters.list as Array<{ type: string; map: Array<Record<string, unknown>> }>) {
+        item.type = "map";
+        for (const parameter of item.map) {
+          parameter.type = "template";
+          parameter.key = parameter.key === "name" ? "parameter" : "parameterValue";
+        }
+      }
+    }
+    (tag.monitoringMetadata as Record<string, unknown>).type = "map";
+    delete (tag.monitoringMetadata as Record<string, unknown>).map;
+    (tag.consentSettings as Record<string, unknown>).consentStatus = "notSet";
+    builtIn.type = "pageUrl";
+
+    const plan = createTrackingChangePlan(setup, current);
+
+    expect(plan.status).toBe("ready");
+    expect(plan.actions.every(({ action }) => action === "reuse" || action === "no_op")).toBe(true);
+  });
+
   it("creates only missing entities from a partial setup", () => {
     const setup = navigationSetup();
     const current = entities(setup);

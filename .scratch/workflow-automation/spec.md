@@ -62,6 +62,8 @@ local readiness
 - [x] Version creation records an immutable fingerprint and prior live version.
 - [x] Publication requires approval bound to that fingerprint.
 - [x] Post-publication verification and rollback evidence complete the operation.
+- [x] One durable API workflow resumes application through immutable version creation
+  and stops before publication approval.
 
 ## Out of scope
 

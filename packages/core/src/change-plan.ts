@@ -45,6 +45,35 @@ const volatileKeys = new Set([
   "workspaceId",
 ]);
 const identityKeys = new Set(["tagId", "triggerId", "variableId"]);
+const emptyDefaultParameterKeys = new Set(["uniqueTriggerId", "waitForTagsTimeout"]);
+const propertyAliases = new Map([
+  ["autoEventFilter", "filter"],
+]);
+const parameterKeyAliases = new Map([
+  ["measurementId", "measurementIdOverride"],
+  ["eventParameters", "eventSettingsTable"],
+  ["name", "parameter"],
+  ["value", "parameterValue"],
+]);
+const gtmValueAliases = new Map([
+  ["BOOLEAN", "boolean"],
+  ["CLICK_TEXT", "clickText"],
+  ["CLICK_URL", "clickUrl"],
+  ["CSS_SELECTOR", "cssSelector"],
+  ["CUSTOM_EVENT", "customEvent"],
+  ["ELEMENT_VISIBILITY", "elementVisibility"],
+  ["EQUALS", "equals"],
+  ["JUST_LINKS", "linkClick"],
+  ["LIST", "list"],
+  ["MAP", "map"],
+  ["MATCH_REGEX", "matchRegex"],
+  ["NOT_SET", "notSet"],
+  ["ONCE_PER_EVENT", "oncePerEvent"],
+  ["ONCE_PER_PAGE", "oncePerPage"],
+  ["PAGE_URL", "pageUrl"],
+  ["PAGEVIEW", "pageview"],
+  ["TEMPLATE", "template"],
+]);
 
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -85,15 +114,29 @@ function canonicalize(
       : value.map((item) => canonicalize(item, mode, triggerSignatures));
     return items.sort((left, right) => stableJson(left).localeCompare(stableJson(right)));
   }
-  if (!isRecord(value)) return value;
+  if (!isRecord(value)) {
+    if (typeof value !== "string") return value;
+    if (key === "key") return parameterKeyAliases.get(value) ?? value;
+    return gtmValueAliases.get(value) ?? value;
+  }
 
   const result: JsonRecord = {};
-  for (const [childKey, childValue] of Object.entries(value).sort(([left], [right]) => left.localeCompare(right))) {
+  for (const [childKey, childValue] of Object.entries(value).sort(([left], [right]) =>
+    (propertyAliases.get(left) ?? left).localeCompare(propertyAliases.get(right) ?? right))) {
     if (volatileKeys.has(childKey)) continue;
+    if (emptyDefaultParameterKeys.has(childKey) && emptyTemplateParameter(childValue)) continue;
+    if ((childKey === "map" || childKey === "list")
+      && Array.isArray(childValue) && childValue.length === 0) continue;
     if (mode === "semantic" && (childKey === "name" || identityKeys.has(childKey))) continue;
-    result[childKey] = canonicalize(childValue, mode, triggerSignatures, childKey);
+    const canonicalKey = propertyAliases.get(childKey) ?? childKey;
+    result[canonicalKey] = canonicalize(childValue, mode, triggerSignatures, childKey);
   }
   return result;
+}
+
+function emptyTemplateParameter(value: unknown): boolean {
+  if (!isRecord(value) || !["TEMPLATE", "template"].includes(String(value.type))) return false;
+  return Object.entries(value).every(([key, child]) => key === "type" || child === "" || child === undefined);
 }
 
 function entityName(kind: GtmEntityKind, entity: JsonRecord): string {

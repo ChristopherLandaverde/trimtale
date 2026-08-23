@@ -183,8 +183,21 @@ describe("idempotent managed-workspace application", () => {
     const first = await client.applyManagedWorkspace(input);
     expect(first).toMatchObject({ status: "applied" });
     expect(fake.entityWriteCount()).toBe(4);
+    expect(fake.fetcher.mock.calls.filter(([input]) => new URL(input.toString()).pathname.endsWith("/accounts")))
+      .toHaveLength(1);
     expect((fake.entities.tag[0] as Record<string, unknown>).firingTriggerId).toEqual(["100"]);
     expect(fake.entities.tag.every((item) => (item as Record<string, unknown>).notes === GTM_MANAGED_ENTITY_NOTE)).toBe(true);
+    const triggerCreate = fake.fetcher.mock.calls.find(([input, init]) =>
+      input.toString().endsWith("/triggers") && init?.method === "POST");
+    const triggerBody = JSON.parse(String(triggerCreate?.[1]?.body)) as Record<string, unknown>;
+    expect(triggerBody).toMatchObject({ type: "linkClick", checkValidation: { type: "boolean" } });
+    expect(triggerBody).toHaveProperty("filter.0.type", "matchRegex");
+    const tagCreate = fake.fetcher.mock.calls.find(([input, init]) =>
+      input.toString().endsWith("/tags") && init?.method === "POST");
+    const tagBody = JSON.parse(String(tagCreate?.[1]?.body)) as { parameter: Array<{ key?: string }> };
+    expect(tagBody.parameter.map(({ key }) => key)).toEqual(expect.arrayContaining([
+      "eventName", "measurementIdOverride", "eventSettingsTable",
+    ]));
 
     if (first.status !== "applied") throw new Error(first.status);
     input.status = "applying";
@@ -229,7 +242,7 @@ describe("idempotent managed-workspace application", () => {
     const update = fake.fetcher.mock.calls.find(([, init]) => init?.method === "PUT");
     expect(update?.[0].toString()).toContain("/tags/43?fingerprint=tag-43");
     expect((fake.entities.tag[0] as { parameter: Array<{ key?: string; value?: string }> }).parameter)
-      .toContainEqual(expect.objectContaining({ key: "measurementId", value: "G-TEST123456" }));
+      .toContainEqual(expect.objectContaining({ key: "measurementIdOverride", value: "G-TEST123456" }));
   });
 
   it("blocks unowned collisions and stale plan or workspace state without entity writes", async () => {

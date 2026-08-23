@@ -2,7 +2,7 @@
 
 Status date: 2026-08-22
 
-GTM Observability currently turns a supported tracking request into a confirmed tracking specification, generates a reviewable GTM setup, observes the website's GTM runtime, matches the observed container to Google access, and safely prepares one reusable managed workspace. It does not yet apply the generated setup to that workspace or publish the container.
+GTM Observability currently turns a supported tracking request into a confirmed tracking specification, generates a reviewable GTM setup, observes the website's GTM runtime, matches the observed container to Google access, and safely prepares one reusable managed workspace. A guarded backend API can now durably plan and apply a navigation setup, validate the workspace, and create an immutable version. The website assistant does not yet invoke that API, and nothing publishes without a separate exact-version approval.
 
 ## Current product workflow
 
@@ -101,6 +101,19 @@ Synchronization conflicts are preserved for review and are never resolved automa
 
 Google integration is read-only by default. Workspace preparation requires explicit backend enablement and OAuth consent for `tagmanager.edit.containers`. Tokens are currently stored only in backend memory.
 
+## Resumable automation API
+
+With container writes explicitly enabled, the backend can accept a navigation setup
+or confirmed lead-form setup and durably advance it through managed-workspace preparation, semantic
+planning, idempotent entity application, GTM Quick Preview/compiler validation, and
+immutable version creation. Each transition is recorded in a file-backed operation;
+an interrupted application resumes from freshly read Google state and completed action
+signatures.
+
+The runner stops at the `versioned` state and returns `await_approval`. The extension
+does not yet expose this orchestration in its visible conversation. Publication remains
+behind its separate backend flag, OAuth scope, and exact fingerprint approval.
+
 ## Evidence and diagnosis foundations
 
 The shared domain package includes:
@@ -141,14 +154,11 @@ The most recent full completion run passed every deterministic suite and 25 Chro
 
 ## What is not built yet
 
-The following production actions remain deliberately unimplemented:
+The following product actions remain deliberately unimplemented or unexposed:
 
-- Applying generated tags, triggers, and variables to the managed workspace through the GTM API.
-- Comparing the proposed setup with existing workspace entities and preventing semantic duplicates.
-- Running GTM Quick Preview/compiler validation for the applied workspace.
 - Connecting the prepared workspace to a live browser Preview session.
-- Creating a GTM container version.
-- Presenting and approving an exact version fingerprint.
+- Exposing plan, application, validation, and version evidence in the extension UI.
+- Presenting an exact version fingerprint for approval in the practitioner UI.
 - Publishing a version or restoring the prior live version.
 - Confirming receipt inside GA4 or Google Ads.
 - Scheduled monitoring and incident alerts.
@@ -156,15 +166,13 @@ The following production actions remain deliberately unimplemented:
 
 ## Next implementation boundary
 
-The next safe vertical slice is:
+The next safe product slice is:
 
 ```text
-Generated setup
-    -> semantic change plan
-    -> idempotently apply to the one managed workspace
-    -> GTM Quick Preview/compiler validation
-    -> display exact changes and errors
-    -> stop before version creation or publishing
+Versioned operation
+    -> display plan, validation, and immutable fingerprint in the assistant
+    -> collect explicit approval for that exact fingerprint
+    -> retain publication as a separate guarded action
 ```
 
 This preserves the current rule: production publishing must remain an explicit, separately authorized action tied to an exact reviewed version.
@@ -172,6 +180,7 @@ This preserves the current rule: production publishing must remain an explicit, 
 ## Related documents
 
 - [Managed GTM workspace workflow](../engineering/managed-gtm-workspace.md)
+- [Resumable non-publishing API workflow](../engineering/resumable-api-workflow.md)
 - [Build stages](./build-stages.md)
 - [Technical architecture](./technical-architecture.md)
 - [Delivery harness](../engineering/delivery-harness.md)
