@@ -39,8 +39,9 @@ optimistic concurrency.
 
 ## Verification
 
-Focused operation and repository tests pass. Full `npm run agent -- verify` evidence
-will be recorded before completion.
+`npm run agent -- verify` passed local preflight, change-documentation and strict
+TypeScript checks, all 161 deterministic tests, every workspace build, and all 25
+Chromium workflows. The focused operation and repository contract contains 27 tests.
 
 ## Exploratory review
 
