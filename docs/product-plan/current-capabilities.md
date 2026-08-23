@@ -152,6 +152,17 @@ raw responses, prompts, credentials, and exception text.
 No real model provider, backend endpoint, persistence layer, or visible assistant
 behavior is connected to the harness yet.
 
+Each shadow record can now be evaluated against its corpus expectation as `pass`,
+`fail`, `hard_failure`, or `inconclusive`. A pass requires all five weighted dimensions
+for 100 points; schema-valid but semantically incorrect output is a fail. Invalid
+provider output, private disclosure, and omitted required confirmation are hard
+failures regardless of score.
+
+Provider summaries require every corpus case exactly once and report pass, fail,
+hard-failure, and inconclusive counts separately from average score, latency
+percentiles, token totals, estimated cost, and usage coverage. No real provider has
+been scored yet.
+
 ## Regression and delivery harness
 
 The repository protects the current behavior with:
@@ -173,7 +184,7 @@ Current completion gate:
 npm run verify
 ```
 
-The most recent full completion run passed 217 deterministic tests across 32 files and
+The most recent full completion run passed 223 deterministic tests across 33 files and
 all 26 Chromium workflows.
 
 ## Credentialed disposable-container evidence
@@ -211,13 +222,14 @@ The following product actions remain deliberately unimplemented or unexposed:
 ## Next implementation boundary
 
 The next safe product slice runs the first offline weighted model comparison through
-backend-configured adapters without giving a model execution authority:
+explicitly authorized backend-configured adapters without giving a model execution
+authority:
 
 ```text
 Privacy-filtered intent plus allowlisted page candidates
     -> two or three replaceable adapters propose structured interpretations
     -> shadow harness rejects unsupported or fabricated output
-    -> score accepted results against the deterministic baseline
+    -> score every result as pass, fail, hard failure, or inconclusive
     -> report accuracy, hard failures, latency, and estimated cost separately
 ```
 
