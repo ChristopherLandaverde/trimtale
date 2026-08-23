@@ -182,6 +182,14 @@ reopens the report file, corrupted data produces one generic unavailable respons
 browser access requires the exact configured extension origin. No route can start a
 model call or write a report.
 
+The assistant now exposes those reports through a focused `Evals` panel. It shows
+newest-first report selection, provider scores and explicit outcome counts, p95 latency,
+estimated cost, usage coverage, safe non-pass case evidence, and distinct passing,
+degraded, safety-failure, and inconclusive labels. Empty and unavailable states cannot
+start a run. Strict frontend decoding rejects malformed and attacker-shaped payloads,
+and the visible boundary keeps offline model evidence separate from specification,
+GTM, verdict, and platform authority.
+
 ## Regression and delivery harness
 
 The repository protects the current behavior with:
@@ -203,8 +211,8 @@ Current completion gate:
 npm run verify
 ```
 
-The most recent full completion run passed 227 deterministic tests across 34 files and
-all 26 Chromium workflows.
+The most recent full completion run passed 274 deterministic tests across 38 files and
+all 30 Chromium workflows.
 
 ## Credentialed disposable-container evidence
 
@@ -235,18 +243,19 @@ The following product actions remain deliberately unimplemented or unexposed:
   assistant actions or public workflow routes.
 - Confirming receipt inside GA4 or Google Ads.
 - Scheduled monitoring and incident alerts.
-- A visible model-comparison UI or production LLM-based intake.
+- Production LLM-based intake or any model influence on visible conversation state.
 - Retrieval from similar verified resolutions or model training.
 
 ## Next implementation boundary
 
-The next safe product slice adds explicitly authorized backend adapters and an
-owner-operated command for the first offline weighted model comparison without giving
-a model execution authority:
+The adapter, owner command, report API, and evidence UI are built but no real model has
+been selected or scored. The next external operation is an explicit owner decision:
+choose two or three Structured Outputs-compatible models, confirm current rates and the
+28- or 42-request budget, inject the backend credential, and invoke the offline command:
 
 ```text
 Privacy-filtered intent plus allowlisted page candidates
-    -> two or three replaceable adapters propose structured interpretations
+    -> two or three configured models propose structured interpretations
     -> shadow harness rejects unsupported or fabricated output
     -> score every result as pass, fail, hard failure, or inconclusive
     -> report accuracy, hard failures, latency, and estimated cost separately
@@ -254,8 +263,8 @@ Privacy-filtered intent plus allowlisted page candidates
 
 The comparison remains offline and cannot affect visible intake. Verdict classification,
 GTM mutation, version approval, publication, rollback, and platform claims remain
-deterministic or explicitly human authorized. A later UI slice can display validated
-suggestions only after the corpus has no hard failures and while preserving
+deterministic or explicitly human authorized. A later feature-flagged suggestion slice
+can be considered only after the corpus has no hard failures and while preserving
 tracking-specification confirmation.
 
 ## Related documents

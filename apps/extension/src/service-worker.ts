@@ -5,6 +5,41 @@ import {
   type NavigationElement,
 } from "@gtm-observability/core";
 
+const intakeEvaluationReportId = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+
+chrome.runtime.onMessage.addListener(
+  (
+    message: { type?: string; reportId?: unknown },
+    _sender,
+    sendResponse,
+  ) => {
+    if (message.type !== "INTAKE_EVALUATION_REPORTS_REQUEST") return undefined;
+    if (message.reportId !== undefined
+      && (typeof message.reportId !== "string" || !intakeEvaluationReportId.test(message.reportId))) {
+      sendResponse({ ok: false, status: 400 });
+      return false;
+    }
+    const endpoint = message.reportId === undefined
+      ? "http://127.0.0.1:8787/api/intake-evaluations"
+      : `http://127.0.0.1:8787/api/intake-evaluations/${encodeURIComponent(message.reportId as string)}`;
+    void fetch(endpoint, { method: "GET", cache: "no-store" }).then(async (response) => {
+      let body: unknown;
+      try {
+        body = await response.json() as unknown;
+      } catch {
+        sendResponse({ ok: false, status: response.status });
+        return;
+      }
+      sendResponse(response.ok
+        ? { ok: true, status: response.status, body }
+        : { ok: false, status: response.status });
+    }).catch(() => {
+      sendResponse({ ok: false, status: 0 });
+    });
+    return true;
+  },
+);
+
 async function toggleAssistant(tab: chrome.tabs.Tab): Promise<void> {
   if (!tab.id || !tab.url?.startsWith("http")) return;
   try {
