@@ -35,6 +35,11 @@ const commands = {
     args: ["diff", "--stat"],
     description: "Summarize working-tree changes",
   },
+  preflight: {
+    executable: "npm",
+    args: ["run", "preflight"],
+    description: "Check local workflow readiness",
+  },
   status: {
     executable: "git",
     args: ["status", "--short"],

@@ -80,8 +80,13 @@ Requirements: Node.js 22+ and npm 10+.
 
 ```bash
 npm install
+npm run agent -- preflight
 npm run verify
 ```
+
+The local preflight checks supported Node and npm versions, the lockfile, installed
+dependencies, required repository scripts, and Playwright's managed Chromium binary.
+It runs automatically at the start of `npm run verify`.
 
 `npm run verify` is the agent-owned completion gate. It:
 
@@ -101,6 +106,7 @@ Routine local agent work is available through one closed, repository-owned comma
 
 ```bash
 npm run agent -- help
+npm run agent -- preflight
 npm run agent -- status
 npm run agent -- check
 npm run agent -- test
@@ -140,6 +146,17 @@ they never emit a wildcard CORS header. Direct OAuth navigation and server-side
 clients that do not send an `Origin` header remain supported.
 
 Register the exact redirect URI in the Google Cloud OAuth client and enable the Tag Manager API. Then open `http://127.0.0.1:8787/api/google/oauth/start`; after consent, `GET /api/google/accounts` returns each accessible account with its containers. OAuth tokens are held only in backend memory and are lost when the process exits. Ordinary `npm run verify` remains credential-free and never calls Google.
+
+Before starting an explicitly credentialed workspace-write session, validate only the
+presence and shape of its configuration without printing values:
+
+```bash
+npm run preflight:google
+```
+
+This Google preflight remains outside `npm run agent` and ordinary verification. It
+checks the OAuth client variables, exact local callback, exact extension origin, and
+explicit container-write switch; it does not contact Google or prove live access.
 
 After choosing a disposable container, `GET /api/google/accounts/:accountId/containers/:containerId/context` retrieves its workspaces and live version entity context. This includes the existing tags, triggers, variables, and built-in variables needed to plan an isolated workspace change. It remains read-only.
 

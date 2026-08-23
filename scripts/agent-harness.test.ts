@@ -16,6 +16,7 @@ describe("agent command harness", () => {
       diff: ["git", ["diff", "--check"], "Check the working diff for whitespace errors"],
       e2e: ["npm", ["run", "test:e2e"], "Run the local browser workflow"],
       inspect: ["git", ["diff", "--stat"], "Summarize working-tree changes"],
+      preflight: ["npm", ["run", "preflight"], "Check local workflow readiness"],
       status: ["git", ["status", "--short"], "Show concise repository status"],
       test: ["npm", ["test"], "Run deterministic unit and scenario tests"],
       verify: ["npm", ["run", "verify"], "Run the required completion gate"],
