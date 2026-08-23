@@ -60,6 +60,10 @@ _Avoid_: Tag creation, AI-generated tag, automatic tagging
 A deterministic, reviewable comparison between a generated tracking setup and the current managed workspace that classifies required changes, safe reuse, no-ops, and conflicts without mutating GTM.
 _Avoid_: Diff, patch, agent proposal
 
+**Tracking setup operation**:
+A durable record of one tracking setup's progress from its confirmed specification through planning, application, validation, publication approval, publication, evidence, and any rollback. It is the source of truth for safe resumption after interruption.
+_Avoid_: Job, agent session, chat state
+
 **Publication approval**:
 A tracking practitioner's explicit authorization to publish one immutable, reviewed GTM version fingerprint. It becomes invalid when the version or live container changes.
 _Avoid_: General write permission, confirmation, deploy toggle
