@@ -129,6 +129,22 @@ The shared domain package includes:
 
 Verified resolutions can be saved and retrieved through the API's file-backed repository. They do not currently retrain a model or modify deterministic verdict rules. Similarity retrieval, shadow-mode language evaluation, and later active learning remain separate work.
 
+## Intake interpretation contract
+
+The shared domain package now defines a versioned, runtime-validated contract for
+non-authoritative intake interpretation. Its model-facing input allowlists bounded,
+privacy-filtered messages and coarse candidate metadata; selectors, HTML, form values,
+cookies, storage, credentials, and unrelated page text are rejected.
+
+A 14-case acceptance corpus covers ordinary language, contextual references, business
+wording, abbreviations, misspellings, corrections, ambiguity, missing and cross-origin
+targets, unsupported interactions, instruction-shaped labels, confirmation bypasses,
+and private-value redaction. Expected output may reference only supplied targets and
+success evidence. It can request one short clarification, but it can never confirm a
+specification, write GTM, report an evidence verdict, or claim platform receipt.
+
+No model provider or visible assistant behavior is connected to this contract yet.
+
 ## Regression and delivery harness
 
 The repository protects the current behavior with:
@@ -182,31 +198,32 @@ The following product actions remain deliberately unimplemented or unexposed:
   assistant actions or public workflow routes.
 - Confirming receipt inside GA4 or Google Ads.
 - Scheduled monitoring and incident alerts.
-- LLM-based intake, retrieval from similar verified resolutions, or model training.
+- A provider-neutral shadow harness or production LLM-based intake.
+- Retrieval from similar verified resolutions or model training.
 
 ## Next implementation boundary
 
-The next safe product slice makes conversation intake the natural-language front door
-without giving a model execution authority:
+The next safe product slice runs the intake interpretation contract through a
+provider-neutral shadow harness without giving a model execution authority:
 
 ```text
-Everyday tracking intent plus current-page context
-    -> model proposes a structured interpretation and candidate references
-    -> deterministic contracts reject unsupported or fabricated candidates
-    -> ask the shortest question that changes the specification
-    -> practitioner confirms the tracking specification
-    -> existing deterministic setup operation executes it
+Privacy-filtered intent plus allowlisted page candidates
+    -> replaceable provider proposes a structured interpretation
+    -> runtime contract rejects unsupported or fabricated output
+    -> record provider result beside the deterministic baseline
+    -> leave the visible practitioner workflow unchanged
 ```
 
-Models begin in shadow mode and are evaluated against the scenario corpus before they
-affect the visible intake. Verdict classification, GTM mutation, version approval,
-publication, rollback, and platform claims remain deterministic or explicitly human
-authorized. The following UI slice will display the existing plan, validation, and
-immutable fingerprint and collect exact publication approval in the assistant.
+Models begin in shadow mode and are evaluated against the intake acceptance corpus
+before they affect visible intake. Verdict classification, GTM mutation, version
+approval, publication, rollback, and platform claims remain deterministic or
+explicitly human authorized. A later UI slice can display validated suggestions while
+preserving tracking-specification confirmation.
 
 ## Related documents
 
 - [Managed GTM workspace workflow](../engineering/managed-gtm-workspace.md)
+- [Intake interpretation contract](../engineering/intake-interpretation-contract.md)
 - [Resumable non-publishing API workflow](../engineering/resumable-api-workflow.md)
 - [Build stages](./build-stages.md)
 - [Technical architecture](./technical-architecture.md)

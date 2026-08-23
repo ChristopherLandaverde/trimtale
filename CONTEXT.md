@@ -20,6 +20,14 @@ _Avoid_: Prompt, generated tag, test script
 The site-aware exchange that lets a person describe a tracking intent in everyday language, grounds references such as “the quote form at the bottom” in observed website candidates, asks only questions that change the specification, and requires confirmation before setup begins.
 _Avoid_: Free-form chatbot, prompt box, agent guess
 
+**Intake interpretation**:
+A non-authoritative, structured reading of a tracking intent against privacy-filtered observed candidates, identifying plausible interaction, outcome, target, success evidence, ambiguity, and the shortest useful clarification.
+_Avoid_: Model decision, confirmed intent, agent plan
+
+**Intake acceptance corpus**:
+A versioned collection of privacy-filtered tracking-intent cases with expected intake interpretations and explicit hard-failure rules, used to evaluate deterministic or model-based interpreters before they can influence conversation intake.
+_Avoid_: Training data, prompt set, model benchmark
+
 **Observed interaction**:
 A browser-visible action performed by a website visitor, such as clicking a link or submitting a form. It can provide evidence of a conversion outcome but is not itself necessarily a conversion.
 _Avoid_: Conversion, goal, event
