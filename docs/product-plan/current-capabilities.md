@@ -150,7 +150,8 @@ Current completion gate:
 npm run verify
 ```
 
-The most recent full completion run passed 197 deterministic tests across 29 files and all 25 Chromium workflows.
+The most recent full completion run passed 205 deterministic tests across 30 files and
+all 26 Chromium workflows.
 
 ## Credentialed disposable-container evidence
 
@@ -163,8 +164,10 @@ A live Chromium signal produced exactly one correctly parameterized `generate_le
 request. GA4 transmitted the standard `page_location` field as wire parameter `dl`;
 the evidence normalizer and verdict engine now accept and privacy-filter that standard
 representation. The operation remains `published`, not `completed`, because the
-disposable page does not yet contain the real `#workflow-smoke-form` interaction.
-Browser evidence continues to leave platform confirmation unverified.
+live disposable page does not yet contain the real `#workflow-smoke-form` interaction.
+The tracked verification-target source and local Chromium journey now contain that
+interaction, but deployment and credentialed evidence are still pending. Browser
+evidence continues to leave platform confirmation unverified.
 
 ## What is not built yet
 
