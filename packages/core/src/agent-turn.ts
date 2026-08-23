@@ -238,7 +238,11 @@ export function agentTurnForNavigationScope(
     id: "scope-interpreted",
     label: "Navigation scope interpreted",
     detail: source === "local_model"
-      ? `Local model ${safeModel}; confirmation still required`
+      ? candidates.length === 1
+        ? `Local model ${safeModel}; reversible page preview`
+        : `Local model ${safeModel}; confirmation still required`
+      : candidates.length === 1
+        ? "Deterministic match; reversible page preview"
       : "Deterministic fallback; confirmation still required",
     status: "completed",
   });
@@ -246,12 +250,17 @@ export function agentTurnForNavigationScope(
   turn.task.summary = candidates.length > 0
     ? `I matched ${candidates.map(({ label }) => label).join(" and ")} from ${groups.length} observed navigation group${groups.length === 1 ? "" : "s"}.`
     : `I found ${groups.length} navigation group${groups.length === 1 ? "" : "s"} and need the intended page region before creating setup.`;
-  turn.question = interpretation.clarification ?? "Which navigation group should be measured?";
-  turn.actions = candidates.length > 0
+  turn.question = candidates.length === 1
+    ? "Press Enter to confirm, Esc to remove, or change the selection."
+    : interpretation.clarification ?? "Which navigation group should be measured?";
+  turn.actions = candidates.length === 1
     ? [
-        { id: "confirm-navigation-suggestion", label: "Confirm suggested scope" },
-        { id: "choose-navigation-groups", label: "Change scope" },
+        { id: "confirm-navigation-preview", label: "Confirm selection · Enter" },
+        { id: "remove-navigation-preview", label: "Remove · Esc" },
+        { id: "choose-navigation-groups", label: "Change selection" },
       ]
+    : candidates.length > 1
+      ? [{ id: "choose-navigation-groups", label: "Review matched groups" }]
     : [
         ...groups.slice(0, 8).map((group) => ({
           id: `scope:${group.id}`,

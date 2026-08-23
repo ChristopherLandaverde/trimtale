@@ -33,8 +33,12 @@ A versioned, reviewable definition derived from a tracking intent that names the
 _Avoid_: Prompt, generated tag, test script
 
 **Conversation intake**:
-The site-aware exchange that lets a person describe a tracking intent in everyday language, grounds references such as “the quote form at the bottom” in observed website candidates, asks only questions that change the specification, and requires confirmation before setup begins.
+The site-aware exchange that lets a person describe a tracking intent in everyday language, grounds references such as “the quote form at the bottom” in observed website candidates, immediately previews one unambiguous target, and asks only questions or approvals that change the specification or external state.
 _Avoid_: Free-form chatbot, prompt box, agent guess
+
+**Target preview**:
+A reversible page-local highlight of one interpretation against observed website candidates. It does not confirm a tracking specification or authorize a GTM change.
+_Avoid_: Confirmed scope, applied tracking, model decision
 
 **Intake interpretation**:
 A non-authoritative, structured reading of a tracking intent against privacy-filtered observed candidates, identifying plausible interaction, outcome, target, success evidence, ambiguity, and the shortest useful clarification.

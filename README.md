@@ -65,7 +65,8 @@ The first implemented vertical slice is a Chrome extension plus a small local ba
 
 ```text
 Discover navigation
-    -> confirm scope
+    -> preview one unambiguous group on the page
+    -> press Enter to confirm, Esc to remove, or change the selection
     -> generate a partial GTM container file
     -> import with Merge into a new workspace
     -> connect GTM Preview
@@ -112,7 +113,10 @@ summaries containing only group ID, inert label, page region, and target count. 
 never receives selectors, URLs, HTML, form values, browser storage, Google credentials,
 or the GTM container inventory. Explicit phrases such as “header, not footer” resolve
 deterministically; fuzzy wording such as “the menu at the top” may use Ollama. Every
-suggestion still requires practitioner confirmation.
+single-group suggestion is highlighted immediately as a reversible page preview and
+still requires practitioner confirmation with `Enter` or the visible action. `Escape`
+or Remove clears the preview without changing GTM; zero or multiple matches remain a
+group-level clarification.
 
 One 32-case provider-neutral corpus automates navigation-scope acceptance without
 asserting exact model prose. The ordinary `npm test` gate validates and replays every

@@ -18,6 +18,16 @@ observed Primary navigation group, deterministic UI copy named the included and
 excluded groups without internal IDs, and explicit confirmation highlighted exactly
 three primary-navigation links.
 
+### Reversible single-match preview
+
+Entered “Track Primary navigation, not Footer navigation.” The three supplied primary
+links highlighted in candidate yellow as soon as the deterministic interpretation
+returned; no scope-picker click was required. The composer regained focus, `Enter`
+confirmed the preview and changed the markers to confirmed green, and the visible
+Remove selection action cleared the markers, evidence path, and local download action.
+Repeating the preview and pressing `Escape` cleared it before compilation. Both removal
+paths stated that GTM was unchanged.
+
 ### Unresolved generic path
 
 Entered “Track navigation clicks.” The product skipped the unnecessary model call and
@@ -53,10 +63,11 @@ rather than reusing the attacker-shaped footer phrase.
 
 ## Visual inspection
 
-The group question, counts, page-region labels, local-model receipt, confirmation
-actions, and evidence path fit within the workbench without clipping. Reviewed stable
+The group question, counts, page-region labels, local-model receipt, preview shortcuts,
+confirmation actions, removal action, and evidence path fit within the workbench without clipping. Reviewed stable
 states are covered by `assistant-navigation-scope-linux.png`,
-`assistant-evidence-path-linux.png`, and `assistant-managed-workspace-linux.png`.
+`navigation-single-match-preview-linux.png`, `assistant-evidence-path-linux.png`, and
+`assistant-managed-workspace-linux.png`.
 The additional adversarial scope-question state was visually inspected from the built
 extension; it fits the existing panel and does not require a new stable baseline.
 
@@ -70,6 +81,9 @@ extension; it fits the existing panel and does not require a new stable baseline
 - Medium, resolved: provider-unavailable fallback could reuse a group named inside
   attacker-shaped or corrective wording. Forced semantic routes now fall back to a
   neutral group question, and Chromium coverage proves no footer suggestion appears.
+- Medium, resolved: preview labels for navigation links at the top viewport edge were
+  clipped above the page. Top-edge labels now flip below their targets, and the
+  page-wide visual baseline protects the placement.
 - Provider-neutral model input redacts obvious private values before either the local
   adapter or a future hosted adapter receives practitioner wording.
 - No unresolved blocker, high, medium, or low findings.

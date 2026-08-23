@@ -55,7 +55,7 @@ test("mounts the floating tracking agent", async () => {
     await expect(assistant).toHaveScreenshot("assistant-navigation-scope.png", screenshotOptions);
     await root.getByText("Primary navigation", { exact: true }).click();
     await root.getByRole("button", { name: "Confirm navigation scope" }).click();
-    await expect(root.getByText("Primary navigation confirmed: 3 navigation links highlighted on the page.")).toBeVisible();
+    await expect(root.getByText("Primary navigation selected: 3 navigation links highlighted on the page.")).toBeVisible();
     await expect(root.getByRole("region", { name: "Tracking evidence path" })).toBeVisible();
     await expect(root.getByText("Navigation clicks → navigation_click")).toBeVisible();
     await expect(root.getByText("Reviewable navigation_click setup generated")).toBeVisible();
@@ -118,6 +118,58 @@ test("mounts the floating tracking agent", async () => {
     await expect(assistant).toHaveClass(/collapsed/);
     await site.reload();
     await expect(site.locator("#gtm-observability-root section.assistant")).toHaveClass(/collapsed/);
+  } finally {
+    await context.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});
+
+test("previews one navigation match immediately and supports keyboard confirmation and removal", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "gtm-observability-navigation-preview-"));
+  const extensionPath = resolve("apps/extension/dist");
+  const context = await chromium.launchPersistentContext(profile, {
+    channel: "chromium",
+    headless: true,
+    args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+  });
+
+  try {
+    const site = await context.newPage();
+    await site.goto("http://127.0.0.1:4173/");
+    const root = site.locator("#gtm-observability-root");
+    const targets = site.locator("#gtm-observability-targets");
+    const composer = root.getByLabel("Tracking request");
+    await root.getByRole("button", { name: "Open tracking agent" }).click();
+
+    await composer.fill("Track Primary navigation, not Footer navigation");
+    await root.getByRole("button", { name: "Send request" }).click();
+    await expect(targets.locator(".target.candidate")).toHaveCount(3);
+    await expect(targets.locator(".target.confirmed")).toHaveCount(0);
+    await expect(root.getByRole("button", { name: "Confirm selection · Enter" })).toBeVisible();
+    await expect(root.getByRole("button", { name: "Remove · Esc" })).toBeVisible();
+    await expect(root.getByRole("button", { name: "Confirm navigation scope" })).toHaveCount(0);
+    await expect(composer).toBeFocused();
+    await expect(site).toHaveScreenshot("navigation-single-match-preview.png", screenshotOptions);
+
+    await site.keyboard.press("Escape");
+    await expect(targets.locator(".target")).toHaveCount(0);
+    await expect(root.getByText("Selection removed. Nothing was changed in GTM.", { exact: true })).toBeVisible();
+
+    await composer.fill("Track Primary navigation, not Footer navigation");
+    await root.getByRole("button", { name: "Send request" }).click();
+    await expect(targets.locator(".target.candidate")).toHaveCount(3);
+    await expect(composer).toBeFocused();
+    await site.keyboard.press("Enter");
+    await expect(targets.locator(".target.confirmed")).toHaveCount(3);
+    await expect(root.getByText("Primary navigation selected: 3 navigation links highlighted on the page.", { exact: true })).toBeVisible();
+    await expect(root.getByRole("region", { name: "Tracking evidence path" })).toBeVisible();
+    await expect(root.getByRole("button", { name: "Remove selection" })).toBeVisible();
+
+    await root.getByRole("button", { name: "Remove selection" }).click();
+    await expect(targets.locator(".target")).toHaveCount(0);
+    await expect(root.getByRole("region", { name: "Tracking evidence path" })).toHaveCount(0);
+    await expect(root.getByRole("button", { name: "Download GTM setup" })).toHaveCount(0);
+    await expect(root.getByText("Selection removed. The local draft was discarded; GTM was not changed.", { exact: true })).toBeVisible();
   } finally {
     await context.close();
     await rm(profile, { recursive: true, force: true });

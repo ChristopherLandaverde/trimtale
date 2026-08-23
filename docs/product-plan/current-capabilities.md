@@ -48,6 +48,8 @@ The agent currently supports:
 - Navigation-click tracking requests.
 - Lead-form tracking requests.
 - Page discovery and visible candidate highlights.
+- Immediate reversible preview when one navigation group matches, with `Enter` to
+  confirm and `Escape` or a visible action to remove it.
 - Explicit target and tracking-specification confirmation.
 - Clear unsupported handoffs for interaction types that are understood but not implemented.
 - An evidence path that separates intent, page inspection, target confirmation, setup generation, GTM runtime, GTM access, browser verification, and platform confirmation.
@@ -64,7 +66,10 @@ Navigation scope now uses explicit deterministic wording first and can route gen
 fuzzy group references through a schema-validated local Ollama model. The model may
 propose only supplied group IDs and never confirms scope, outputs selectors, changes
 GTM, or decides whether evidence passed. General form-intake interpretation remains
-deterministic.
+deterministic. One supplied match becomes a page-local candidate highlight immediately;
+it becomes a confirmed navigation scope only after the practitioner presses `Enter` or
+uses the visible control. Removal clears both the highlight and local draft while
+leaving GTM unchanged.
 
 ### Navigation setup generation
 

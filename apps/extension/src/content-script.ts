@@ -163,6 +163,12 @@ const agentTaskNodes = new Map<string, HTMLElement>();
 const navigationByRequest = new Map<string, NavigationElement[]>();
 const navigationGroupsByRequest = new Map<string, NavigationTargetGroupV1[]>();
 const navigationScopeInterpretationByRequest = new Map<string, NavigationScopeInterpretationV1>();
+interface ActiveNavigationSelection {
+  requestId: string;
+  includedGroupIds: string[];
+  phase: "preview" | "confirmed";
+}
+let activeNavigationSelection: ActiveNavigationSelection | undefined;
 const requestTimeouts = new Map<string, number>();
 const intakeByRequest = new Map<string, ConversationIntakeResult>();
 const formsByRequest = new Map<string, FormCandidate[]>();
@@ -1327,6 +1333,7 @@ function updateTargetHighlights(): void {
     marker.style.width = `${bounds.width + 8}px`;
     marker.style.height = `${bounds.height + 8}px`;
     marker.dataset.targetId = item.id;
+    if (bounds.top < 38) marker.classList.add("label-below");
     const label = document.createElement("span");
     label.textContent = `${highlightTone === "confirmed" ? "✓" : index + 1} ${item.label}`;
     marker.append(label);
@@ -1346,6 +1353,7 @@ function highlightTargets(targets: PageTarget[], tone: "candidate" | "confirmed"
       .target { position: fixed; z-index: 2147483646; box-sizing: border-box; border: 2px solid #f6c768; border-radius: 9px; background: rgba(246,199,104,.08); box-shadow: 0 0 0 3px rgba(246,199,104,.13), 0 8px 24px rgba(0,0,0,.16); transition: inset .12s ease, border-color .18s ease, background .18s ease; }
       .target.confirmed { border-color: #8de8bd; background: rgba(141,232,189,.1); box-shadow: 0 0 0 3px rgba(141,232,189,.14), 0 8px 24px rgba(0,0,0,.16); }
       .target span { position: absolute; left: -2px; bottom: calc(100% + 5px); max-width: 220px; padding: 4px 7px; overflow: hidden; border-radius: 7px; color: #201806; background: #f6c768; box-shadow: 0 5px 16px rgba(0,0,0,.2); font: 600 11px/1.2 Inter, ui-sans-serif, system-ui, sans-serif; text-overflow: ellipsis; white-space: nowrap; }
+      .target.label-below span { top: calc(100% + 5px); bottom: auto; }
       .target.confirmed span { color: #092419; background: #8de8bd; }
     </style>`;
     document.documentElement.append(targetHost);
@@ -1360,10 +1368,15 @@ function clearTargetHighlights(): void {
   targetHost?.shadowRoot?.querySelectorAll(".target").forEach((node) => node.remove());
 }
 
-function renderEvidencePath(context: EvidencePathContext, requestId?: string): void {
+function renderEvidencePath(
+  context: EvidencePathContext,
+  requestId?: string,
+  navigationSelection = false,
+): void {
   const path = document.createElement("section");
   path.className = "evidence-path";
   path.setAttribute("aria-label", "Tracking evidence path");
+  if (navigationSelection && requestId) path.dataset.navigationSelectionRequestId = requestId;
   const runtime = inspectGtmRuntime();
   const runtimeDetail = runtime.status === "detected"
     ? `Detected ${runtime.containerIds.join(", ")}`
@@ -1489,18 +1502,20 @@ function renderEvidencePath(context: EvidencePathContext, requestId?: string): v
 }
 
 function confirmNavigation(
+  requestId: string,
   navigation: NavigationElement[],
   groupLabels: string[] = [],
   observedNavigation: NavigationElement[] = navigation,
   navigationScope?: NavigationScopeV1,
 ): void {
   highlightTargets(navigationTargets(navigation), "confirmed");
-  addMessage(
+  const receipt = addMessage(
     groupLabels.length > 0
-      ? `${groupLabels.join(" and ")} confirmed: ${navigation.length} navigation link${navigation.length === 1 ? "" : "s"} highlighted on the page.`
+      ? `${groupLabels.join(" and ")} selected: ${navigation.length} navigation link${navigation.length === 1 ? "" : "s"} highlighted on the page.`
       : `${navigation.length} navigation link${navigation.length === 1 ? "" : "s"} selected and highlighted on the page.`,
     "assistant",
   );
+  receipt.dataset.navigationSelectionRequestId = requestId;
   const proposal = navigationSetupProposal(observedNavigation, navigationScope);
   renderEvidencePath({
     intentDetail: "Navigation clicks → navigation_click",
@@ -1510,8 +1525,8 @@ function confirmNavigation(
     setupDetail: proposal
       ? "Reviewable navigation_click setup generated"
       : "Connect a GTM container and GA4 measurement ID to generate setup",
-  });
-  if (proposal) renderNavigationSetupDownload(proposal);
+  }, requestId, true);
+  renderNavigationSelectionActions(requestId, proposal);
 }
 
 function confirmNavigationGroups(requestId: string, includedGroupIds: string[]): void {
@@ -1520,25 +1535,76 @@ function confirmNavigationGroups(requestId: string, includedGroupIds: string[]):
   const selectedIds = new Set(scope.targetIds);
   const navigation = (navigationByRequest.get(requestId) ?? []).filter(({ id }) => selectedIds.has(id));
   const labels = groups.filter(({ id }) => scope.includedGroupIds.includes(id)).map(({ label }) => label);
-  confirmNavigation(navigation, labels, navigationByRequest.get(requestId) ?? [], scope);
+  removeNavigationSelectionNodes(requestId);
+  activeNavigationSelection = { requestId, includedGroupIds: [...scope.includedGroupIds], phase: "confirmed" };
+  confirmNavigation(requestId, navigation, labels, navigationByRequest.get(requestId) ?? [], scope);
 }
 
-function renderNavigationSetupDownload(proposal: SetupProposal): void {
+function renderNavigationSelectionActions(requestId: string, proposal?: SetupProposal): void {
   const row = document.createElement("div");
   row.className = "quick-actions";
-  const download = document.createElement("a");
-  download.className = "quick";
-  download.textContent = "Download GTM setup";
-  download.href = containerFileDownloadHref(proposal.containerFile);
-  download.download = "gtm-observability-navigation-click.json";
-  download.setAttribute("role", "button");
-  download.addEventListener("click", () => {
-    row.remove();
-    addMessage("Downloaded the generated navigation_click setup. Nothing was applied or published.", "assistant");
-  }, { once: true });
-  row.append(download);
+  row.dataset.navigationSelectionRequestId = requestId;
+  if (proposal) {
+    const download = document.createElement("a");
+    download.className = "quick";
+    download.textContent = "Download GTM setup";
+    download.href = containerFileDownloadHref(proposal.containerFile);
+    download.download = "gtm-observability-navigation-click.json";
+    download.setAttribute("role", "button");
+    download.addEventListener("click", () => {
+      download.remove();
+      addMessage("Downloaded the generated navigation_click setup. Nothing was applied or published.", "assistant");
+    }, { once: true });
+    row.append(download);
+  }
+  const remove = document.createElement("button");
+  remove.className = "quick";
+  remove.textContent = "Remove selection";
+  remove.addEventListener("click", () => removeNavigationSelection(requestId));
+  row.append(remove);
   responseList?.append(row);
   responseList?.scrollTo({ top: responseList.scrollHeight });
+}
+
+function navigationForGroups(requestId: string, includedGroupIds: readonly string[]): NavigationElement[] {
+  const selectedGroups = new Set(includedGroupIds);
+  const targetIds = new Set((navigationGroupsByRequest.get(requestId) ?? [])
+    .filter(({ id }) => selectedGroups.has(id))
+    .flatMap(({ targetIds: ids }) => ids));
+  return (navigationByRequest.get(requestId) ?? []).filter(({ id }) => targetIds.has(id));
+}
+
+function previewNavigationGroups(requestId: string, includedGroupIds: string[]): void {
+  const navigation = navigationForGroups(requestId, includedGroupIds);
+  if (includedGroupIds.length !== 1 || navigation.length === 0) return;
+  activeNavigationSelection = { requestId, includedGroupIds: [...includedGroupIds], phase: "preview" };
+  highlightTargets(navigationTargets(navigation), "candidate");
+}
+
+function removeNavigationSelectionNodes(requestId: string): void {
+  responseList?.querySelectorAll<HTMLElement>("[data-navigation-selection-request-id]").forEach((node) => {
+    if (node.dataset.navigationSelectionRequestId === requestId) node.remove();
+  });
+  evidencePaths.delete(requestId);
+}
+
+function removeNavigationSelection(requestId: string): void {
+  const selection = activeNavigationSelection;
+  if (!selection || selection.requestId !== requestId) return;
+  clearTargetHighlights();
+  removeNavigationSelectionNodes(requestId);
+  activeNavigationSelection = undefined;
+  const task = agentTaskNodes.get(requestId);
+  const summary = task?.querySelector<HTMLElement>(".agent-summary");
+  const question = task?.querySelector<HTMLElement>(".agent-question");
+  if (summary) summary.textContent = "The page selection was removed. No GTM change was made.";
+  if (question) question.textContent = "Send another tracking intent or choose a different navigation group.";
+  addMessage(
+    selection.phase === "confirmed"
+      ? "Selection removed. The local draft was discarded; GTM was not changed."
+      : "Selection removed. Nothing was changed in GTM.",
+    "assistant",
+  );
 }
 
 function renderNavigationGroupPicker(requestId: string): void {
@@ -1684,12 +1750,19 @@ function handleAssistantAction(actionId: string, requestId: string): void {
     submitPrompt();
     return;
   }
-  if (actionId === "confirm-navigation-suggestion") {
-    const candidateIds = navigationScopeInterpretationByRequest.get(requestId)?.candidateGroupIds ?? [];
-    if (candidateIds.length > 0) confirmNavigationGroups(requestId, candidateIds);
+  if (actionId === "confirm-navigation-preview") {
+    const selection = activeNavigationSelection;
+    if (selection?.requestId === requestId && selection.phase === "preview") {
+      confirmNavigationGroups(requestId, selection.includedGroupIds);
+    }
+    return;
+  }
+  if (actionId === "remove-navigation-preview") {
+    removeNavigationSelection(requestId);
     return;
   }
   if (actionId === "choose-navigation-groups") {
+    if (activeNavigationSelection?.requestId === requestId) activeNavigationSelection = undefined;
     renderNavigationGroupPicker(requestId);
     return;
   }
@@ -1779,6 +1852,9 @@ function renderQuickActions(
   if (!actions.length) return;
   const row = document.createElement("div");
   row.className = "quick-actions";
+  if (actions.some(({ id }) => id === "confirm-navigation-preview" || id === "remove-navigation-preview")) {
+    row.dataset.navigationSelectionRequestId = requestId;
+  }
   for (const action of actions) {
     const downloadHref = action.id === "download-form-setup"
       ? formSetupDownloadHref(intakeByRequest.get(requestId)!)
@@ -1851,7 +1927,13 @@ function connectAssistant(): chrome.runtime.Port {
           highlightTargets(formTargets(message.forms ?? []), "candidate");
         }
       }
+      const navigationInterpretation = message.navigationScopeInterpretation;
+      const hasSingleNavigationPreview = navigationInterpretation?.candidateGroupIds.length === 1;
+      if (navigationInterpretation && hasSingleNavigationPreview) {
+        previewNavigationGroups(message.requestId, navigationInterpretation.candidateGroupIds);
+      }
       renderAgentTurn(message.requestId, message.turn, node);
+      if (hasSingleNavigationPreview && composer?.value.trim().length === 0) composer.focus();
     }
   });
   return port;
@@ -2047,7 +2129,21 @@ async function mountOverlay(): Promise<void> {
   shadow.querySelector(".collapse")?.addEventListener("click", () => setCollapsed(true));
   shadow.querySelector(".send")?.addEventListener("click", submitPrompt);
   composer.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submitPrompt(); }
+    const selection = activeNavigationSelection;
+    const emptyComposer = composer?.value.trim().length === 0;
+    if (event.key === "Escape" && emptyComposer && selection) {
+      event.preventDefault();
+      removeNavigationSelection(selection.requestId);
+      return;
+    }
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      if (emptyComposer && selection?.phase === "preview") {
+        confirmNavigationGroups(selection.requestId, selection.includedGroupIds);
+        return;
+      }
+      submitPrompt();
+    }
   });
   enableDragging(shadow.querySelector<HTMLElement>(".drag")!);
   new ResizeObserver(() => {

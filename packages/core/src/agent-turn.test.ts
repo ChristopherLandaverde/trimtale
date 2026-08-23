@@ -25,7 +25,7 @@ function form(id: string, label: string): FormCandidate {
 }
 
 describe("provider-neutral agent turns", () => {
-  it("turns navigation groups into one confirmable local-model suggestion", () => {
+  it("turns one navigation match into a reversible keyboard-ready preview", () => {
     const navigation = [
       { id: "header", text: "Pricing", href: "https://example.test/pricing", area: "header" as const, selector: "header a", groupId: "primary", groupLabel: "Primary navigation" },
       { id: "footer", text: "Pricing", href: "https://example.test/pricing", area: "footer" as const, selector: "footer a", groupId: "footer", groupLabel: "Footer navigation" },
@@ -43,13 +43,15 @@ describe("provider-neutral agent turns", () => {
     );
     expect(turn.task.summary).toContain("Primary navigation");
     expect(turn.actions).toEqual([
-      { id: "confirm-navigation-suggestion", label: "Confirm suggested scope" },
-      { id: "choose-navigation-groups", label: "Change scope" },
+      { id: "confirm-navigation-preview", label: "Confirm selection · Enter" },
+      { id: "remove-navigation-preview", label: "Remove · Esc" },
+      { id: "choose-navigation-groups", label: "Change selection" },
     ]);
     expect(turn.receipts.at(-1)).toMatchObject({
       id: "scope-interpreted",
-      detail: "Local model qwen3:30b; confirmation still required",
+      detail: "Local model qwen3:30b; reversible page preview",
     });
+    expect(turn.question).toBe("Press Enter to confirm, Esc to remove, or change the selection.");
     expect(isAgentTurnV1(turn)).toBe(true);
   });
 

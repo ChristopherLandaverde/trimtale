@@ -4,10 +4,10 @@ Status: accepted
 
 ## Outcome
 
-A tracking practitioner can ask for navigation tracking in ordinary language, review
-the page's meaningful navigation groups, confirm the intended regions, and receive one
-region-aware, reusable GTM change plan even when the connected workspace already
-contains hundreds of entities.
+A tracking practitioner can ask for navigation tracking in ordinary language, see one
+unambiguous group highlighted immediately, confirm or remove that reversible preview,
+and receive one region-aware, reusable GTM change plan even when the connected workspace
+already contains hundreds of entities.
 
 ## Workflow
 
@@ -15,9 +15,11 @@ contains hundreds of entities.
    page region without sending selectors or HTML to a model.
 2. A provider-neutral interpreter receives bounded group summaries and may propose
    only supplied group IDs or one shortest useful clarification.
-3. The practitioner confirms one semantic navigation scope.
-4. Deterministic compilation converts that scope into region-aware GTM entities.
-5. A normalized container inventory produces reuse, create, managed update, no-op, or
+3. One valid match becomes a reversible page-local preview; zero or multiple matches
+   remain a clarification.
+4. The practitioner confirms the preview with a visible action or keyboard shortcut.
+5. Deterministic compilation converts that scope into region-aware GTM entities.
+6. A normalized container inventory produces reuse, create, managed update, no-op, or
    conflict actions without exposing the full container to the model.
 
 ## Acceptance criteria
@@ -28,8 +30,9 @@ contains hundreds of entities.
   equivalence; uncertain variants remain separate.
 - [x] An unspecified request such as “track navigation clicks” asks about meaningful
   groups rather than defaulting to every discovered link.
-- [x] A scoped request such as “track header navigation, not the footer” can propose the
-  exact supplied group and still requires practitioner confirmation.
+- [x] A scoped request such as “track header navigation, not the footer” immediately
+  previews the exact supplied group; `Enter` confirms it, while `Escape` or a visible
+  action removes it without changing GTM.
 - [x] Local model output is schema-validated, non-authoritative, loopback-only, and falls
   back to deterministic clarification when unavailable or invalid.
 - [x] Generated navigation setup is constrained by confirmed target selectors as well as
