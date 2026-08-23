@@ -82,6 +82,78 @@ chrome.runtime.onConnect.addListener((port) => {
 
 type GtmContainerOperation = "inspect" | "prepare";
 
+const gtmPublicIdPattern = /^GTM-[A-Z0-9]+$/;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function validConnectionStatus(value: unknown): value is {
+  configured: boolean;
+  connected: boolean;
+  scope: "read-only" | "container-edit";
+  containerWritesEnabled: boolean;
+  publicationScopeRequested: boolean;
+  publicationEnabled: boolean;
+  tokenPersistenceEnabled: boolean;
+} {
+  return isRecord(value)
+    && typeof value.configured === "boolean"
+    && typeof value.connected === "boolean"
+    && (value.scope === "read-only" || value.scope === "container-edit")
+    && typeof value.containerWritesEnabled === "boolean"
+    && typeof value.publicationScopeRequested === "boolean"
+    && typeof value.publicationEnabled === "boolean"
+    && typeof value.tokenPersistenceEnabled === "boolean";
+}
+
+function validObservedContainerIds(value: unknown): value is string[] {
+  return Array.isArray(value)
+    && value.length <= 10
+    && value.every((item) => typeof item === "string" && gtmPublicIdPattern.test(item));
+}
+
+chrome.runtime.onMessage.addListener(
+  (message: unknown, _sender, sendResponse) => {
+    if (!isRecord(message) || message.type !== "GTM_CONNECTION_CONTEXT_REQUEST") return undefined;
+    if (!validObservedContainerIds(message.containerIds)) {
+      sendResponse({ ok: false, error: "invalid_request" });
+      return undefined;
+    }
+    const containerIds = [...new Set(message.containerIds)];
+    void fetch("http://127.0.0.1:8787/api/google/status")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("status_unavailable");
+        const status: unknown = await response.json();
+        if (!validConnectionStatus(status)) throw new Error("invalid_status");
+        const safeStatus = {
+          configured: status.configured,
+          connected: status.connected,
+          scope: status.scope,
+          containerWritesEnabled: status.containerWritesEnabled,
+          publicationScopeRequested: status.publicationScopeRequested,
+          publicationEnabled: status.publicationEnabled,
+          tokenPersistenceEnabled: status.tokenPersistenceEnabled,
+        };
+        if (!safeStatus.configured || !safeStatus.connected || containerIds.length !== 1) {
+          sendResponse({ ok: true, status: safeStatus, containerIds });
+          return;
+        }
+        const recognitionResponse = await fetch(
+          `http://127.0.0.1:8787/api/google/containers/recognize?publicId=${encodeURIComponent(containerIds[0]!)}`,
+        );
+        if (!recognitionResponse.ok) {
+          sendResponse({ ok: true, status: safeStatus, containerIds, recognitionError: "recognition_unavailable" });
+          return;
+        }
+        const recognition: unknown = await recognitionResponse.json();
+        sendResponse({ ok: true, status: safeStatus, containerIds, recognition });
+      })
+      .catch(() => sendResponse({ ok: false, error: "service_offline" }));
+    return true;
+  },
+);
+
 chrome.runtime.onMessage.addListener(
   (
     message: { type?: string; operation?: GtmContainerOperation; publicId?: string },

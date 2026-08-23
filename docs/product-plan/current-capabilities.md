@@ -7,7 +7,8 @@ GTM Observability currently turns a supported tracking intent into a confirmed t
 ## Current product workflow
 
 ```text
-Describe the tracking intent
+Open the assistant and inspect page GTM / authorized access
+    -> describe the tracking intent
     -> inspect the current page
     -> highlight and confirm the target
     -> confirm the tracking specification
@@ -29,6 +30,8 @@ The Chrome extension injects a floating assistant into the current website. It c
 
 The assistant currently supports:
 
+- A pre-chat GTM connection card with the observed page container, exact authorized
+  account/container match, and effective read-only, edit, or publication capability.
 - Navigation-click tracking requests.
 - Lead-form tracking requests.
 - Page discovery and visible candidate highlights.
@@ -73,14 +76,27 @@ Browser verification remains different from platform confirmation. Seeing a GA4 
 
 The extension safely inspects script URLs and reports public IDs such as `GTM-ABC123`. This establishes that the container was observed on the current page; it does not establish ownership or API access.
 
-When the practitioner chooses `Check GTM access`, the backend:
+When the practitioner opens the assistant or explicitly refreshes its GTM connection
+card, the extension reads the fixed local authorization-status endpoint. It does not
+perform account discovery merely because a website loaded. If the backend is connected
+and the page exposes exactly one public ID, the backend:
 
 1. Discovers containers accessible through the connected Google account.
 2. Requires one exact, case-insensitive public-ID match.
-3. Reads the matching container, live version, and current workspaces.
-4. Reports whether one managed workspace can be created or reused.
+3. Reports the matching GTM account name and container name.
+4. Reads the matching container, live version, and current workspaces.
+5. Reports whether one managed workspace can be created or reused.
 
-No match returns `not_accessible`. Multiple matches return `ambiguous`; the assistant chooses neither.
+The card distinguishes local-service failure, unconfigured OAuth, disconnected Google
+authorization, no page container, inaccessible IDs, and ambiguous or multiple IDs.
+No match returns `not_accessible`. Multiple matches return `ambiguous`; the assistant
+chooses neither. The public page ID and API-proven access remain separate claims.
+
+The card never inspects browser cookies or infers Google identity from a browser
+session. The OAuth grant does not include profile or email scope, so no email is shown.
+Account and container names are strictly decoded and rendered as inert text. Opening or
+refreshing the card performs read-only requests only; it never prepares a workspace,
+applies a change, or publishes.
 
 ## Managed GTM workspace
 
@@ -210,7 +226,7 @@ npm run verify
 ```
 
 The most recent full completion run passed 264 deterministic tests across 37 files and
-all 28 Chromium workflows.
+all 33 Chromium workflows.
 
 ## Credentialed disposable-container evidence
 

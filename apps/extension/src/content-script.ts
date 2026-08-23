@@ -53,6 +53,7 @@ interface GtmContainerResult {
   status: "recognized" | "not_accessible" | "ambiguous";
   publicId: string;
   matchCount?: number;
+  account?: { accountId: string; name: string };
   container?: { name: string; publicId: string };
   workspace?: GtmWorkspaceResult;
 }
@@ -63,6 +64,42 @@ interface GtmBridgeResponse {
   result?: GtmContainerResult;
   containerWritesEnabled?: boolean;
 }
+
+interface GtmConnectionStatus {
+  configured: boolean;
+  connected: boolean;
+  scope: "read-only" | "container-edit";
+  containerWritesEnabled: boolean;
+  publicationScopeRequested: boolean;
+  publicationEnabled: boolean;
+  tokenPersistenceEnabled: boolean;
+}
+
+interface GtmConnectionContext {
+  status: GtmConnectionStatus;
+  containerIds: string[];
+  recognitionError?: "recognition_unavailable";
+  result?: GtmContainerResult;
+}
+
+type GtmConnectionView =
+  | { kind: "loading" }
+  | { kind: "offline" }
+  | { kind: "check_failed" }
+  | { kind: "unconfigured"; containerIds: string[] }
+  | { kind: "disconnected"; containerIds: string[] }
+  | { kind: "no_container"; status: GtmConnectionStatus }
+  | { kind: "multiple_containers"; status: GtmConnectionStatus; containerIds: string[] }
+  | { kind: "recognition_failed"; status: GtmConnectionStatus; publicId: string }
+  | { kind: "not_accessible"; status: GtmConnectionStatus; publicId: string }
+  | { kind: "ambiguous"; status: GtmConnectionStatus; publicId: string; matchCount: number }
+  | {
+    kind: "recognized";
+    status: GtmConnectionStatus;
+    publicId: string;
+    account: { accountId: string; name: string };
+    container: { name: string; publicId: string };
+  };
 
 type ExtensionRequest =
   | { type: "SCAN_NAVIGATION" }
@@ -79,6 +116,7 @@ let host: HTMLDivElement | undefined;
 let frame: HTMLElement | undefined;
 let responseList: HTMLElement | undefined;
 let composer: HTMLTextAreaElement | undefined;
+let gtmConnectionCard: HTMLElement | undefined;
 let port: chrome.runtime.Port | undefined;
 let targetHost: HTMLDivElement | undefined;
 interface PageTarget { id: string; label: string; selector: string; }
@@ -91,6 +129,8 @@ const intakeByRequest = new Map<string, ConversationIntakeResult>();
 const formsByRequest = new Map<string, FormCandidate[]>();
 const recentFormRequests: Array<{ url: string; observedAt: string }> = [];
 let activeFormVerification: { requestId: string; intake: ConversationIntakeResult } | undefined;
+let gtmConnectionLoaded = false;
+let gtmConnectionRequestSequence = 0;
 
 function successEvidenceFor(result: ConversationIntakeResult): SuccessEvidence | undefined {
   const signal = result.successSignal;
@@ -347,6 +387,266 @@ async function requestGtmContainer(
   }) as Promise<GtmBridgeResponse>;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isBoundedText(value: unknown, maximum = 256): value is string {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= maximum;
+}
+
+function parseConnectionStatus(value: unknown): GtmConnectionStatus | undefined {
+  if (!isRecord(value)
+    || typeof value.configured !== "boolean"
+    || typeof value.connected !== "boolean"
+    || (value.scope !== "read-only" && value.scope !== "container-edit")
+    || typeof value.containerWritesEnabled !== "boolean"
+    || typeof value.publicationScopeRequested !== "boolean"
+    || typeof value.publicationEnabled !== "boolean"
+    || typeof value.tokenPersistenceEnabled !== "boolean") return undefined;
+  if (value.containerWritesEnabled !== (value.scope === "container-edit")) return undefined;
+  if (value.publicationEnabled && (!value.publicationScopeRequested || !value.containerWritesEnabled)) return undefined;
+  return {
+    configured: value.configured,
+    connected: value.connected,
+    scope: value.scope,
+    containerWritesEnabled: value.containerWritesEnabled,
+    publicationScopeRequested: value.publicationScopeRequested,
+    publicationEnabled: value.publicationEnabled,
+    tokenPersistenceEnabled: value.tokenPersistenceEnabled,
+  };
+}
+
+function parseConnectionResult(value: unknown, publicId: string): GtmContainerResult | undefined {
+  if (!isRecord(value) || value.publicId !== publicId) return undefined;
+  if (value.status === "not_accessible") return { status: value.status, publicId };
+  if (value.status === "ambiguous") {
+    if (!Number.isInteger(value.matchCount) || (value.matchCount as number) < 2) return undefined;
+    return { status: value.status, publicId, matchCount: value.matchCount as number };
+  }
+  if (value.status !== "recognized" || !isRecord(value.account) || !isRecord(value.container)) return undefined;
+  if (!isBoundedText(value.account.accountId, 64)
+    || !isBoundedText(value.account.name)
+    || !isBoundedText(value.container.name)
+    || value.container.publicId !== publicId) return undefined;
+  return {
+    status: value.status,
+    publicId,
+    account: { accountId: value.account.accountId, name: value.account.name },
+    container: { name: value.container.name, publicId },
+  };
+}
+
+function parseConnectionContext(value: unknown, observedContainerIds: string[]): GtmConnectionContext | undefined {
+  if (!isRecord(value) || value.ok !== true || !Array.isArray(value.containerIds)) return undefined;
+  const containerIds = value.containerIds;
+  if (containerIds.length !== observedContainerIds.length
+    || containerIds.some((item, index) => item !== observedContainerIds[index])) return undefined;
+  const status = parseConnectionStatus(value.status);
+  if (!status) return undefined;
+  if (value.recognitionError !== undefined && value.recognitionError !== "recognition_unavailable") return undefined;
+  if (containerIds.length !== 1 || !status.configured || !status.connected) {
+    return { status, containerIds };
+  }
+  if (value.recognitionError === "recognition_unavailable") {
+    return { status, containerIds, recognitionError: value.recognitionError };
+  }
+  if (!isRecord(value.recognition)) return undefined;
+  const result = parseConnectionResult(value.recognition.result, containerIds[0]!);
+  if (!result || typeof value.recognition.containerWritesEnabled !== "boolean"
+    || value.recognition.containerWritesEnabled !== status.containerWritesEnabled) return undefined;
+  return { status, containerIds, result };
+}
+
+function effectiveAccess(status: GtmConnectionStatus): string {
+  if (status.publicationEnabled) return "Publish enabled";
+  if (status.containerWritesEnabled) return "Edit access";
+  return "Read-only";
+}
+
+function accessExplanation(status: GtmConnectionStatus): string {
+  if (status.publicationEnabled) return "This backend can edit and publish. Publication still requires an explicit user action.";
+  if (status.containerWritesEnabled) return "This backend can edit a GTM workspace. Publishing is off.";
+  return "This backend can inspect GTM. Editing and publishing are off.";
+}
+
+function appendConnectionRow(parent: HTMLElement, label: string, value: string): void {
+  const row = document.createElement("div");
+  row.className = "gtm-context-row";
+  const term = document.createElement("span");
+  term.textContent = label;
+  const detail = document.createElement("strong");
+  detail.textContent = value;
+  row.append(term, detail);
+  parent.append(row);
+}
+
+function renderGtmConnection(view: GtmConnectionView): void {
+  if (!gtmConnectionCard) return;
+  gtmConnectionCard.replaceChildren();
+  const heading = document.createElement("div");
+  heading.className = "gtm-context-heading";
+  const title = document.createElement("strong");
+  title.textContent = "GTM connection";
+  const controls = document.createElement("span");
+  controls.className = "gtm-context-controls";
+  const badge = document.createElement("span");
+  badge.className = "gtm-context-badge";
+  const refresh = document.createElement("button");
+  refresh.className = "gtm-context-refresh";
+  refresh.type = "button";
+  refresh.setAttribute("aria-label", "Refresh GTM connection");
+  refresh.textContent = "↻";
+  refresh.addEventListener("click", () => void loadGtmConnectionContext(true));
+  controls.append(badge, refresh);
+  heading.append(title, controls);
+  const body = document.createElement("div");
+  body.className = "gtm-context-body";
+  const summary = document.createElement("p");
+  const note = document.createElement("small");
+
+  if (view.kind === "loading") {
+    badge.textContent = "Checking";
+    summary.textContent = "Checking authorized GTM access…";
+  } else if (view.kind === "offline") {
+    badge.textContent = "Service offline";
+    badge.classList.add("warning");
+    summary.textContent = "The local GTM service is offline.";
+    note.textContent = "Chat remains available, but account and container access cannot be proven.";
+  } else if (view.kind === "check_failed") {
+    badge.textContent = "Check failed";
+    badge.classList.add("warning");
+    summary.textContent = "GTM access could not be safely verified.";
+    note.textContent = "No account or container was assumed. Refresh after checking the local service.";
+  } else if (view.kind === "unconfigured") {
+    badge.textContent = "Not configured";
+    badge.classList.add("warning");
+    summary.textContent = "Google OAuth is not configured";
+    if (view.containerIds.length > 0) appendConnectionRow(body, "Page", view.containerIds.join(" · "));
+    note.textContent = view.containerIds.length > 0
+      ? "The page ID is observable, but it does not prove GTM access."
+      : "No GTM container was detected on this page, and API access is unavailable.";
+  } else if (view.kind === "disconnected") {
+    badge.textContent = "Connect Google";
+    badge.classList.add("warning");
+    summary.textContent = "Google authorization required";
+    if (view.containerIds.length > 0) appendConnectionRow(body, "Page", view.containerIds.join(" · "));
+    note.textContent = "Browser Google login and this app’s GTM authorization are separate.";
+  } else if (view.kind === "no_container") {
+    badge.textContent = effectiveAccess(view.status);
+    summary.textContent = "GTM API authorization connected";
+    appendConnectionRow(body, "Page", "No GTM container detected on this page");
+    note.textContent = accessExplanation(view.status);
+  } else if (view.kind === "multiple_containers") {
+    badge.textContent = "Multiple page containers";
+    badge.classList.add("warning");
+    summary.textContent = "GTM API authorization connected";
+    appendConnectionRow(body, "Page", view.containerIds.join(" · "));
+    note.textContent = "No account or container was selected because the page exposes multiple GTM IDs.";
+  } else if (view.kind === "recognition_failed") {
+    badge.textContent = "Check failed";
+    badge.classList.add("warning");
+    summary.textContent = "GTM API authorization connected";
+    appendConnectionRow(body, "Page", view.publicId);
+    note.textContent = "The container access check was unavailable. No account or container was assumed.";
+  } else if (view.kind === "not_accessible") {
+    badge.textContent = "Not accessible";
+    badge.classList.add("warning");
+    summary.textContent = "GTM API authorization connected";
+    appendConnectionRow(body, "Page", view.publicId);
+    note.textContent = "This GTM ID was not found in the containers accessible to the authorized account.";
+  } else if (view.kind === "ambiguous") {
+    badge.textContent = "Ambiguous match";
+    badge.classList.add("warning");
+    summary.textContent = "GTM API authorization connected";
+    appendConnectionRow(body, "Page", view.publicId);
+    note.textContent = `${view.matchCount} accessible containers matched. None was selected.`;
+  } else {
+    badge.textContent = effectiveAccess(view.status);
+    summary.textContent = "GTM API authorization connected";
+    appendConnectionRow(body, "Page", view.publicId);
+    appendConnectionRow(body, "Account", view.account.name);
+    appendConnectionRow(body, "Container", view.container.name);
+    note.textContent = accessExplanation(view.status);
+  }
+
+  body.prepend(summary);
+  if (note.textContent) body.append(note);
+  gtmConnectionCard.append(heading, body);
+}
+
+async function loadGtmConnectionContext(force = false): Promise<void> {
+  if (gtmConnectionLoaded && !force) return;
+  const requestSequence = ++gtmConnectionRequestSequence;
+  renderGtmConnection({ kind: "loading" });
+  const runtime = inspectGtmRuntime();
+  const containerIds = runtime.status === "detected" ? runtime.containerIds : [];
+  let raw: unknown;
+  try {
+    raw = await chrome.runtime.sendMessage({ type: "GTM_CONNECTION_CONTEXT_REQUEST", containerIds });
+  } catch {
+    if (requestSequence !== gtmConnectionRequestSequence) return;
+    gtmConnectionLoaded = true;
+    renderGtmConnection({ kind: "offline" });
+    return;
+  }
+  if (requestSequence !== gtmConnectionRequestSequence) return;
+  gtmConnectionLoaded = true;
+  if (isRecord(raw) && raw.ok === false && raw.error === "service_offline") {
+    renderGtmConnection({ kind: "offline" });
+    return;
+  }
+  const context = parseConnectionContext(raw, containerIds);
+  if (!context) {
+    renderGtmConnection({ kind: "check_failed" });
+    return;
+  }
+  if (!context.status.configured) {
+    renderGtmConnection({ kind: "unconfigured", containerIds });
+    return;
+  }
+  if (!context.status.connected) {
+    renderGtmConnection({ kind: "disconnected", containerIds });
+    return;
+  }
+  if (containerIds.length === 0) {
+    renderGtmConnection({ kind: "no_container", status: context.status });
+    return;
+  }
+  if (containerIds.length > 1) {
+    renderGtmConnection({ kind: "multiple_containers", status: context.status, containerIds });
+    return;
+  }
+  if (context.recognitionError) {
+    renderGtmConnection({ kind: "recognition_failed", status: context.status, publicId: containerIds[0]! });
+    return;
+  }
+  if (context.result?.status === "not_accessible") {
+    renderGtmConnection({ kind: "not_accessible", status: context.status, publicId: context.result.publicId });
+    return;
+  }
+  if (context.result?.status === "ambiguous") {
+    renderGtmConnection({
+      kind: "ambiguous",
+      status: context.status,
+      publicId: context.result.publicId,
+      matchCount: context.result.matchCount!,
+    });
+    return;
+  }
+  if (context.result?.status === "recognized" && context.result.account && context.result.container) {
+    renderGtmConnection({
+      kind: "recognized",
+      status: context.status,
+      publicId: context.result.publicId,
+      account: context.result.account,
+      container: context.result.container,
+    });
+    return;
+  }
+  renderGtmConnection({ kind: "check_failed" });
+}
+
 function updateEvidenceStage(
   row: HTMLElement,
   state: "passed" | "pending",
@@ -432,9 +732,13 @@ function applyPreferences(): void {
 
 function setCollapsed(collapsed: boolean): void {
   preferences.collapsed = collapsed;
+  if (!collapsed && !gtmConnectionLoaded) preferences.height = Math.max(preferences.height, 380);
   applyPreferences();
   persistPreferences();
-  if (!collapsed) composer?.focus();
+  if (!collapsed) {
+    void loadGtmConnectionContext();
+    composer?.focus();
+  }
 }
 
 function addMessage(copy: string, role: "assistant" | "user", id?: string): HTMLElement {
@@ -912,6 +1216,20 @@ async function mountOverlay(): Promise<void> {
       .icon { width: 24px; height: 24px; border-radius: 50%; color: #aab4bc; background: transparent; font-size: 17px; }
       .icon:hover { color: white; background: rgba(255,255,255,.08); }
       .messages { overflow: auto; padding: 4px 16px 12px; display: flex; flex-direction: column; gap: 10px; }
+      .gtm-context { flex: none; display: grid; gap: 8px; padding: 11px 12px; border: 1px solid rgba(167,243,208,.16); border-radius: 14px; background: linear-gradient(145deg, rgba(21,36,32,.82), rgba(18,27,31,.78)); box-shadow: inset 0 1px 0 rgba(255,255,255,.045); }
+      .gtm-context-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+      .gtm-context-heading > strong { color: #f1f7f4; font-size: 12px; font-weight: 650; }
+      .gtm-context-controls { display: flex; align-items: center; gap: 5px; }
+      .gtm-context-badge { padding: 3px 7px; border: 1px solid rgba(141,232,189,.2); border-radius: 999px; color: #baf3d7; background: rgba(53,105,82,.3); font-size: 9px; font-weight: 700; letter-spacing: .025em; text-transform: uppercase; }
+      .gtm-context-badge.warning { border-color: rgba(251,191,36,.18); color: #f4cf75; background: rgba(120,77,18,.24); }
+      .gtm-context-refresh { display: grid; place-items: center; width: 23px; height: 23px; border-radius: 8px; color: #9aa7af; background: transparent; font-size: 15px; }
+      .gtm-context-refresh:hover { color: #eff6f2; background: rgba(255,255,255,.07); }
+      .gtm-context-body { display: grid; gap: 4px; min-width: 0; }
+      .gtm-context-body p { margin: 0 0 2px; color: #c9d4d0; font-size: 10px; }
+      .gtm-context-row { display: grid; grid-template-columns: 60px minmax(0, 1fr); gap: 8px; align-items: baseline; }
+      .gtm-context-row span { color: #7f8d94; font-size: 9px; text-transform: uppercase; }
+      .gtm-context-row strong { min-width: 0; color: #e7eeeb; font-size: 11px; font-weight: 590; overflow-wrap: anywhere; }
+      .gtm-context-body small { margin-top: 3px; color: #89969e; font-size: 9px; line-height: 1.4; }
       .message { max-width: 88%; padding: 9px 11px; border-radius: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
       .message.bot { align-self: flex-start; color: #e5ebef; background: rgba(41,50,57,.72); border: 1px solid rgba(255,255,255,.06); border-radius: 4px 14px 14px 14px; }
       .message.user { align-self: flex-end; color: #f5fff9; background: #28483d; border-radius: 13px 13px 4px 13px; }
@@ -956,13 +1274,15 @@ async function mountOverlay(): Promise<void> {
     </style>
     <section class="assistant collapsed" aria-label="Tracking assistant">
       <div class="drag" aria-label="Drag assistant"><button class="icon collapse" aria-label="Collapse assistant">−</button></div>
-      <div class="messages" aria-live="polite"><div class="message bot">What do you want to track on this page?</div></div>
+      <div class="messages" aria-live="polite"><section class="gtm-context" role="region" aria-label="GTM connection"></section><div class="message bot">What do you want to track on this page?</div></div>
       <div class="composer"><textarea aria-label="Tracking request" placeholder="Describe an action or outcome…"></textarea><button class="send" aria-label="Send request">↑</button></div>
       <button class="orb" aria-label="Open tracking assistant">G</button>
     </section>`;
   frame = shadow.querySelector<HTMLElement>(".assistant")!;
   responseList = shadow.querySelector<HTMLElement>(".messages")!;
   composer = shadow.querySelector<HTMLTextAreaElement>("textarea")!;
+  gtmConnectionCard = shadow.querySelector<HTMLElement>(".gtm-context")!;
+  renderGtmConnection({ kind: "loading" });
   shadow.querySelector(".orb")?.addEventListener("click", () => setCollapsed(false));
   shadow.querySelector(".collapse")?.addEventListener("click", () => setCollapsed(true));
   shadow.querySelector(".send")?.addEventListener("click", submitPrompt);
@@ -979,6 +1299,7 @@ async function mountOverlay(): Promise<void> {
   }).observe(frame);
   document.documentElement.append(host);
   applyPreferences();
+  if (!preferences.collapsed) void loadGtmConnectionContext();
 }
 
 document.addEventListener("click", (event) => {

@@ -114,6 +114,7 @@ export type GtmObservedContainerInspection =
   | {
     status: "recognized";
     publicId: string;
+    account: Pick<GtmAccount, "accountId" | "name">;
     container: GtmContainer;
     liveVersion: GtmContainerVersion;
     workspace: ManagedWorkspaceInspection<GtmWorkspace>;
@@ -986,7 +987,16 @@ export class GtmDiscoveryClient {
 
   private async recognizeObservedContainer(publicId: string) {
     const accounts = await this.discover();
-    return recognizeContainer(publicId, accounts.flatMap((account) => account.containers));
+    const recognition = recognizeContainer(
+      publicId,
+      accounts.flatMap((account) => account.containers.map((container) => ({
+        ...container,
+        account: { accountId: account.accountId, name: account.name },
+      }))),
+    );
+    if (recognition.status !== "recognized") return recognition;
+    const { account, ...container } = recognition.container;
+    return { ...recognition, account, container };
   }
 
   private async applyEntityAction(
