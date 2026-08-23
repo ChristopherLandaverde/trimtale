@@ -44,6 +44,11 @@ At least one practitioner-confirmed success signal is required:
 - Navigation reaches a confirmed thank-you URL.
 - An existing data-layer success event is observed.
 
+Form discovery may propose one adjacent success element when the form's nearest
+semantic section or named region contains exactly one ID-addressable `role=status` or
+active `aria-live` element. Zero, multiple, or ID-less candidates remain unresolved;
+the assistant must ask or produce a diagnostic handoff rather than choose one.
+
 A submit-button click, native `submit` event, or outgoing request alone is evidence of an attempt, not evidence of a qualified inquiry.
 
 ### Supported environments
@@ -108,6 +113,8 @@ Assistant: I'll track a successful Contact sales submission as generate_lead.
 
 - Ask no question whose answer can be safely discovered from structured page metadata.
 - Ask when multiple targets or success signals have different business meanings.
+- Treat a uniquely addressable adjacent status/live region as proposed evidence, not as
+  proof of submission or analytics receipt.
 - Summarize the interpretation before requesting confirmation.
 - Allow the practitioner to correct the target, outcome, event name, parameters, or success evidence.
 - Explain unsupported evidence boundaries in plain language.

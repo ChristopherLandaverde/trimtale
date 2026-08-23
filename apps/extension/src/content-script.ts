@@ -280,6 +280,24 @@ function scanNavigation(): ScanResponse {
   return { pageUrl: location.href, title: document.title, navigation };
 }
 
+function adjacentFormSuccessSignal(form: HTMLFormElement): FormCandidate["successSignals"][number] | undefined {
+  const region = form.closest<HTMLElement>(
+    'section, article, [role="region"][aria-label], [role="region"][aria-labelledby]',
+  );
+  if (!region) return undefined;
+  const candidates = [...new Set(region.querySelectorAll<HTMLElement>(
+    '[role="status"][id], [aria-live]:not([aria-live="off"])[id]',
+  ))].filter((element) => element.id.trim().length > 0);
+  if (candidates.length !== 1) return undefined;
+  const candidate = candidates[0]!;
+  return {
+    id: "success-message",
+    label: candidate.getAttribute("aria-label")?.trim() || "Success message",
+    type: "visible_element",
+    value: `#${CSS.escape(candidate.id)}`,
+  };
+}
+
 function scanForms(): FormCandidate[] {
   return [...document.querySelectorAll<HTMLFormElement>("form")].map((form, index) => {
     const id = form.id || form.getAttribute("name") || `form_${index + 1}`;
@@ -298,6 +316,10 @@ function scanForms(): FormCandidate[] {
     }
     if (form.dataset.successUrl) {
       successSignals.push({ id: "thank-you-url", label: "Thank-you URL", type: "thank_you_url", value: form.dataset.successUrl });
+    }
+    if (successSignals.length === 0) {
+      const adjacent = adjacentFormSuccessSignal(form);
+      if (adjacent) successSignals.push(adjacent);
     }
     return { id, label, selector, pageUrl: location.href, successSignals };
   });

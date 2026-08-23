@@ -88,3 +88,68 @@ test("clarifies a form intent and requires explicit specification confirmation",
     await rm(profile, { recursive: true, force: true });
   }
 });
+
+test("uses one adjacent stable status as form success evidence and rejects ambiguity", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "gtm-observability-adjacent-success-"));
+  const context = await chromium.launchPersistentContext(profile, {
+    channel: "chromium",
+    headless: true,
+    args: [
+      `--disable-extensions-except=${resolve("apps/extension/dist")}`,
+      `--load-extension=${resolve("apps/extension/dist")}`,
+    ],
+  });
+  await context.route("https://www.googletagmanager.com/**", (route) => route.fulfill({
+    contentType: "application/javascript",
+    body: "",
+  }));
+  await context.route("http://127.0.0.1:4175/ambiguous-status", (route) => route.fulfill({
+    contentType: "text/html",
+    body: `<!doctype html><main><section>
+      <form id="ambiguous-form" aria-label="Ambiguous lead form"><button type="submit">Send</button></form>
+      <p id="first-status" role="status" hidden>First outcome</p>
+      <p id="second-status" aria-live="polite" hidden>Second outcome</p>
+    </section></main>`,
+  }));
+  await context.route("http://127.0.0.1:4175/unaddressable-status", (route) => route.fulfill({
+    contentType: "text/html",
+    body: `<!doctype html><main><section>
+      <form id="unaddressable-form" aria-label="Unaddressable lead form"><button type="submit">Send</button></form>
+      <p role="status" hidden>Outcome without a stable identifier</p>
+    </section></main>`,
+  }));
+
+  async function submitIntent(url: string) {
+    const page = await context.newPage();
+    await page.goto(url);
+    const root = page.locator("#gtm-observability-root");
+    const assistant = root.locator("section.assistant");
+    await expect(assistant).toBeAttached();
+    if (await assistant.evaluate((element) => element.classList.contains("collapsed"))) {
+      await root.getByRole("button", { name: "Open tracking assistant" }).click();
+    }
+    await root.getByLabel("Tracking request").fill("Track successful submissions of this form");
+    await root.getByRole("button", { name: "Send request" }).click();
+    return { page, root };
+  }
+
+  try {
+    const discovered = await submitIntent("http://127.0.0.1:4175/");
+    await expect(discovered.root.getByText(
+      /successful Disposable workflow smoke form submission as generate_lead/,
+    )).toBeVisible();
+    await expect(discovered.root.getByRole("button", { name: "Review setup" })).toBeVisible();
+    await expect(discovered.root.getByText(/diagnostic handoff/i)).toHaveCount(0);
+
+    const ambiguous = await submitIntent("http://127.0.0.1:4175/ambiguous-status");
+    await expect(ambiguous.root.getByText(/cannot safely observe what proves it succeeded/i)).toBeVisible();
+    await expect(ambiguous.root.getByRole("button", { name: "Review setup" })).toHaveCount(0);
+
+    const unaddressable = await submitIntent("http://127.0.0.1:4175/unaddressable-status");
+    await expect(unaddressable.root.getByText(/cannot safely observe what proves it succeeded/i)).toBeVisible();
+    await expect(unaddressable.root.getByRole("button", { name: "Review setup" })).toHaveCount(0);
+  } finally {
+    await context.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});
