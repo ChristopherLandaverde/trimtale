@@ -59,20 +59,28 @@ The agent currently supports:
   browser verification, and a structured final result rather than simulated streaming
   response bubbles.
 
-The conversation classifier and state transitions are deterministic today. The
-agent-turn contract is provider-neutral and retains a deterministic fallback, but no
-production model currently interprets tracking intents or decides whether evidence
-passed. Model-backed suggestion mode still requires the weighted provider comparison
-and an explicit routing decision.
+The agent-turn contract is provider-neutral and retains a deterministic fallback.
+Navigation scope now uses explicit deterministic wording first and can route genuinely
+fuzzy group references through a schema-validated local Ollama model. The model may
+propose only supplied group IDs and never confirms scope, outputs selectors, changes
+GTM, or decides whether evidence passed. General form-intake interpretation remains
+deterministic.
 
 ### Navigation setup generation
 
-After navigation targets are confirmed, the assistant generates a `navigation_click` GTM container file containing:
+After an observed navigation target group is confirmed, the agent generates a
+`navigation_click` GTM container file containing:
 
 - One GA4 event tag.
-- One link-click trigger limited to the confirmed URLs.
-- Required click variables.
+- One link-click trigger constrained by both confirmed URLs and confirmed target selectors.
+- One reusable navigation-area variable.
+- Required click-text, click-URL, and click-element variables.
+- `link_text`, `link_url`, and `navigation_area` event parameters.
 - The configured GA4 measurement ID.
+
+Header, footer, and separately labeled navigation landmarks remain distinct even when
+they contain the same destination URL. Intake shows groups rather than defaulting to
+every link, and the generated setup records explicit included and excluded groups.
 
 The agent marks Setup generation as passed only when this artifact exists and offers `Download GTM setup`. The downloaded file is named `gtm-observability-navigation-click.json`.
 
@@ -212,7 +220,9 @@ abort signal, validates structured provider output, and pairs accepted interpret
 with the deterministic baseline. Its privacy-safe records exclude messages, labels,
 raw responses, prompts, credentials, and exception text.
 
-No model output influences the visible assistant or deterministic workflow.
+The evaluation harness remains backend-only and is not a product feature. Separately,
+the visible navigation-scope workflow can use the bounded local Ollama adapter described
+above; invalid or unavailable local output falls back without changing authority.
 
 Each shadow record can now be evaluated against its corpus expectation as `pass`,
 `fail`, `hard_failure`, or `inconclusive`. A pass requires all five weighted dimensions

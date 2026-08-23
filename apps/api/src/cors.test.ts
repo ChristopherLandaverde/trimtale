@@ -15,6 +15,7 @@ describe("API CORS boundary", () => {
       "/api/google/workflows/operation_spec_123/resume",
       "/api/intake-evaluations",
       "/api/intake-evaluations/intake_report_123",
+      "/api/agent/navigation-scope",
     ]) {
       expect(corsDecision(pathname, "https://attacker.example", undefined)).toEqual({
         allowed: false,
@@ -59,6 +60,16 @@ describe("API CORS boundary", () => {
       expect(corsDecision(pathname, extensionOrigin, "*")).toEqual({ allowed: false });
       expect(corsDecision(pathname, extensionOrigin, "null")).toEqual({ allowed: false });
     }
+  });
+
+  it("protects local-agent interpretation with the exact extension origin", () => {
+    const pathname = "/api/agent/navigation-scope";
+    expect(corsDecision(pathname, extensionOrigin, extensionOrigin)).toEqual({
+      allowed: true,
+      allowOrigin: extensionOrigin,
+    });
+    expect(corsDecision(pathname, "https://attacker.example", extensionOrigin)).toEqual({ allowed: false });
+    expect(corsDecision(pathname, extensionOrigin, "*")).toEqual({ allowed: false });
   });
 
   it("preserves the public CORS behavior of non-Google local routes", () => {

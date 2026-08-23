@@ -121,8 +121,16 @@ A click on a practitioner-confirmed navigation element, recorded through one con
 _Avoid_: Menu click, individual link event
 
 **Navigation scope**:
-The set of navigation elements discovered by the agent and confirmed by the tracking practitioner before a tracking setup is created.
-_Avoid_: All links, automatic selection
+A practitioner-confirmed set of observed navigation target groups, including explicit page regions and exclusions, that defines which navigation interactions belong to one tracking specification.
+_Avoid_: All links, automatic selection, URL list
+
+**Observed target group**:
+A privacy-filtered collection of browser-visible targets that share one semantic role and page region, such as primary header navigation or footer navigation.
+_Avoid_: Selector list, model-generated group, all matching elements
+
+**Container inventory**:
+A normalized, version-bound account of the tags, triggers, and variables in one GTM workspace, including their dependencies and managed ownership.
+_Avoid_: Raw container dump, model context, tag list
 
 **Generated container file**:
 A downloadable GTM-compatible JSON file containing the ordinary tags, triggers, and variables for a tracking setup, intended to be imported into a GTM workspace.

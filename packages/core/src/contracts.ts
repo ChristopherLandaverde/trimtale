@@ -1,4 +1,5 @@
 import type { NavigationElement } from "./types.js";
+import { validateNavigationScope, type NavigationScopeV1 } from "./navigation-scope.js";
 
 export const TRACKING_SCHEMA_VERSION = 1 as const;
 
@@ -35,6 +36,7 @@ export interface TrackingSpecificationV1 {
     pageUrl: string;
     href?: string;
   }>;
+  navigationScope?: NavigationScopeV1;
   successEvidence: SuccessEvidence[];
 }
 
@@ -183,6 +185,10 @@ export function validateTrackingSpecification(value: unknown): string[] {
       }
     });
   }
+  if (value.navigationScope !== undefined) {
+    if (interaction !== "navigation_click") errors.push("navigationScope is only valid for navigation clicks");
+    errors.push(...validateNavigationScope(value.navigationScope));
+  }
   if (value.status === "confirmed" && outcome?.practitionerConfirmed !== true) {
     errors.push("confirmed specifications require practitioner confirmation");
   }
@@ -261,6 +267,7 @@ export function navigationSpecification(
   intent: string,
   pageUrl: string,
   navigation: NavigationElement[],
+  navigationScope?: NavigationScopeV1,
 ): TrackingSpecificationV1 {
   const specification: TrackingSpecificationV1 = {
     schemaVersion: TRACKING_SCHEMA_VERSION,
@@ -271,7 +278,7 @@ export function navigationSpecification(
     conversionOutcome: { type: "navigation", practitionerConfirmed: true },
     event: {
       name: "navigation_click",
-      requiredParameters: ["link_text", "link_url"],
+      requiredParameters: ["link_text", "link_url", "navigation_area"],
       optionalParameters: ["page_location"],
     },
     targets: navigation.map((item) => ({
@@ -281,6 +288,7 @@ export function navigationSpecification(
       pageUrl,
       href: item.href,
     })),
+    ...(navigationScope ? { navigationScope } : {}),
     successEvidence: [],
   };
   assertTrackingSpecification(specification);

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   agentTurnForIntake,
+  agentTurnForNavigationScope,
+  discoverNavigationTargetGroups,
+  interpretNavigationScopeDeterministically,
   isAgentTurnV1,
   type FormCandidate,
 } from "./index.js";
@@ -22,6 +25,34 @@ function form(id: string, label: string): FormCandidate {
 }
 
 describe("provider-neutral agent turns", () => {
+  it("turns navigation groups into one confirmable local-model suggestion", () => {
+    const navigation = [
+      { id: "header", text: "Pricing", href: "https://example.test/pricing", area: "header" as const, selector: "header a", groupId: "primary", groupLabel: "Primary navigation" },
+      { id: "footer", text: "Pricing", href: "https://example.test/pricing", area: "footer" as const, selector: "footer a", groupId: "footer", groupLabel: "Footer navigation" },
+    ];
+    const groups = discoverNavigationTargetGroups(navigation);
+    const intake = interpretConversationIntent("Track header navigation", { navigationCount: 2, forms: [] });
+    const interpretation = interpretNavigationScopeDeterministically(["Track header navigation"], groups);
+    const turn = agentTurnForNavigationScope(
+      intake,
+      { formCount: 0, navigationCount: 2 },
+      groups,
+      interpretation,
+      "local_model",
+      "qwen3:30b",
+    );
+    expect(turn.task.summary).toContain("Primary navigation");
+    expect(turn.actions).toEqual([
+      { id: "confirm-navigation-suggestion", label: "Confirm suggested scope" },
+      { id: "choose-navigation-groups", label: "Change scope" },
+    ]);
+    expect(turn.receipts.at(-1)).toMatchObject({
+      id: "scope-interpreted",
+      detail: "Local model qwen3:30b; confirmation still required",
+    });
+    expect(isAgentTurnV1(turn)).toBe(true);
+  });
+
   it("turns ambiguous intake into one grounded task, plan, question, and receipt", () => {
     const forms = [form("contact", "Contact sales"), form("newsletter", "Newsletter signup")];
     const intake = interpretConversationIntent("Track leads", { navigationCount: 5, forms });

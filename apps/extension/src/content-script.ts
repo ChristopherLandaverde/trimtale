@@ -1,5 +1,6 @@
 import {
   agentTurnForIntake,
+  createConfirmedNavigationScope,
   createFormSetupProposal,
   createSetupProposal,
   determineFormVerdict,
@@ -15,6 +16,9 @@ import {
   type FormCandidate,
   type NavigationArea,
   type NavigationElement,
+  type NavigationScopeInterpretationV1,
+  type NavigationScopeV1,
+  type NavigationTargetGroupV1,
   type SuccessEvidence,
   type SetupProposal,
   type TrackingRunEvidenceV1,
@@ -157,6 +161,8 @@ let highlightTone: "candidate" | "confirmed" = "candidate";
 const responseNodes = new Map<string, HTMLElement>();
 const agentTaskNodes = new Map<string, HTMLElement>();
 const navigationByRequest = new Map<string, NavigationElement[]>();
+const navigationGroupsByRequest = new Map<string, NavigationTargetGroupV1[]>();
+const navigationScopeInterpretationByRequest = new Map<string, NavigationScopeInterpretationV1>();
 const requestTimeouts = new Map<string, number>();
 const intakeByRequest = new Map<string, ConversationIntakeResult>();
 const formsByRequest = new Map<string, FormCandidate[]>();
@@ -237,7 +243,10 @@ function formSetupProposal(result: ConversationIntakeResult) {
   });
 }
 
-function navigationSetupProposal(navigation: NavigationElement[]): SetupProposal | undefined {
+function navigationSetupProposal(
+  navigation: NavigationElement[],
+  navigationScope?: NavigationScopeV1,
+): SetupProposal | undefined {
   const connected = connectedSetupContext();
   const measurementId = connected?.measurementId ?? fixtureMeta("gtm-observability-measurement-id");
   const runtime = inspectGtmRuntime();
@@ -250,6 +259,7 @@ function navigationSetupProposal(navigation: NavigationElement[]): SetupProposal
     pageUrl: location.href,
     measurementId,
     navigation,
+    ...(navigationScope ? { navigationScope } : {}),
     container: connected?.container
       ?? { accountId: "0", containerId: "0", publicId, name: "GTM Observability import" },
   });
@@ -560,21 +570,71 @@ function areaFor(element: Element): NavigationArea {
   return "unknown";
 }
 
-function selectorFor(anchor: HTMLAnchorElement, index: number): string {
-  if (anchor.id) return `#${CSS.escape(anchor.id)}`;
-  const area = anchor.closest("header, footer, nav, [role='navigation']");
-  const prefix = area?.tagName.toLowerCase() ?? "body";
-  const href = anchor.getAttribute("href");
-  return href ? `${prefix} a[href="${CSS.escape(href)}"]` : `${prefix} a:nth-of-type(${index + 1})`;
+function navigationLandmark(anchor: HTMLAnchorElement): Element {
+  return anchor.closest("nav, [role='navigation']")
+    ?? anchor.closest("header, footer")
+    ?? anchor;
 }
 
-function stableId(selector: string, href: string): string {
+function quotedCssValue(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"").replace(/[\n\r\f]/g, " ");
+}
+
+function landmarkSelector(landmark: Element, area: NavigationArea): string {
+  if (landmark.id) return `#${CSS.escape(landmark.id)}`;
+  const tag = landmark.tagName.toLowerCase();
+  const ariaLabel = landmark.getAttribute("aria-label")?.replace(/\s+/g, " ").trim();
+  const prefix = area === "header" && tag !== "header" ? "header "
+    : area === "footer" && tag !== "footer" ? "footer "
+      : "";
+  if (ariaLabel) return `${prefix}${tag}[aria-label="${quotedCssValue(ariaLabel)}"]`;
+  const siblings = landmark.parentElement
+    ? [...landmark.parentElement.children].filter((candidate) => candidate.tagName === landmark.tagName)
+    : [];
+  const position = Math.max(0, siblings.indexOf(landmark)) + 1;
+  return `${prefix}${tag}:nth-of-type(${position})`;
+}
+
+function landmarkLabel(landmark: Element, area: NavigationArea): string {
+  const fallback = area === "header"
+    ? landmark.matches("nav, [role='navigation']") ? "Header navigation" : "Header links"
+    : area === "footer"
+      ? landmark.matches("nav, [role='navigation']") ? "Footer navigation" : "Footer links"
+      : area === "nav" ? "Navigation" : "Unclassified navigation";
+  const safe = (value: string | undefined): string | undefined => {
+    const normalized = value?.replace(/\s+/g, " ").trim();
+    if (!normalized || /[<>\u0000-\u001f\u007f]/.test(normalized)
+      || /\b(?:ignore|disregard|override)\b.{0,40}\b(?:instruction|prompt|system|developer)\b/i.test(normalized)) {
+      return undefined;
+    }
+    return normalized.slice(0, 120);
+  };
+  const ariaLabel = landmark.getAttribute("aria-label")?.replace(/\s+/g, " ").trim();
+  const safeAriaLabel = safe(ariaLabel);
+  if (safeAriaLabel) return safeAriaLabel;
+  const labelledBy = landmark.getAttribute("aria-labelledby");
+  const labelledText = labelledBy
+    ? document.getElementById(labelledBy)?.textContent?.replace(/\s+/g, " ").trim()
+    : undefined;
+  const safeLabelledText = safe(labelledText);
+  return safeLabelledText ?? fallback;
+}
+
+function selectorFor(anchor: HTMLAnchorElement, index: number, rootSelector: string): string {
+  if (anchor.id) return `#${CSS.escape(anchor.id)}`;
+  const href = anchor.getAttribute("href");
+  return href
+    ? `${rootSelector} a[href="${quotedCssValue(href)}"]`
+    : `${rootSelector} a:nth-of-type(${index + 1})`;
+}
+
+function stableHash(prefix: string, value: string): string {
   let hash = 2166136261;
-  for (const character of `${selector}\u0000${href}`) {
+  for (const character of value) {
     hash ^= character.charCodeAt(0);
     hash = Math.imul(hash, 16777619);
   }
-  return `nav_${(hash >>> 0).toString(16)}`;
+  return `${prefix}_${(hash >>> 0).toString(16)}`;
 }
 
 function scanNavigation(): ScanResponse {
@@ -583,16 +643,21 @@ function scanNavigation(): ScanResponse {
   const navigation: NavigationElement[] = [];
   candidates.forEach((anchor, index) => {
     if (!anchor.href || anchor.hidden || anchor.getAttribute("aria-hidden") === "true") return;
-    const selector = selectorFor(anchor, index);
+    const area = areaFor(anchor);
+    const landmark = navigationLandmark(anchor);
+    const rootSelector = landmarkSelector(landmark, area);
+    const selector = selectorFor(anchor, index, rootSelector);
     const key = `${selector}\u0000${anchor.href}`;
     if (seen.has(key)) return;
     seen.add(key);
     navigation.push({
-      id: stableId(selector, anchor.href),
+      id: stableHash("nav", key),
       text: (anchor.innerText || anchor.getAttribute("aria-label") || "Untitled link").replace(/\s+/g, " ").trim(),
       href: anchor.href,
-      area: areaFor(anchor),
+      area,
       selector,
+      groupId: stableHash("navgroup", `${area}\u0000${rootSelector}`),
+      groupLabel: landmarkLabel(landmark, area),
     });
   });
   return { pageUrl: location.href, title: document.title, navigation };
@@ -1423,10 +1488,20 @@ function renderEvidencePath(context: EvidencePathContext, requestId?: string): v
   responseList?.scrollTo({ top: responseList.scrollHeight });
 }
 
-function confirmNavigation(navigation: NavigationElement[]): void {
+function confirmNavigation(
+  navigation: NavigationElement[],
+  groupLabels: string[] = [],
+  observedNavigation: NavigationElement[] = navigation,
+  navigationScope?: NavigationScopeV1,
+): void {
   highlightTargets(navigationTargets(navigation), "confirmed");
-  addMessage(`${navigation.length} navigation link${navigation.length === 1 ? "" : "s"} selected and highlighted on the page.`, "assistant");
-  const proposal = navigationSetupProposal(navigation);
+  addMessage(
+    groupLabels.length > 0
+      ? `${groupLabels.join(" and ")} confirmed: ${navigation.length} navigation link${navigation.length === 1 ? "" : "s"} highlighted on the page.`
+      : `${navigation.length} navigation link${navigation.length === 1 ? "" : "s"} selected and highlighted on the page.`,
+    "assistant",
+  );
+  const proposal = navigationSetupProposal(observedNavigation, navigationScope);
   renderEvidencePath({
     intentDetail: "Navigation clicks → navigation_click",
     inspectedDetail: `${navigation.length} matching link${navigation.length === 1 ? "" : "s"} found`,
@@ -1437,6 +1512,15 @@ function confirmNavigation(navigation: NavigationElement[]): void {
       : "Connect a GTM container and GA4 measurement ID to generate setup",
   });
   if (proposal) renderNavigationSetupDownload(proposal);
+}
+
+function confirmNavigationGroups(requestId: string, includedGroupIds: string[]): void {
+  const groups = navigationGroupsByRequest.get(requestId) ?? [];
+  const scope = createConfirmedNavigationScope(groups, includedGroupIds);
+  const selectedIds = new Set(scope.targetIds);
+  const navigation = (navigationByRequest.get(requestId) ?? []).filter(({ id }) => selectedIds.has(id));
+  const labels = groups.filter(({ id }) => scope.includedGroupIds.includes(id)).map(({ label }) => label);
+  confirmNavigation(navigation, labels, navigationByRequest.get(requestId) ?? [], scope);
 }
 
 function renderNavigationSetupDownload(proposal: SetupProposal): void {
@@ -1457,37 +1541,46 @@ function renderNavigationSetupDownload(proposal: SetupProposal): void {
   responseList?.scrollTo({ top: responseList.scrollHeight });
 }
 
-function renderNavigationPicker(navigation: NavigationElement[]): void {
-  highlightTargets(navigationTargets(navigation), "candidate");
+function renderNavigationGroupPicker(requestId: string): void {
+  const groups = navigationGroupsByRequest.get(requestId) ?? [];
+  const navigation = navigationByRequest.get(requestId) ?? [];
+  const suggested = new Set(navigationScopeInterpretationByRequest.get(requestId)?.candidateGroupIds ?? []);
   const picker = document.createElement("div");
-  picker.className = "picker";
-  for (const item of navigation) {
+  picker.className = "picker navigation-group-picker";
+  const selectedNavigation = (): NavigationElement[] => {
+    const groupIds = new Set([...picker.querySelectorAll<HTMLInputElement>("input:checked")]
+      .map((node) => node.dataset.navigationGroupId));
+    const targetIds = new Set(groups.filter(({ id }) => groupIds.has(id)).flatMap(({ targetIds }) => targetIds));
+    return navigation.filter(({ id }) => targetIds.has(id));
+  };
+  for (const group of groups) {
     const label = document.createElement("label");
     label.className = "pick";
     const input = document.createElement("input");
     input.type = "checkbox";
-    input.checked = true;
-    input.dataset.navigationId = item.id;
-    input.addEventListener("change", () => {
-      const selectedIds = new Set([...picker.querySelectorAll<HTMLInputElement>("input:checked")].map((node) => node.dataset.navigationId));
-      highlightTargets(navigationTargets(navigation.filter((candidate) => selectedIds.has(candidate.id))), "candidate");
-    });
+    input.checked = suggested.has(group.id);
+    input.dataset.navigationGroupId = group.id;
+    input.addEventListener("change", () => highlightTargets(navigationTargets(selectedNavigation()), "candidate"));
     const copy = document.createElement("span");
-    copy.textContent = item.text;
-    const area = document.createElement("small");
-    area.textContent = item.area;
-    label.append(input, copy, area);
+    copy.textContent = group.label;
+    const detail = document.createElement("small");
+    detail.textContent = `${group.area} · ${group.targetCount} link${group.targetCount === 1 ? "" : "s"}`;
+    label.append(input, copy, detail);
     picker.append(label);
   }
+  highlightTargets(navigationTargets(selectedNavigation()), "candidate");
   const confirm = document.createElement("button");
   confirm.className = "quick primary-quick";
-  confirm.textContent = "Confirm selection";
+  confirm.textContent = "Confirm navigation scope";
   confirm.addEventListener("click", () => {
-    const selectedIds = new Set([...picker.querySelectorAll<HTMLInputElement>("input:checked")].map((node) => node.dataset.navigationId));
-    const selected = navigation.filter((item) => selectedIds.has(item.id));
-    if (!selected.length) { addMessage("Choose at least one link.", "assistant"); return; }
+    const ids = [...picker.querySelectorAll<HTMLInputElement>("input:checked")]
+      .flatMap((node) => node.dataset.navigationGroupId ? [node.dataset.navigationGroupId] : []);
+    if (ids.length === 0) {
+      addMessage("Choose at least one navigation group.", "assistant");
+      return;
+    }
     picker.remove();
-    confirmNavigation(selected);
+    confirmNavigationGroups(requestId, ids);
   });
   picker.append(confirm);
   responseList?.append(picker);
@@ -1591,12 +1684,17 @@ function handleAssistantAction(actionId: string, requestId: string): void {
     submitPrompt();
     return;
   }
-  if (actionId === "track-all-navigation") {
-    confirmNavigation(navigationByRequest.get(requestId) ?? []);
+  if (actionId === "confirm-navigation-suggestion") {
+    const candidateIds = navigationScopeInterpretationByRequest.get(requestId)?.candidateGroupIds ?? [];
+    if (candidateIds.length > 0) confirmNavigationGroups(requestId, candidateIds);
     return;
   }
-  if (actionId === "choose-navigation") {
-    renderNavigationPicker(navigationByRequest.get(requestId) ?? []);
+  if (actionId === "choose-navigation-groups") {
+    renderNavigationGroupPicker(requestId);
+    return;
+  }
+  if (actionId.startsWith("scope:")) {
+    confirmNavigationGroups(requestId, [actionId.slice("scope:".length)]);
     return;
   }
   const intake = intakeByRequest.get(requestId);
@@ -1722,6 +1820,8 @@ function connectAssistant(): chrome.runtime.Port {
     requestId?: string;
     turn?: unknown;
     navigation?: NavigationElement[];
+    navigationGroups?: NavigationTargetGroupV1[];
+    navigationScopeInterpretation?: NavigationScopeInterpretationV1;
     forms?: FormCandidate[];
     intake?: ConversationIntakeResult;
   }) => {
@@ -1740,6 +1840,10 @@ function connectAssistant(): chrome.runtime.Port {
       if (timeout !== undefined) window.clearTimeout(timeout);
       requestTimeouts.delete(message.requestId);
       navigationByRequest.set(message.requestId, message.navigation ?? []);
+      navigationGroupsByRequest.set(message.requestId, message.navigationGroups ?? []);
+      if (message.navigationScopeInterpretation) {
+        navigationScopeInterpretationByRequest.set(message.requestId, message.navigationScopeInterpretation);
+      }
       formsByRequest.set(message.requestId, message.forms ?? []);
       if (message.intake) {
         intakeByRequest.set(message.requestId, message.intake);
@@ -1768,7 +1872,7 @@ function submitPrompt(): void {
     responseNodes.delete(requestId);
     requestTimeouts.delete(requestId);
     port?.disconnect();
-  }, 8_000));
+  }, 35_000));
   const scan = scanNavigation();
   const forms = scanForms();
   connectAssistant().postMessage({

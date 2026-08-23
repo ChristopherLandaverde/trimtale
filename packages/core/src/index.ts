@@ -14,6 +14,7 @@ export * from "./intake-interpretation.js";
 export * from "./intake-shadow.js";
 export * from "./managed-workspace.js";
 export * from "./navigation.js";
+export * from "./navigation-scope.js";
 export * from "./types.js";
 export * from "./verification.js";
 export * from "./verified-resolution.js";

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  createContainerInventory,
   createTrackingChangePlan,
   GTM_MANAGED_ENTITY_NOTE,
   type GtmEntitySet,
@@ -59,6 +60,31 @@ function entities(setup: ReturnType<typeof navigationSetup>): GtmEntitySet {
 }
 
 describe("tracking change plan", () => {
+  it("summarizes and plans deterministically with 200 unrelated existing tags", () => {
+    const current: GtmEntitySet = {
+      tag: Array.from({ length: 200 }, (_, index) => ({
+        tagId: String(index + 1),
+        name: `Existing tag ${String(index + 1).padStart(3, "0")}`,
+        type: "html",
+        parameter: [{ type: "TEMPLATE", key: "html", value: `<script>window.tag${index}=true</script>` }],
+      })),
+    };
+    const inventory = createContainerInventory(current);
+    expect(inventory).toMatchObject({
+      schemaVersion: 1,
+      totalEntityCount: 200,
+      managedEntityCount: 0,
+      counts: { tag: 200, trigger: 0, variable: 0, builtInVariable: 0 },
+    });
+    expect(createContainerInventory({ tag: [...current.tag!].reverse() }).fingerprint)
+      .toBe(inventory.fingerprint);
+    const first = createTrackingChangePlan(navigationSetup(), current);
+    const second = createTrackingChangePlan(navigationSetup(), current);
+    expect(second).toEqual(first);
+    expect(first.status).toBe("ready");
+    expect(first.actions.every(({ action }) => action === "create")).toBe(true);
+  });
+
   it.each([
     ["navigation", navigationSetup],
     ["lead form", formSetup],

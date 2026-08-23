@@ -1,10 +1,17 @@
 import { isNavigationIntent, normalizeNavigation } from "./navigation.js";
+import {
+  createConfirmedNavigationScope,
+  discoverNavigationTargetGroups,
+  validateNavigationScope,
+  type NavigationScopeV1,
+} from "./navigation-scope.js";
 import { assertTrackingSpecification, navigationSpecification, type SuccessEvidence } from "./contracts.js";
 import type {
   FormSetupProposal,
   FormSetupRequest,
   GtmContainerExport,
   GtmParameter,
+  NavigationElement,
   SetupProposal,
   SetupRequest,
 } from "./types.js";
@@ -68,10 +75,29 @@ export function validateSetupRequest(request: SetupRequest): string[] {
   } catch {
     errors.push("pageUrl must be a valid URL.");
   }
-  if (normalizeNavigation(request.navigation).length === 0) {
+  const navigation = normalizeNavigation(request.navigation);
+  if (navigation.length === 0) {
     errors.push("At least one confirmed navigation element is required.");
   }
+  if (request.navigationScope) {
+    errors.push(...validateNavigationScope(
+      request.navigationScope,
+      discoverNavigationTargetGroups(navigation),
+    ));
+  }
   return errors;
+}
+
+function resolvedNavigationScope(
+  navigation: NavigationElement[],
+  requested?: NavigationScopeV1,
+): { navigation: NavigationElement[]; scope: NavigationScopeV1 } {
+  const groups = discoverNavigationTargetGroups(navigation);
+  const scope = requested ?? createConfirmedNavigationScope(groups, groups.map(({ id }) => id));
+  const errors = validateNavigationScope(scope, groups);
+  if (errors.length > 0) throw new Error(errors.join(" "));
+  const targetIds = new Set(scope.targetIds);
+  return { navigation: navigation.filter(({ id }) => targetIds.has(id)), scope };
 }
 
 function unsafeSelector(value: string): boolean {
@@ -193,6 +219,7 @@ function createContainerFile(request: SetupRequest): GtmContainerExport {
   const triggerId = "900001";
   const tagId = "900002";
   const pattern = scopedUrlPattern([...new Set(navigation.map((item) => item.href))]);
+  const selectorPattern = [...new Set(navigation.map((item) => item.selector))].join(", ");
 
   return {
     exportFormatVersion: 2,
@@ -228,6 +255,13 @@ function createContainerFile(request: SetupRequest): GtmContainerExport {
                 { type: "BOOLEAN", key: "ignore_case", value: "false" },
               ],
             },
+            {
+              type: "CSS_SELECTOR",
+              parameter: [
+                template("arg0", "{{Click Element}}"),
+                template("arg1", selectorPattern),
+              ],
+            },
           ],
           waitForTags: { type: "BOOLEAN", value: "false" },
           checkValidation: { type: "BOOLEAN", value: "true" },
@@ -255,6 +289,10 @@ function createContainerFile(request: SetupRequest): GtmContainerExport {
                   ["name", "link_url"],
                   ["value", "{{Click URL}}"],
                 ]),
+                map([
+                  ["name", "navigation_area"],
+                  ["value", "{{GTM Observability - Navigation Area}}"],
+                ]),
               ],
             },
           ],
@@ -264,9 +302,21 @@ function createContainerFile(request: SetupRequest): GtmContainerExport {
           consentSettings: { consentStatus: "NOT_SET" },
         },
       ],
+      variable: [{
+        accountId,
+        containerId,
+        variableId: "900003",
+        name: "GTM Observability - Navigation Area",
+        type: "jsm",
+        parameter: [template(
+          "javascript",
+          "function(){var e={{Click Element}};if(!e||!e.closest)return 'unknown';if(e.closest('header'))return 'header';if(e.closest('footer'))return 'footer';if(e.closest('nav,[role=\\\"navigation\\\"]'))return 'nav';return 'unknown';}",
+        )],
+      }],
       builtInVariable: [
         { accountId, containerId, type: "CLICK_TEXT", name: "Click Text" },
         { accountId, containerId, type: "CLICK_URL", name: "Click URL" },
+        { accountId, containerId, type: "CLICK_ELEMENT", name: "Click Element" },
       ],
     },
   };
@@ -276,23 +326,32 @@ export function createSetupProposal(request: SetupRequest): SetupProposal {
   const errors = validateSetupRequest(request);
   if (errors.length > 0) throw new Error(errors.join(" "));
 
-  const navigation = normalizeNavigation(request.navigation);
+  const resolved = resolvedNavigationScope(normalizeNavigation(request.navigation), request.navigationScope);
+  const navigation = resolved.navigation;
   const fingerprint = shortHash(
     JSON.stringify({
       pageUrl: request.pageUrl,
       measurementId: request.measurementId,
       navigation,
+      navigationScope: resolved.scope,
     }),
   );
 
   const id = `setup_${fingerprint}_${randomSuffix()}`;
   return {
     id,
-    specification: navigationSpecification(`spec_${fingerprint}`, request.intent, request.pageUrl, navigation),
+    specification: navigationSpecification(
+      `spec_${fingerprint}`,
+      request.intent,
+      request.pageUrl,
+      navigation,
+      resolved.scope,
+    ),
     eventName: "navigation_click",
     pageUrl: request.pageUrl,
     measurementId: request.measurementId.toUpperCase(),
     navigation,
+    navigationScope: resolved.scope,
     warnings: [
       "Apply to the recognized managed workspace, or import with Merge into an existing review workspace. Never choose Overwrite.",
       "This preflight does not confirm GA4 platform processing.",
@@ -302,10 +361,10 @@ export function createSetupProposal(request: SetupRequest): SetupProposal {
       checks: [
         `${navigation.length} navigation element(s) confirmed`,
         "Measurement ID format is valid",
-        "Generated trigger is scoped to confirmed link URLs",
+        "Generated trigger is scoped to confirmed link URLs and target selectors",
         "Required click variables are included",
       ],
     },
-    containerFile: createContainerFile({ ...request, navigation }),
+    containerFile: createContainerFile({ ...request, navigation, navigationScope: resolved.scope }),
   };
 }

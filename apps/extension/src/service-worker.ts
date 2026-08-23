@@ -1,9 +1,16 @@
 import {
+  agentTurnForNavigationScope,
   agentTurnForIntake,
+  createNavigationScopeInterpretationInput,
+  discoverNavigationTargetGroups,
   interpretConversationIntent,
+  interpretNavigationScopeDeterministically,
+  isNavigationScopeInterpretationV1,
+  shouldUseLocalNavigationScopeInterpretation,
   type BrowserEvidence,
   type FormCandidate,
   type NavigationElement,
+  type NavigationScopeInterpretationV1,
 } from "@gtm-observability/core";
 
 async function toggleAssistant(tab: chrome.tabs.Tab): Promise<void> {
@@ -44,19 +51,59 @@ chrome.runtime.onConnect.addListener((port) => {
       navigationCount: page.navigation.length,
       forms: page.forms ?? [],
     });
-    const turn = agentTurnForIntake(intake, {
+    const context = {
       formCount: page.forms.length,
       navigationCount: page.navigation.length,
       ...(message.connection ? { connection: message.connection } : {}),
-    });
-    port.postMessage({
-      type: "AGENT_TURN",
-      requestId: message.requestId,
-      turn,
-      navigation: page.navigation,
-      forms: page.forms,
-      intake,
-    });
+    };
+    const groups = discoverNavigationTargetGroups(page.navigation);
+    const send = (
+      interpretation?: NavigationScopeInterpretationV1,
+      source: "local_model" | "deterministic" = "deterministic",
+      model?: string,
+    ): void => {
+      const turn = intake.interaction === "navigation_click" && interpretation
+        ? agentTurnForNavigationScope(intake, context, groups, interpretation, source, model)
+        : agentTurnForIntake(intake, context);
+      port.postMessage({
+        type: "AGENT_TURN",
+        requestId: message.requestId,
+        turn,
+        navigation: page.navigation,
+        navigationGroups: groups,
+        ...(interpretation ? { navigationScopeInterpretation: interpretation } : {}),
+        forms: page.forms,
+        intake,
+      });
+    };
+    if (intake.interaction !== "navigation_click" || groups.length === 0) {
+      send();
+      return;
+    }
+    const fallback = interpretNavigationScopeDeterministically([message.prompt], groups);
+    if (fallback.candidateGroupIds.length > 0) {
+      send(fallback, "deterministic");
+      return;
+    }
+    if (!shouldUseLocalNavigationScopeInterpretation([message.prompt])) {
+      send(fallback, "deterministic");
+      return;
+    }
+    const input = createNavigationScopeInterpretationInput([message.prompt], groups);
+    void fetch("http://127.0.0.1:8787/api/agent/navigation-scope", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }).then(async (response) => {
+      if (!response.ok) throw new Error("local_model_unavailable");
+      const body: unknown = await response.json();
+      if (!isRecord(body) || !isRecord(body.provider) || body.provider.id !== "ollama"
+        || typeof body.provider.model !== "string"
+        || !isNavigationScopeInterpretationV1(body.interpretation, groups)) {
+        throw new Error("local_model_invalid");
+      }
+      send(body.interpretation, "local_model", body.provider.model);
+    }).catch(() => send(fallback, "deterministic"));
   });
 });
 

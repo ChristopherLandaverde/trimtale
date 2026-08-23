@@ -26,6 +26,7 @@ export default defineConfig({
       env: {
         EXTENSION_ORIGIN: "chrome-extension://gtm-observability-e2e",
         INTAKE_EVALUATION_REPORT_STORE: resolve("tests/fixtures/intake-evaluation-reports.json"),
+        OLLAMA_AGENT_ENABLED: "false",
       },
       reuseExistingServer,
       stdout: "pipe",

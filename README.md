@@ -100,6 +100,20 @@ It runs automatically at the start of `npm run verify`.
 
 Humans do not need to launch the development services or load the extension to verify changes. Manual Chrome loading is reserved for exploratory product review.
 
+#### Local agent model
+
+Navigation-scope interpretation is local-first. When the API is running, it uses the
+fixed loopback Ollama endpoint at `http://127.0.0.1:11434` and defaults to the installed
+`qwen3:30b` model. Set `OLLAMA_MODEL` to another installed model, or set
+`OLLAMA_AGENT_ENABLED=false` to use only the deterministic fallback.
+
+The model receives bounded user messages and privacy-filtered navigation-group
+summaries containing only group ID, inert label, page region, and target count. It
+never receives selectors, URLs, HTML, form values, browser storage, Google credentials,
+or the GTM container inventory. Explicit phrases such as “header, not footer” resolve
+deterministically; fuzzy wording such as “the menu at the top” may use Ollama. Every
+suggestion still requires practitioner confirmation.
+
 #### Agent command harness
 
 Routine local agent work is available through one closed, repository-owned command surface:

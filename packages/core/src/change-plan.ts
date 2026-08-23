@@ -11,6 +11,14 @@ export interface GtmEntitySet {
   builtInVariable?: unknown[];
 }
 
+export interface ContainerInventoryV1 {
+  schemaVersion: 1;
+  fingerprint: string;
+  totalEntityCount: number;
+  managedEntityCount: number;
+  counts: Record<GtmEntityKind, number>;
+}
+
 export type TrackingChangeAction = {
   kind: GtmEntityKind;
   generatedName: string;
@@ -59,6 +67,7 @@ const gtmValueAliases = new Map([
   ["BOOLEAN", "boolean"],
   ["CLICK_TEXT", "clickText"],
   ["CLICK_URL", "clickUrl"],
+  ["CLICK_ELEMENT", "clickElement"],
   ["CSS_SELECTOR", "cssSelector"],
   ["CUSTOM_EVENT", "customEvent"],
   ["ELEMENT_VISIBILITY", "elementVisibility"],
@@ -173,10 +182,57 @@ function signature(
   return stableJson(canonicalize(entity, mode, triggerSignatures));
 }
 
+interface IndexedEntityKind {
+  bySemanticSignature: Map<string, JsonRecord[]>;
+  byName: Map<string, JsonRecord[]>;
+}
+
+interface IndexedContainer {
+  summary: ContainerInventoryV1;
+  triggerSignatures: Map<string, string>;
+  kinds: Map<GtmEntityKind, IndexedEntityKind>;
+}
+
+function indexContainer(currentEntities: GtmEntitySet): IndexedContainer {
+  const triggers = triggerSignatureMap(currentEntities);
+  const counts = Object.fromEntries(
+    kinds.map((kind) => [kind, rawEntities(currentEntities, kind).length]),
+  ) as Record<GtmEntityKind, number>;
+  const canonicalEntities = kinds.flatMap((kind) => rawEntities(currentEntities, kind)
+    .map((entity) => `${kind}:${signature(entity, "exact", triggers)}`)
+    .sort());
+  const all = kinds.flatMap((kind) => rawEntities(currentEntities, kind));
+  const summary: ContainerInventoryV1 = {
+    schemaVersion: 1,
+    fingerprint: `inventory_${shortHash(stableJson(canonicalEntities))}`,
+    totalEntityCount: Object.values(counts).reduce((total, count) => total + count, 0),
+    managedEntityCount: all.filter((entity) => entity.notes === GTM_MANAGED_ENTITY_NOTE).length,
+    counts,
+  };
+  const indexedKinds = new Map<GtmEntityKind, IndexedEntityKind>();
+  for (const kind of kinds) {
+    const entities = rawEntities(currentEntities, kind);
+    const bySemanticSignature = new Map<string, JsonRecord[]>();
+    const byName = new Map<string, JsonRecord[]>();
+    for (const entity of entities) {
+      const semantic = signature(entity, "semantic", triggers);
+      bySemanticSignature.set(semantic, [...(bySemanticSignature.get(semantic) ?? []), entity]);
+      const name = entityName(kind, entity);
+      byName.set(name, [...(byName.get(name) ?? []), entity]);
+    }
+    indexedKinds.set(kind, { bySemanticSignature, byName });
+  }
+  return { summary, triggerSignatures: triggers, kinds: indexedKinds };
+}
+
+export function createContainerInventory(currentEntities: GtmEntitySet): ContainerInventoryV1 {
+  return indexContainer(currentEntities).summary;
+}
+
 function actionForEntity(
   kind: GtmEntityKind,
   generated: JsonRecord,
-  current: JsonRecord[],
+  current: IndexedEntityKind,
   generatedTriggers: Map<string, string>,
   currentTriggers: Map<string, string>,
 ): TrackingChangeAction {
@@ -193,9 +249,7 @@ function actionForEntity(
 
   const semantic = signature(generated, "semantic", generatedTriggers);
   const exact = signature(generated, "exact", generatedTriggers);
-  const equivalents = current.filter(
-    (candidate) => signature(candidate, "semantic", currentTriggers) === semantic,
-  );
+  const equivalents = current.bySemanticSignature.get(semantic) ?? [];
   const common = { kind, generatedName, entitySignature: shortHash(semantic) };
 
   if (equivalents.length > 1) {
@@ -207,7 +261,7 @@ function actionForEntity(
     const action = signature(equivalent, "exact", currentTriggers) === exact ? "no_op" : "reuse";
     return { ...common, action, ...(existingId ? { existingId } : {}) };
   }
-  const sameName = current.filter((candidate) => entityName(kind, candidate) === generatedName);
+  const sameName = current.byName.get(generatedName) ?? [];
   if (sameName.length === 1 && kind !== "builtInVariable"
     && sameName[0]?.notes === GTM_MANAGED_ENTITY_NOTE) {
     const existingId = entityId(kind, sameName[0]);
@@ -225,15 +279,15 @@ export function createTrackingChangePlan(
 ): TrackingChangePlan {
   const generatedEntities = generatedSetup.containerVersion;
   const generatedTriggers = triggerSignatureMap(generatedEntities);
-  const currentTriggers = triggerSignatureMap(currentEntities);
+  const current = indexContainer(currentEntities);
   const actions = kinds.flatMap((kind) =>
     rawEntities(generatedEntities, kind).map((generated) =>
       actionForEntity(
         kind,
         generated,
-        rawEntities(currentEntities, kind),
+        current.kinds.get(kind)!,
         generatedTriggers,
-        currentTriggers,
+        current.triggerSignatures,
       )),
   ).sort((left, right) =>
     kinds.indexOf(left.kind) - kinds.indexOf(right.kind)
