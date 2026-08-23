@@ -17,7 +17,7 @@ A versioned, reviewable definition derived from a tracking intent that names the
 _Avoid_: Prompt, generated tag, test script
 
 **Conversation intake**:
-The guided exchange that turns a person's potentially vague tracking intent into a draft tracking specification by discovering candidates, asking only questions that change the specification, and requiring confirmation before setup begins.
+The site-aware exchange that lets a person describe a tracking intent in everyday language, grounds references such as “the quote form at the bottom” in observed website candidates, asks only questions that change the specification, and requires confirmation before setup begins.
 _Avoid_: Free-form chatbot, prompt box, agent guess
 
 **Observed interaction**:

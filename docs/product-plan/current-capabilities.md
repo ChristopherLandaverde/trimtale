@@ -1,8 +1,8 @@
 # What GTM Observability has today
 
-Status date: 2026-08-22
+Status date: 2026-08-23
 
-GTM Observability currently turns a supported tracking request into a confirmed tracking specification, generates a reviewable GTM setup, observes the website's GTM runtime, matches the observed container to Google access, and safely prepares one reusable managed workspace. A guarded backend API can now durably plan and apply a navigation setup, validate the workspace, and create an immutable version. The website assistant does not yet invoke that API, and nothing publishes without a separate exact-version approval.
+GTM Observability currently turns a supported tracking intent into a confirmed tracking specification, generates a reviewable GTM setup, observes the website's GTM runtime, matches the observed container to Google access, and safely prepares one reusable managed workspace. A guarded backend API can durably plan and apply navigation and confirmed lead-form setups, validate the workspace, and create an immutable version. Separate backend clients can publish an exactly approved version and restore its recorded prior-live version. The website assistant does not yet expose those orchestration, approval, publication, or rollback actions.
 
 ## Current product workflow
 
@@ -36,7 +36,7 @@ The assistant currently supports:
 - Clear unsupported handoffs for interaction types that are understood but not implemented.
 - An evidence path that separates intent, page inspection, target confirmation, setup generation, GTM runtime, GTM access, browser verification, and platform confirmation.
 
-The conversation classifier and state transitions are deterministic today. There is no production LLM deciding whether evidence passed.
+The conversation classifier and state transitions are deterministic today. Model-backed conversation intake is the next product slice, but no production model currently interprets tracking intents or decides whether evidence passed.
 
 ### Navigation setup generation
 
@@ -99,7 +99,7 @@ It creates nothing when:
 
 Synchronization conflicts are preserved for review and are never resolved automatically. The default workspace and other people's custom workspaces are never edited or deleted.
 
-Google integration is read-only by default. Workspace preparation requires explicit backend enablement and OAuth consent for `tagmanager.edit.containers`. Tokens are currently stored only in backend memory.
+Google integration is read-only by default. Workspace preparation requires explicit backend enablement and OAuth consent for `tagmanager.edit.containers`. Optional owner-only refresh-token persistence allows the backend to reconnect after restart without repeating browser consent; access tokens are not persisted.
 
 ## Resumable automation API
 
@@ -127,7 +127,7 @@ The shared domain package includes:
 - A read-only tracking change planner that classifies supported generated entities as
   create, reuse, no-op, or conflict against freshly read managed-workspace entities.
 
-Verified resolutions can be saved and retrieved through the API's file-backed repository. They do not currently retrain a model or modify deterministic verdict rules. Similarity retrieval and active learning are future work.
+Verified resolutions can be saved and retrieved through the API's file-backed repository. They do not currently retrain a model or modify deterministic verdict rules. Similarity retrieval, shadow-mode language evaluation, and later active learning remain separate work.
 
 ## Regression and delivery harness
 
@@ -150,7 +150,21 @@ Current completion gate:
 npm run verify
 ```
 
-The most recent full completion run passed every deterministic suite and 25 Chromium workflows.
+The most recent full completion run passed 197 deterministic tests across 29 files and all 25 Chromium workflows.
+
+## Credentialed disposable-container evidence
+
+The first complete credentialed exercise used only disposable container
+`GTM-PCJ3Q5RK`. It reused owned trigger `6` and tag `7`, validated two expected changes,
+created immutable version `3`, and published fingerprint `1787458659661` after exact
+approval. Prior-live version `2` remains available at fingerprint `1786828091962`.
+
+A live Chromium signal produced exactly one correctly parameterized `generate_lead`
+request. GA4 transmitted the standard `page_location` field as wire parameter `dl`;
+the evidence normalizer and verdict engine now accept and privacy-filter that standard
+representation. The operation remains `published`, not `completed`, because the
+disposable page does not yet contain the real `#workflow-smoke-form` interaction.
+Browser evidence continues to leave platform confirmation unverified.
 
 ## What is not built yet
 
@@ -159,23 +173,31 @@ The following product actions remain deliberately unimplemented or unexposed:
 - Connecting the prepared workspace to a live browser Preview session.
 - Exposing plan, application, validation, and version evidence in the extension UI.
 - Presenting an exact version fingerprint for approval in the practitioner UI.
-- Publishing a version or restoring the prior live version.
+- Exposing approval, publication, rollback, and post-publication evidence as visible
+  assistant actions or public workflow routes.
 - Confirming receipt inside GA4 or Google Ads.
 - Scheduled monitoring and incident alerts.
 - LLM-based intake, retrieval from similar verified resolutions, or model training.
 
 ## Next implementation boundary
 
-The next safe product slice is:
+The next safe product slice makes conversation intake the natural-language front door
+without giving a model execution authority:
 
 ```text
-Versioned operation
-    -> display plan, validation, and immutable fingerprint in the assistant
-    -> collect explicit approval for that exact fingerprint
-    -> retain publication as a separate guarded action
+Everyday tracking intent plus current-page context
+    -> model proposes a structured interpretation and candidate references
+    -> deterministic contracts reject unsupported or fabricated candidates
+    -> ask the shortest question that changes the specification
+    -> practitioner confirms the tracking specification
+    -> existing deterministic setup operation executes it
 ```
 
-This preserves the current rule: production publishing must remain an explicit, separately authorized action tied to an exact reviewed version.
+Models begin in shadow mode and are evaluated against the scenario corpus before they
+affect the visible intake. Verdict classification, GTM mutation, version approval,
+publication, rollback, and platform claims remain deterministic or explicitly human
+authorized. The following UI slice will display the existing plan, validation, and
+immutable fingerprint and collect exact publication approval in the assistant.
 
 ## Related documents
 
@@ -184,5 +206,7 @@ This preserves the current rule: production publishing must remain an explicit, 
 - [Build stages](./build-stages.md)
 - [Technical architecture](./technical-architecture.md)
 - [Delivery harness](../engineering/delivery-harness.md)
+- [GTM setup workflow operator runbook](../engineering/gtm-workflow-runbook.md)
+- [August 24 roadmap](./2026-08-24-roadmap.md)
 - [Managed-workspace specification](../../.scratch/managed-gtm-workspace/spec.md)
 - [Generated setup exploratory review](../reviews/2026-08-22-generated-setup-evidence.md)
