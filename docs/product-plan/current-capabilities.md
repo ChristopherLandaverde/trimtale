@@ -143,7 +143,14 @@ and private-value redaction. Expected output may reference only supplied targets
 success evidence. It can request one short clarification, but it can never confirm a
 specification, write GTM, report an evidence verdict, or claim platform receipt.
 
-No model provider or visible assistant behavior is connected to this contract yet.
+A provider-neutral domain harness can now run the corpus through injected adapters. It
+validates input and deterministic baseline before execution, bounds execution with an
+abort signal, validates structured provider output, and pairs accepted interpretations
+with the deterministic baseline. Its privacy-safe records exclude messages, labels,
+raw responses, prompts, credentials, and exception text.
+
+No real model provider, backend endpoint, persistence layer, or visible assistant
+behavior is connected to the harness yet.
 
 ## Regression and delivery harness
 
@@ -166,7 +173,7 @@ Current completion gate:
 npm run verify
 ```
 
-The most recent full completion run passed 205 deterministic tests across 30 files and
+The most recent full completion run passed 217 deterministic tests across 32 files and
 all 26 Chromium workflows.
 
 ## Credentialed disposable-container evidence
@@ -198,27 +205,27 @@ The following product actions remain deliberately unimplemented or unexposed:
   assistant actions or public workflow routes.
 - Confirming receipt inside GA4 or Google Ads.
 - Scheduled monitoring and incident alerts.
-- A provider-neutral shadow harness or production LLM-based intake.
+- Real model adapters, persisted shadow evaluation, or production LLM-based intake.
 - Retrieval from similar verified resolutions or model training.
 
 ## Next implementation boundary
 
-The next safe product slice runs the intake interpretation contract through a
-provider-neutral shadow harness without giving a model execution authority:
+The next safe product slice runs the first offline weighted model comparison through
+backend-configured adapters without giving a model execution authority:
 
 ```text
 Privacy-filtered intent plus allowlisted page candidates
-    -> replaceable provider proposes a structured interpretation
-    -> runtime contract rejects unsupported or fabricated output
-    -> record provider result beside the deterministic baseline
-    -> leave the visible practitioner workflow unchanged
+    -> two or three replaceable adapters propose structured interpretations
+    -> shadow harness rejects unsupported or fabricated output
+    -> score accepted results against the deterministic baseline
+    -> report accuracy, hard failures, latency, and estimated cost separately
 ```
 
-Models begin in shadow mode and are evaluated against the intake acceptance corpus
-before they affect visible intake. Verdict classification, GTM mutation, version
-approval, publication, rollback, and platform claims remain deterministic or
-explicitly human authorized. A later UI slice can display validated suggestions while
-preserving tracking-specification confirmation.
+The comparison remains offline and cannot affect visible intake. Verdict classification,
+GTM mutation, version approval, publication, rollback, and platform claims remain
+deterministic or explicitly human authorized. A later UI slice can display validated
+suggestions only after the corpus has no hard failures and while preserving
+tracking-specification confirmation.
 
 ## Related documents
 
