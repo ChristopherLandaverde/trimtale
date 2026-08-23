@@ -34,8 +34,9 @@ stage-dependent validation and exact version evidence.
 
 ## Verification
 
-Focused Google validation/version and operation tests pass. Full
-`npm run agent -- verify` evidence will be recorded before completion.
+`npm run agent -- verify` passed local preflight, change-documentation and strict
+TypeScript checks, all 173 deterministic tests, every workspace build, and all 25
+Chromium workflows. The focused Google validation/version contract contains six tests.
 
 ## Exploratory review
 
