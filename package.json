@@ -8,6 +8,7 @@
     "packages/*"
   ],
   "scripts": {
+    "agent": "node scripts/agent-harness.mjs",
     "build": "npm run build --workspace @gtm-observability/core && npm run build --workspace @gtm-observability/api && npm run build --workspace @gtm-observability/fixture-site && npm run build --workspace @gtm-observability/extension",
     "check:change-docs": "node scripts/check-change-docs.mjs",
     "check": "npm run build --workspace @gtm-observability/core && npm run typecheck --workspaces --if-present",

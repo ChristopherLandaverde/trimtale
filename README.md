@@ -95,6 +95,32 @@ npm run verify
 
 Humans do not need to launch the development services or load the extension to verify changes. Manual Chrome loading is reserved for exploratory product review.
 
+#### Agent command harness
+
+Routine local agent work is available through one closed, repository-owned command surface:
+
+```bash
+npm run agent -- help
+npm run agent -- status
+npm run agent -- check
+npm run agent -- test
+npm run agent -- e2e
+npm run agent -- verify
+```
+
+The harness also supports `build`, `change-docs`, `diff`, and `inspect`. Each name
+maps to a fixed local `npm` or read-only `git` invocation, always runs from the
+repository root, and rejects additional arguments. It does not provide dependency
+installation, arbitrary `npx` execution, credentialed integrations, remote Git
+operations, destructive commands, or a shell escape hatch. Those operations retain
+their own explicit authorization boundary.
+
+Like the direct `npm` and `git` commands it replaces, the harness inherits the
+caller's environment so standard executable lookup and npm configuration continue to
+work. It does not load environment files or select any credentialed script. Local
+`.env*.local`, `.vercel/`, and generated `.build/` artifacts are ignored repository-wide
+to keep credentials, deployment linkage, and generated output out of commits.
+
 ### Read-only Google Tag Manager integration
 
 The API can run a separately gated OAuth flow and discover the connected tracking practitioner's GTM accounts and containers. This lane requests only the `tagmanager.readonly` scope and is disabled unless all three variables are set:
