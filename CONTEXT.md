@@ -56,6 +56,14 @@ _Avoid_: Agent learning, chat answer, suggested fix
 The process that turns a tracking intent into a tested Google Tag Manager configuration that a tracking practitioner can review and deploy.
 _Avoid_: Tag creation, AI-generated tag, automatic tagging
 
+**Tracking change plan**:
+A deterministic, reviewable comparison between a generated tracking setup and the current managed workspace that classifies required changes, safe reuse, no-ops, and conflicts without mutating GTM.
+_Avoid_: Diff, patch, agent proposal
+
+**Publication approval**:
+A tracking practitioner's explicit authorization to publish one immutable, reviewed GTM version fingerprint. It becomes invalid when the version or live container changes.
+_Avoid_: General write permission, confirmation, deploy toggle
+
 **Recognized container**:
 A GTM container whose public ID was observed on the current website and matched exactly to one container accessible through the tracking practitioner's connected Google account.
 _Avoid_: Detected account, assumed container, selected container

@@ -124,6 +124,8 @@ The repository protects the current behavior with:
 - Visual baselines for stable assistant, target-highlight, evidence-path, and managed-workspace states.
 - Failure screenshots and Playwright traces under `test-results/`.
 - Change records, local specifications and issues, exploratory review reports, base-aware documentation checks, pull requests, GitHub CI, and merge-only completion.
+- A deterministic local preflight inside ordinary verification plus a separate
+  credential-safe Google configuration preflight that never prints secret values.
 
 Ordinary verification uses fake Google responses and never consumes a real GTM workspace.
 
