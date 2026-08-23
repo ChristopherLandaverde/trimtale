@@ -19,7 +19,7 @@ export interface RawFormRunObservation {
 
 const safeEventName = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
 const safeIdentifier = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
-const allowedRequestParameters = new Set(["v", "tid", "en", "ep.form_id", "ep.form_name", "ep.page_location"]);
+const allowedRequestParameters = new Set(["v", "tid", "en", "ep.form_id", "ep.form_name", "ep.page_location", "dl"]);
 
 function safeDataLayerEvents(events: unknown[]): unknown[] {
   return events.flatMap((value) => {
@@ -43,7 +43,7 @@ function safeRequestUrl(value: string): string | undefined {
     for (const [key, parameter] of source.searchParams) {
       if (!allowedRequestParameters.has(key)) continue;
       let safeParameter = parameter;
-      if (key === "ep.page_location") {
+      if (key === "ep.page_location" || key === "dl") {
         try {
           const page = new URL(parameter);
           safeParameter = `${page.origin}${page.pathname}`;

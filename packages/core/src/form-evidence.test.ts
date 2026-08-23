@@ -54,6 +54,15 @@ describe("form run evidence normalization", () => {
     expect(serialized).toContain("https%3A%2F%2Fexample.test%2Fcontact");
   });
 
+  it("retains GA4's query-redacted dl page location", () => {
+    const privateValue = "private-person@example.test";
+    const input = raw("ajax");
+    input.networkUrls = [`https://www.google-analytics.com/g/collect?v=2&en=generate_lead&ep.form_id=contact&ep.form_name=Contact_sales&dl=${encodeURIComponent(`https://example.test/contact?email=${privateValue}`)}`];
+    const serialized = JSON.stringify(normalizeFormRunEvidence(input, verdict));
+    expect(serialized).toContain("dl=https%3A%2F%2Fexample.test%2Fcontact");
+    expect(serialized).not.toContain(privateValue);
+  });
+
   it("marks unobservable cases through supplied inconclusive verdicts without fabricating observations", () => {
     const input = raw("unobservable");
     input.outcomeObserved = false;
