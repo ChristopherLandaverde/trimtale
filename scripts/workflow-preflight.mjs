@@ -11,6 +11,19 @@ function majorVersion(value) {
   return Number.isFinite(major) ? major : 0;
 }
 
+function validVersion(value) {
+  return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(value);
+}
+
+export function resolveNpmVersion(result, environment = {}) {
+  const subprocessVersion = result?.status === 0 ? result.stdout?.trim() ?? "" : "";
+  if (validVersion(subprocessVersion)) return subprocessVersion;
+
+  const lifecycleVersion = environment.npm_config_user_agent
+    ?.match(/(?:^|\s)npm\/([^\s]+)/)?.[1] ?? "";
+  return validVersion(lifecycleVersion) ? lifecycleVersion : "0";
+}
+
 function check(name, ok, passingDetail, failingDetail) {
   return { name, ok, detail: ok ? passingDetail : failingDetail };
 }
@@ -126,7 +139,7 @@ async function collectLocalReadiness() {
 
   return evaluateLocalReadiness({
     nodeVersion: process.versions.node,
-    npmVersion: npmResult.status === 0 ? npmResult.stdout.trim() : "0",
+    npmVersion: resolveNpmVersion(npmResult, process.env),
     lockfilePresent: existsSync(resolve(repositoryRoot, "package-lock.json")),
     dependenciesPresent: existsSync(resolve(repositoryRoot, "node_modules")),
     chromiumPresent,
