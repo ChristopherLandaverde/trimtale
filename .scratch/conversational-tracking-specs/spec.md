@@ -6,11 +6,11 @@ Status: accepted
 
 The current navigation workflow proves one deterministic path, but its intent, fixture behavior, evidence, and expected verdict are encoded across extension logic and tests. Adding form tracking directly to that structure would produce another one-off workflow and would not create a durable basis for diagnosis, monitoring, or improvement from verified customer cases.
 
-A tracking practitioner also needs to describe an outcome in ordinary language, such as "track successful contact-form leads," without already knowing the correct analytics event, selector, or success signal. The assistant must clarify that intent without guessing that a click or submit attempt proves a conversion.
+A tracking practitioner also needs to describe an outcome in ordinary language, such as "track successful contact-form leads," without already knowing the correct analytics event, selector, or success signal. The agent must clarify that intent without guessing that a click or submit attempt proves a conversion.
 
 ## User outcome
 
-A tracking practitioner describes what they want measured in the existing website conversation. The assistant discovers relevant interactions, asks only questions that materially affect measurement, presents a reviewable tracking specification, and waits for confirmation. The same specification then drives generation, a scenario-corpus check, guided browser verification, and durable run evidence.
+A tracking practitioner describes what they want measured in the existing website conversation. The agent discovers relevant interactions, asks only questions that materially affect measurement, presents a reviewable tracking specification, and waits for confirmation. The same specification then drives generation, a scenario-corpus check, guided browser verification, and durable run evidence.
 
 The first new interaction type is a lead-form submission represented by the GA4 recommended event `generate_lead` only after a practitioner-confirmed success outcome.
 
@@ -18,16 +18,37 @@ The first new interaction type is a lead-form submission represented by the GA4 
 
 - Conversation is the intake surface; structured specifications and evidence are the source of truth.
 - An observed interaction is not automatically a conversion outcome.
-- The assistant may propose candidates and defaults but must expose uncertainty and request confirmation where business meaning changes the specification.
+- The agent may propose candidates and defaults but must expose uncertainty and request confirmation where business meaning changes the specification.
 - No setup is generated from an incomplete or unconfirmed specification.
 - A browser verdict never claims GA4 or advertising-platform confirmation. Optional
   destination evidence is a separate, explicitly labeled aggregate correlation.
 - New diagnostic behavior enters the deterministic engine only through reviewed rules and scenario-corpus coverage.
 - Unsupported or unobservable cases produce a diagnostic handoff rather than a fabricated pass or failure.
 
+## Agent workbench
+
+The visible surface maintains one agent task for the requested analytics outcome. The
+task shows a bounded goal, current status, ordered plan, completed action receipts, one
+short genuine decision, and the final verification result. Selecting a target,
+reviewing the specification, approving setup generation, downloading an artifact, and
+running verification update that task in place rather than simulate a streaming chat
+transcript.
+
+The agent automatically uses validated page and recognized measurement context. It
+does not ask the practitioner to restate an account, container, destination, or page
+fact already available through a tool. The agent may choose only bounded actions;
+validated tool results, confirmed tracking specifications, deterministic verdicts,
+durable setup operations, and exact approval checkpoints remain authoritative.
+
+The initial workbench uses the deterministic intake interpreter behind a
+provider-neutral, runtime-validated turn contract. A model may later propose that same
+safe shape only after evaluation and routing gates pass. Model output never supplies
+selectors, raw page content, evidence verdicts, mutation authority, or publication
+authority.
+
 ## Pre-chat GTM context
 
-Opening the website assistant starts one bounded, read-only connection check before the
+Opening the website agent starts one bounded, read-only connection check before the
 practitioner enters an instruction. The card shows the GTM public ID observed in page
 script URLs separately from the exact account and container returned through the saved
 GTM API authorization. An exact match includes account name, container name, and the
@@ -96,7 +117,7 @@ A submit-button click, native `submit` event, or outgoing request alone is evide
 
 ## Conversation intake
 
-The assistant classifies the initial message into a small capability vocabulary:
+The agent classifies the initial message into a small capability vocabulary:
 
 - `navigation_click`
 - `cta_click`
@@ -121,7 +142,7 @@ receive_message
   -> specification_ready
 ```
 
-The assistant asks the shortest question that resolves the next blocking field. Example:
+The agent asks the shortest question that resolves the next blocking field. Example:
 
 ```text
 Practitioner: Track leads from this contact form.
@@ -393,7 +414,7 @@ A verified resolution records normalized symptoms, relevant environment attribut
 
 - [x] Existing navigation behavior is represented by the versioned specification and evidence contracts without changing its user outcome.
 - [x] Conversation intake turns a supported plain-language form intent into a draft specification.
-- [x] The assistant asks focused questions when target, business outcome, or success evidence is ambiguous.
+- [x] The agent asks focused questions when target, business outcome, or success evidence is ambiguous.
 - [x] The practitioner can review and correct the draft before confirmation.
 - [x] No form setup is generated without a confirmed target, outcome, and success signal.
 - [x] Successful form outcomes can produce a `generate_lead` GTM import configuration.

@@ -1,12 +1,16 @@
 import {
+  agentTurnForIntake,
   createFormSetupProposal,
   createSetupProposal,
   determineFormVerdict,
+  isAgentTurnV1,
   normalizeFormRunEvidence,
   observeGtmRuntime,
   selectConversationSuccess,
   selectConversationTarget,
   type BrowserEvidence,
+  type AgentTaskStatus,
+  type AgentTurnV1,
   type ConversationIntakeResult,
   type FormCandidate,
   type NavigationArea,
@@ -151,6 +155,7 @@ interface PageTarget { id: string; label: string; selector: string; }
 let highlightedTargets: PageTarget[] = [];
 let highlightTone: "candidate" | "confirmed" = "candidate";
 const responseNodes = new Map<string, HTMLElement>();
+const agentTaskNodes = new Map<string, HTMLElement>();
 const navigationByRequest = new Map<string, NavigationElement[]>();
 const requestTimeouts = new Map<string, number>();
 const intakeByRequest = new Map<string, ConversationIntakeResult>();
@@ -309,13 +314,19 @@ async function confirmGa4Platform(requestId: string): Promise<void> {
       `GA4 Realtime count increased from ${result.baselineEventCount} to ${result.currentEventCount}. Aggregate correlation; no user or event-level identity.`,
     );
     const verdict = formVerdictMessages.get(requestId);
-    if (verdict) {
-      verdict.textContent = "Verdict: browser_verified\nBrowser verification: passed\nPlatform confirmation: passed\nNext action: No further verification action is required.";
-    }
-    addMessage(
-      `Platform confirmation: passed\nGA4 Realtime observed an aggregate generate_lead count increase on ${result.property.name}.`,
-      "assistant",
-    );
+    const intake = intakeByRequest.get(requestId);
+    if (verdict && intake) renderFormTaskState(requestId, intake, {
+      status: "completed",
+      summary: `Setup verified in the browser and confirmed in GA4 Realtime on ${result.property.name}.`,
+      verifyStatus: "completed",
+      result: {
+        verdict: "browser_verified",
+        browserVerification: "passed",
+        platformConfirmation: "passed",
+        nextAction: "No further verification action is required.",
+        explanation: "Browser verification passed because one generate_lead request was observed. GA4 Realtime then showed an aggregate count increase against the pre-run baseline.",
+      },
+    });
     return;
   }
   updateEvidenceStage(
@@ -366,7 +377,12 @@ async function prepareFormVerification(requestId: string, intake: ConversationIn
   }
   activeFormVerification = { requestId, intake };
   if (rows) updateEvidenceStage(rows.browserRow, "pending", "Waiting for one successful browser run…");
-  addMessage(`Verification is ready. Submit ${intake.target?.label ?? "the selected form"} once.`, "assistant");
+  renderFormTaskState(requestId, intake, {
+    status: "working",
+    summary: "Verification is ready and watching for one successful browser run.",
+    verifyStatus: "active",
+    question: `Submit ${intake.target?.label ?? "the selected form"} once.`,
+  });
 }
 
 function classifySubmissionResult(value: string | undefined): "success" | "validation_error" | "server_error" | "unknown" {
@@ -486,12 +502,28 @@ function finishFormVerification(
     ga4ConfirmationAttempts.delete(requestId);
     updateEvidenceStage(rows.platformRow, "failed", "Not checked because browser verification did not pass");
   }
-  const verdictMessage = addMessage(
-    `Verdict: ${verdict.code}\nBrowser verification: ${verdict.browserVerification}\nPlatform confirmation: ${platformCheckStarted ? "checking" : verdict.platformConfirmation}\nNext action: ${verdict.nextAction}`,
-    "assistant",
-  );
+  const passed = verdict.browserVerification === "passed";
+  const verdictMessage = renderFormTaskState(requestId, result, {
+    status: platformCheckStarted ? "working" : passed ? "completed" : "blocked",
+    summary: platformCheckStarted
+      ? "Browser verification passed. I am checking the pre-run GA4 Realtime baseline now."
+      : passed
+        ? "Browser verification passed. Platform confirmation is not available for this run."
+        : "This run did not verify the requested conversion safely.",
+    verifyStatus: platformCheckStarted ? "active" : passed ? "completed" : "blocked",
+    ...(!passed ? {
+      question: verdict.nextAction,
+      actions: [{ id: "start-form-verification", label: "Try verification again" }],
+    } : {}),
+    result: {
+      verdict: verdict.code,
+      browserVerification: verdict.browserVerification,
+      platformConfirmation: platformCheckStarted ? "checking" : verdict.platformConfirmation,
+      nextAction: verdict.nextAction,
+      explanation: formExplanation(verdict, platformCheckStarted),
+    },
+  });
   formVerdictMessages.set(requestId, verdictMessage);
-  addMessage(formExplanation(verdict, platformCheckStarted), "assistant").classList.add("explanation");
   window.requestAnimationFrame(() => verdictMessage.scrollIntoView({ block: "start" }));
   if (platformCheckStarted) void confirmGa4Platform(requestId);
   activeFormVerification = undefined;
@@ -1102,6 +1134,119 @@ function addMessage(copy: string, role: "assistant" | "user", id?: string): HTML
   return message;
 }
 
+function agentContextForRequest(requestId: string): {
+  formCount: number;
+  navigationCount: number;
+  connection?: { publicId: string; measurementId?: string };
+} {
+  const connected = recognizedGtmContext;
+  const measurementId = connected?.measurementIds.length === 1
+    ? connected.measurementIds[0]
+    : undefined;
+  return {
+    formCount: formsByRequest.get(requestId)?.length ?? 0,
+    navigationCount: navigationByRequest.get(requestId)?.length ?? 0,
+    ...(connected
+      ? { connection: { publicId: connected.publicId, ...(measurementId ? { measurementId } : {}) } }
+      : {}),
+  };
+}
+
+function appendAgentText(parent: HTMLElement, className: string, copy: string): HTMLElement {
+  const node = document.createElement("div");
+  node.className = className;
+  node.textContent = copy;
+  parent.append(node);
+  return node;
+}
+
+function renderAgentTurn(requestId: string, turn: AgentTurnV1, preferredNode?: HTMLElement): HTMLElement {
+  const task = preferredNode ?? agentTaskNodes.get(requestId) ?? document.createElement("section");
+  task.className = `agent-turn status-${turn.task.status}`;
+  task.setAttribute("role", "region");
+  task.setAttribute("aria-label", "Agent task");
+  task.replaceChildren();
+
+  const heading = document.createElement("div");
+  heading.className = "agent-turn-heading";
+  appendAgentText(heading, "agent-kicker", "Working on");
+  const status = appendAgentText(
+    heading,
+    "agent-status",
+    turn.task.status === "needs_input"
+      ? "Needs input"
+      : turn.task.status === "completed"
+        ? "Completed"
+        : turn.task.status === "ready_for_review"
+          ? "Ready to review"
+          : turn.task.status === "blocked"
+            ? "Blocked"
+            : turn.task.status === "unsupported"
+              ? "Not supported"
+              : "Working",
+  );
+  status.setAttribute("aria-label", `Task status: ${status.textContent}`);
+  task.append(heading);
+  appendAgentText(task, "agent-goal", turn.task.goal);
+  appendAgentText(task, "agent-summary", turn.task.summary);
+
+  const plan = document.createElement("ol");
+  plan.className = "agent-plan";
+  plan.setAttribute("aria-label", "Task plan");
+  for (const stage of turn.plan) {
+    const row = document.createElement("li");
+    row.className = `agent-plan-stage ${stage.status}`;
+    const icon = document.createElement("i");
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = stage.status === "completed" ? "✓" : stage.status === "active" ? "→" : stage.status === "blocked" ? "!" : "○";
+    const label = document.createElement("span");
+    label.textContent = stage.label;
+    row.append(icon, label);
+    if (stage.kind === "approval") appendAgentText(row, "agent-stage-kind", "Approval");
+    plan.append(row);
+  }
+  task.append(plan);
+
+  if (turn.receipts.length > 0) {
+    const receipts = document.createElement("div");
+    receipts.className = "agent-receipts";
+    const receiptHeading = appendAgentText(receipts, "agent-receipt-heading", "Action receipts");
+    receiptHeading.id = `agent-receipts-${requestId}`;
+    receipts.setAttribute("aria-labelledby", receiptHeading.id);
+    for (const receipt of turn.receipts) {
+      const row = document.createElement("div");
+      row.className = "agent-receipt";
+      appendAgentText(row, "agent-receipt-label", `✓ ${receipt.label}`);
+      appendAgentText(row, "agent-receipt-detail", receipt.detail);
+      receipts.append(row);
+    }
+    task.append(receipts);
+  }
+
+  if (turn.question) appendAgentText(task, "agent-question", turn.question);
+  agentTaskNodes.set(requestId, task);
+  if (!task.isConnected) responseList?.append(task);
+  renderQuickActions(requestId, turn.actions, task);
+  preferences.height = Math.max(preferences.height, 520);
+  applyPreferences();
+  persistPreferences();
+  responseList?.scrollTo({ top: responseList.scrollHeight });
+  return task;
+}
+
+function addAgentPending(requestId: string): HTMLElement {
+  const task = document.createElement("section");
+  task.className = "agent-turn agent-loading";
+  task.setAttribute("role", "status");
+  task.setAttribute("aria-label", "Agent is inspecting the request");
+  appendAgentText(task, "agent-kicker", "Working on your task");
+  appendAgentText(task, "agent-goal", "Inspecting the current page and measurement context…");
+  responseList?.append(task);
+  responseNodes.set(requestId, task);
+  responseList?.scrollTo({ top: responseList.scrollHeight });
+  return task;
+}
+
 function updateTargetHighlights(): void {
   const shadow = targetHost?.shadowRoot;
   if (!shadow) return;
@@ -1178,7 +1323,7 @@ function renderEvidencePath(context: EvidencePathContext, requestId?: string): v
   ];
   const heading = document.createElement("div");
   heading.className = "evidence-heading";
-  heading.innerHTML = `<span>Evidence path</span><small>What the assistant used</small>`;
+  heading.innerHTML = `<span>Evidence path</span><small>What the agent used</small>`;
   path.append(heading);
   let accessRow: HTMLElement | undefined;
   let browserRow: HTMLElement | undefined;
@@ -1349,29 +1494,95 @@ function renderNavigationPicker(navigation: NavigationElement[]): void {
   responseList?.scrollTo({ top: responseList.scrollHeight });
 }
 
-function intakeResponse(result: ConversationIntakeResult): string {
-  switch (result.state) {
-    case "awaiting_target": return `I found ${result.options.length} forms. Which one represents the outcome you want to measure?`;
-    case "awaiting_success_evidence": return `What proves ${result.target?.label ?? "the form"} succeeded?`;
-    case "draft_ready": return `I'll treat a successful ${result.target?.label ?? "form"} submission as generate_lead. A submit attempt or validation error will not count.`;
-    case "insufficient_evidence": return "I found the form, but I cannot safely observe what proves it succeeded. This needs a diagnostic handoff.";
-    case "unsupported": return `I understand that as ${result.interaction.replaceAll("_", " ")} tracking. That tracking type is not implemented in this build yet.`;
-    default: return "What kind of interaction should I track? Try navigation, form, phone, or email.";
-  }
-}
-
 function renderIntakeStep(requestId: string, result: ConversationIntakeResult): void {
   intakeByRequest.set(requestId, result);
-  addMessage(intakeResponse(result), "assistant");
-  renderQuickActions(requestId, result.options);
+  renderAgentTurn(requestId, agentTurnForIntake(result, agentContextForRequest(requestId)));
 }
 
 function renderFormDraft(requestId: string, result: ConversationIntakeResult): void {
   const target = result.target;
   const success = result.successSignal;
   if (!target || !success) return;
-  addMessage(`Draft specification\nInteraction: successful ${target.label} submission\nOutcome: qualified inquiry\nEvent: generate_lead\nSuccess evidence: ${success.label}`, "assistant");
-  renderQuickActions(requestId, [{ id: "confirm-form-specification", label: "Confirm setup" }]);
+  const task = agentTaskNodes.get(requestId);
+  if (!task) return;
+  task.querySelector(".agent-specification")?.remove();
+  task.querySelector(".quick-actions")?.remove();
+  const specification = document.createElement("div");
+  specification.className = "agent-specification";
+  appendAgentText(specification, "agent-receipt-heading", "Reviewable setup");
+  const specificationRows: Array<[string, string]> = [
+    ["Interaction", `Successful ${target.label} submission`],
+    ["Outcome", "Qualified inquiry"],
+    ["Event", "generate_lead"],
+    ["Success", success.label],
+  ];
+  for (const [label, value] of specificationRows) {
+    const row = document.createElement("div");
+    row.className = "agent-specification-row";
+    appendAgentText(row, "agent-specification-label", label);
+    appendAgentText(row, "agent-specification-value", value);
+    specification.append(row);
+  }
+  task.append(specification);
+  renderQuickActions(requestId, [{ id: "confirm-form-specification", label: "Approve setup" }], task);
+  responseList?.scrollTo({ top: responseList.scrollHeight });
+}
+
+interface AgentVerificationResult {
+  verdict: string;
+  browserVerification: string;
+  platformConfirmation: string;
+  nextAction: string;
+  explanation: string;
+}
+
+function renderFormTaskState(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  state: {
+    status: AgentTaskStatus;
+    summary: string;
+    verifyStatus: "active" | "completed" | "blocked" | "pending";
+    question?: string;
+    actions?: Array<{ id: string; label: string }>;
+    result?: AgentVerificationResult;
+  },
+): HTMLElement {
+  const turn = agentTurnForIntake(intake, agentContextForRequest(requestId));
+  turn.task.status = state.status;
+  turn.task.summary = state.summary;
+  if (state.question) turn.question = state.question;
+  else delete turn.question;
+  turn.plan = turn.plan.map((stage) => stage.id === "review"
+    ? { ...stage, status: "completed" }
+    : stage.id === "verify"
+      ? { ...stage, status: state.verifyStatus }
+      : stage);
+  turn.actions = [];
+  const task = renderAgentTurn(requestId, turn);
+  if (state.result) {
+    const result = document.createElement("div");
+    result.className = "agent-verification-result";
+    appendAgentText(result, "agent-receipt-heading", "Verification result");
+    const rows: Array<[string, string]> = [
+      ["Verdict", state.result.verdict],
+      ["Browser verification", state.result.browserVerification],
+      ["Platform confirmation", state.result.platformConfirmation],
+      ["Next action", state.result.nextAction],
+    ];
+    for (const [label, value] of rows) {
+      const row = document.createElement("div");
+      row.className = "agent-specification-row";
+      appendAgentText(row, "agent-specification-label", label);
+      appendAgentText(row, "agent-specification-value", value);
+      result.append(row);
+    }
+    appendAgentText(result, "agent-verification-explanation explanation", state.result.explanation);
+    task.append(result);
+  }
+  renderQuickActions(requestId, state.actions ?? [], task);
+  responseList?.scrollTo({ top: responseList.scrollHeight });
+  return task;
 }
 
 function handleAssistantAction(actionId: string, requestId: string): void {
@@ -1408,8 +1619,23 @@ function handleAssistantAction(actionId: string, requestId: string): void {
     return;
   }
   if (actionId === "confirm-form-specification" && intake?.canConfirm) {
-    addMessage("Form tracking specification confirmed.", "assistant");
     const proposal = formSetupProposal(intake);
+    renderFormTaskState(requestId, intake, {
+      status: "working",
+      summary: proposal
+        ? "Setup approved and generated. The next step is one guided browser verification."
+        : "Setup approved, but generation still needs one exact GTM container and GA4 destination.",
+      question: proposal
+        ? "Download the reviewable setup or start verification if it is already installed."
+        : "Connect one exact GTM container and GA4 destination to continue.",
+      verifyStatus: proposal ? "active" : "pending",
+      actions: proposal
+        ? [
+            { id: "download-form-setup", label: "Download GTM setup" },
+            { id: "start-form-verification", label: "Start verification" },
+          ]
+        : [],
+    });
     renderEvidencePath({
       intentDetail: `Successful ${intake.target?.label ?? "form"} submission → generate_lead`,
       inspectedDetail: `${forms.length} form${forms.length === 1 ? "" : "s"} found`,
@@ -1419,19 +1645,25 @@ function handleAssistantAction(actionId: string, requestId: string): void {
         ? "Reviewable generate_lead setup generated"
         : "Connect a GTM container and GA4 measurement ID to generate setup",
     }, requestId);
-    renderQuickActions(requestId, [
-      { id: "download-form-setup", label: "Download GTM setup" },
-      { id: "start-form-verification", label: "Start verification" },
-    ]);
     return;
   }
   if (actionId === "download-form-setup" && intake?.canConfirm) {
     if (!formSetupDownloadHref(intake)) {
-      addMessage("Connect a GTM container and GA4 measurement ID before generating setup.", "assistant");
+      renderFormTaskState(requestId, intake, {
+        status: "blocked",
+        summary: "The setup cannot be generated without one exact measurement destination.",
+        verifyStatus: "pending",
+        question: "Connect a GTM container and GA4 measurement ID to continue.",
+      });
       return;
     }
-    addMessage("Downloaded a reviewable GTM container import. Import with Merge into a new workspace; nothing was published.", "assistant");
-    renderQuickActions(requestId, [{ id: "start-form-verification", label: "Start verification" }]);
+    renderFormTaskState(requestId, intake, {
+      status: "working",
+      summary: "The reviewable GTM container import was downloaded. Nothing was applied or published.",
+      verifyStatus: "active",
+      question: "Import it with Merge into a new workspace, then run verification.",
+      actions: [{ id: "start-form-verification", label: "Start verification" }],
+    });
     return;
   }
   if (actionId === "start-form-verification" && intake?.canConfirm) {
@@ -1444,6 +1676,7 @@ function handleAssistantAction(actionId: string, requestId: string): void {
 function renderQuickActions(
   requestId: string,
   actions: Array<{ id: string; label: string }>,
+  parent: HTMLElement | undefined = responseList,
 ): void {
   if (!actions.length) return;
   const row = document.createElement("div");
@@ -1466,7 +1699,7 @@ function renderQuickActions(
     });
     row.append(control);
   }
-  responseList?.append(row);
+  parent?.append(row);
   responseList?.scrollTo({ top: responseList.scrollHeight });
 }
 
@@ -1476,8 +1709,8 @@ function connectAssistant(): chrome.runtime.Port {
   port.onDisconnect.addListener(() => {
     port = undefined;
     for (const [requestId, node] of responseNodes) {
-      node.classList.remove("streaming");
-      node.textContent = "The assistant connection restarted. Please send that again.";
+      node.className = "agent-turn status-blocked";
+      node.textContent = "The agent connection restarted. Send that task again.";
       responseNodes.delete(requestId);
       const timeout = requestTimeouts.get(requestId);
       if (timeout !== undefined) window.clearTimeout(timeout);
@@ -1487,21 +1720,21 @@ function connectAssistant(): chrome.runtime.Port {
   port.onMessage.addListener((message: {
     type?: string;
     requestId?: string;
-    delta?: string;
-    actions?: Array<{ id: string; label: string }>;
+    turn?: unknown;
     navigation?: NavigationElement[];
     forms?: FormCandidate[];
     intake?: ConversationIntakeResult;
   }) => {
     if (!message.requestId) return;
     const node = responseNodes.get(message.requestId);
-    if (message.type === "ASSISTANT_DELTA" && node && message.delta) {
-      node.classList.remove("streaming");
-      node.textContent += message.delta;
-      responseList?.scrollTo({ top: responseList.scrollHeight });
-    }
-    if (message.type === "ASSISTANT_DONE") {
-      node?.classList.remove("streaming");
+    if (message.type === "AGENT_TURN") {
+      if (!node || !isAgentTurnV1(message.turn)) {
+        if (node) {
+          node.classList.remove("streaming");
+          node.textContent = "The agent response could not be safely read. Try again.";
+        }
+        return;
+      }
       responseNodes.delete(message.requestId);
       const timeout = requestTimeouts.get(message.requestId);
       if (timeout !== undefined) window.clearTimeout(timeout);
@@ -1514,7 +1747,7 @@ function connectAssistant(): chrome.runtime.Port {
           highlightTargets(formTargets(message.forms ?? []), "candidate");
         }
       }
-      renderQuickActions(message.requestId, message.actions ?? []);
+      renderAgentTurn(message.requestId, message.turn, node);
     }
   });
   return port;
@@ -1527,11 +1760,11 @@ function submitPrompt(): void {
   composer!.value = "";
   addMessage(prompt, "user");
   const requestId = crypto.randomUUID();
-  const pending = addMessage("", "assistant", requestId);
+  const pending = addAgentPending(requestId);
   requestTimeouts.set(requestId, window.setTimeout(() => {
     if (!responseNodes.has(requestId)) return;
-    pending.classList.remove("streaming");
-    pending.textContent = "The assistant did not respond. Please try again.";
+    pending.className = "agent-turn status-blocked";
+    pending.textContent = "The agent did not respond. Try again.";
     responseNodes.delete(requestId);
     requestTimeouts.delete(requestId);
     port?.disconnect();
@@ -1548,6 +1781,16 @@ function submitPrompt(): void {
       navigation: scan.navigation,
       forms,
     },
+    ...(recognizedGtmContext
+      ? {
+          connection: {
+            publicId: recognizedGtmContext.publicId,
+            ...(recognizedGtmContext.measurementIds.length === 1
+              ? { measurementId: recognizedGtmContext.measurementIds[0] }
+              : {}),
+          },
+        }
+      : {}),
   });
   preferences.height = Math.max(preferences.height, 420);
   applyPreferences();
@@ -1610,6 +1853,42 @@ async function mountOverlay(): Promise<void> {
       .message.bot { align-self: flex-start; color: #e5ebef; background: rgba(41,50,57,.72); border: 1px solid rgba(255,255,255,.06); border-radius: 4px 14px 14px 14px; }
       .message.user { align-self: flex-end; color: #f5fff9; background: #28483d; border-radius: 13px 13px 4px 13px; }
       .message.streaming:empty { width: 64px; height: 16px; background: linear-gradient(100deg, rgba(52,63,71,.6) 20%, rgba(167,243,208,.18) 45%, rgba(52,63,71,.6) 70%); background-size: 220% 100%; animation: shimmer 1.15s linear infinite; }
+      .agent-welcome { display: grid; gap: 3px; padding: 2px 1px 5px; }
+      .agent-welcome strong { color: #eef5f1; font-size: 13px; font-weight: 650; }
+      .agent-welcome small { color: #93a09f; font-size: 10px; line-height: 1.45; }
+      .agent-turn { align-self: stretch; display: grid; gap: 9px; min-width: 0; padding: 12px; border: 1px solid rgba(167,243,208,.14); border-radius: 15px; background: linear-gradient(145deg, rgba(24,37,36,.9), rgba(21,29,34,.9)); box-shadow: inset 0 1px 0 rgba(255,255,255,.045); }
+      .agent-turn.status-blocked, .agent-turn.status-unsupported { border-color: rgba(251,191,36,.18); }
+      .agent-turn.status-completed { border-color: rgba(141,232,189,.25); }
+      .agent-turn-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+      .agent-kicker { color: #8de8bd; font-size: 9px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
+      .agent-status { padding: 2px 6px; border-radius: 999px; color: #baf3d7; background: rgba(57,113,88,.3); font-size: 8px; font-weight: 700; letter-spacing: .035em; text-transform: uppercase; }
+      .status-blocked .agent-status, .status-unsupported .agent-status { color: #f4cf75; background: rgba(120,77,18,.28); }
+      .agent-goal { color: #f2f7f4; font-size: 14px; font-weight: 680; line-height: 1.3; overflow-wrap: anywhere; }
+      .agent-summary { color: #b8c4c2; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+      .agent-plan { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+      .agent-plan-stage { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 6px; min-height: 24px; color: #7e8c91; font-size: 10px; }
+      .agent-plan-stage i { display: grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; color: #819097; background: rgba(255,255,255,.045); font: 700 9px/1 Inter, sans-serif; }
+      .agent-plan-stage.completed { color: #aab7b4; }
+      .agent-plan-stage.completed i { color: #092419; background: #8de8bd; }
+      .agent-plan-stage.active { color: #eff6f2; font-weight: 620; }
+      .agent-plan-stage.active i { color: #baf3d7; background: rgba(57,113,88,.42); box-shadow: inset 0 0 0 1px rgba(141,232,189,.18); }
+      .agent-plan-stage.blocked { color: #e4c67e; }
+      .agent-plan-stage.blocked i { color: #f4cf75; background: rgba(120,77,18,.35); }
+      .agent-stage-kind { color: #84928f; font-size: 8px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; }
+      .agent-receipts { display: grid; gap: 4px; padding: 8px; border-radius: 10px; background: rgba(9,15,18,.38); }
+      .agent-receipt-heading { color: #85938f; font-size: 8px; font-weight: 700; letter-spacing: .055em; text-transform: uppercase; }
+      .agent-receipt { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; color: #a9b6b3; font-size: 9px; }
+      .agent-receipt-label { min-width: 0; overflow-wrap: anywhere; }
+      .agent-receipt-detail { color: #7f8d92; text-align: right; overflow-wrap: anywhere; }
+      .agent-question { padding-top: 1px; color: #e6eeea; font-size: 11px; font-weight: 590; overflow-wrap: anywhere; }
+      .agent-specification { display: grid; gap: 5px; padding: 9px; border: 1px solid rgba(255,255,255,.08); border-radius: 11px; background: rgba(9,15,18,.35); }
+      .agent-verification-result { display: grid; gap: 5px; padding: 9px; border: 1px solid rgba(141,232,189,.12); border-radius: 11px; background: rgba(9,15,18,.35); }
+      .agent-specification-row { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 7px; font-size: 9px; }
+      .agent-specification-label { color: #7f8d92; text-transform: uppercase; }
+      .agent-specification-value { color: #dbe5e1; overflow-wrap: anywhere; }
+      .agent-verification-explanation { padding-top: 4px; color: #9fadaa; font-size: 9px; line-height: 1.45; overflow-wrap: anywhere; }
+      .agent-loading { min-height: 70px; background: linear-gradient(100deg, rgba(24,37,36,.9) 20%, rgba(70,105,94,.35) 45%, rgba(21,29,34,.9) 70%); background-size: 220% 100%; animation: shimmer 1.15s linear infinite; }
+      .agent-turn > .quick-actions { margin-top: 1px; }
       .quick-actions { display: flex; flex-wrap: wrap; gap: 7px; }
       .quick { padding: 7px 10px; border: 1px solid rgba(167,243,208,.22); border-radius: 10px; color: #dff9ec; background: rgba(40,72,61,.58); font-size: 12px; text-decoration: none; }
       .quick:hover { border-color: rgba(167,243,208,.42); background: rgba(47,88,73,.72); }
@@ -1647,13 +1926,13 @@ async function mountOverlay(): Promise<void> {
       .collapsed .orb { display: block; }
       .collapsed:hover { transform: translateY(-2px); border-color: rgba(167,243,208,.32); box-shadow: 0 16px 42px rgba(0,0,0,.34), 0 0 24px rgba(141,232,189,.1), inset 0 1px 0 rgba(255,255,255,.16); }
       @keyframes shimmer { to { background-position: -120% 0; } }
-      @media (prefers-reduced-motion: reduce) { .assistant, .send { transition: none; } .message.streaming:empty { animation: none; } }
+      @media (prefers-reduced-motion: reduce) { .assistant, .send { transition: none; } .message.streaming:empty, .agent-loading { animation: none; } }
     </style>
-    <section class="assistant collapsed" aria-label="Tracking assistant">
-      <div class="drag" aria-label="Drag assistant"><button class="icon collapse" aria-label="Collapse assistant">−</button></div>
-      <div class="messages" aria-live="polite"><section class="gtm-context" role="region" aria-label="GTM connection"></section><div class="message bot">What do you want to track on this page?</div></div>
+    <section class="assistant collapsed" aria-label="Tracking agent">
+      <div class="drag" aria-label="Drag agent"><button class="icon collapse" aria-label="Collapse agent">−</button></div>
+      <div class="messages" aria-live="polite"><section class="gtm-context" role="region" aria-label="GTM connection"></section><div class="agent-welcome"><strong>What should we set up or check?</strong><small>I use this page and its connected measurement context automatically.</small></div></div>
       <div class="composer"><textarea aria-label="Tracking request" placeholder="Describe an action or outcome…"></textarea><button class="send" aria-label="Send request">↑</button></div>
-      <button class="orb" aria-label="Open tracking assistant">G</button>
+      <button class="orb" aria-label="Open tracking agent">G</button>
     </section>`;
   frame = shadow.querySelector<HTMLElement>(".assistant")!;
   responseList = shadow.querySelector<HTMLElement>(".messages")!;

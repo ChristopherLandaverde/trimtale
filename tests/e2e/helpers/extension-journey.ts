@@ -29,7 +29,7 @@ export async function openExtensionJourney(
   await page.goto(url.toString());
   const root = page.locator("#gtm-observability-root");
   await expect(root).toBeAttached();
-  await root.getByRole("button", { name: "Open tracking assistant" }).click();
+  await root.getByRole("button", { name: "Open tracking agent" }).click();
 
   return {
     context,

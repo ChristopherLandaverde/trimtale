@@ -36,9 +36,12 @@ for (const acceptance of contract.journeys) {
       await root.getByRole("button", { name: "Contact sales" }).click();
       await expect(targets.locator(".target.confirmed[data-target-id='contact']")).toHaveCount(1);
       await root.getByRole("button", { name: "Review setup" }).click();
-      await expect(root.getByText(/Event: generate_lead/)).toBeVisible();
-      await root.getByRole("button", { name: "Confirm setup" }).click();
-      await expect(root.getByText("Form tracking specification confirmed.", { exact: true })).toBeVisible();
+      const task = root.getByRole("region", { name: "Agent task" });
+      await expect(task).toHaveCount(1);
+      await expect(task.locator(".agent-specification-row").filter({ hasText: "Event" }).getByText("generate_lead", { exact: true }))
+        .toBeVisible();
+      await root.getByRole("button", { name: "Approve setup" }).click();
+      await expect(root.getByText(/Setup approved and generated/)).toBeVisible();
       await expect(root.getByText("Reviewable generate_lead setup generated")).toBeVisible();
       await expect(page.locator('meta[name="gtm-observability-measurement-id"]')).toHaveAttribute("content", "G-TEST123456");
       await expect(page.locator('meta[name="gtm-observability-container-id"]')).toHaveAttribute("content", "GTM-TEST123");
@@ -47,7 +50,7 @@ for (const acceptance of contract.journeys) {
       const downloadPromise = page.waitForEvent("download");
       await root.getByRole("button", { name: "Download GTM setup" }).click();
       const download = await downloadPromise;
-      await expect(root.getByText(/nothing was published/)).toBeVisible();
+      await expect(root.getByText(/Nothing was applied or published/i)).toBeVisible();
       expect(download.suggestedFilename()).toBe("gtm-observability-generate-lead.json");
       const downloadPath = await download.path();
       if (!downloadPath) throw new Error("The GTM setup download did not produce a local artifact.");
@@ -66,9 +69,10 @@ for (const acceptance of contract.journeys) {
       await expect(root.getByText(/Verification is ready/)).toBeVisible();
       await page.locator("form#contact button[type='submit']").click();
 
-      await expect(root.getByText(`Verdict: ${acceptance.expected.verdict}`, { exact: false })).toBeVisible();
-      await expect(root.getByText(`Browser verification: ${acceptance.expected.browserVerification}`, { exact: false })).toBeVisible();
-      await expect(root.getByText(`Platform confirmation: ${acceptance.expected.platformConfirmation}`, { exact: false })).toBeVisible();
+      const result = root.locator(".agent-verification-result");
+      await expect(result.locator(".agent-specification-row").filter({ hasText: "Verdict" }).getByText(acceptance.expected.verdict, { exact: true })).toBeVisible();
+      await expect(result.locator(".agent-specification-row").filter({ hasText: "Browser verification" }).getByText(acceptance.expected.browserVerification, { exact: true })).toBeVisible();
+      await expect(result.locator(".agent-specification-row").filter({ hasText: "Platform confirmation" }).getByText(acceptance.expected.platformConfirmation, { exact: true })).toBeVisible();
       const explanation = await root.locator(".explanation").last().innerText();
       const evaluation = evaluateExplanation(explanation, {
         mustInclude: acceptance.expected.explanationMustInclude,
@@ -116,7 +120,7 @@ test("a confirmed lead form can recognize the page container", async () => {
     await journey.send("Track leads from the contact form");
     await root.getByRole("button", { name: "Contact sales" }).click();
     await root.getByRole("button", { name: "Review setup" }).click();
-    await root.getByRole("button", { name: "Confirm setup" }).click();
+    await root.getByRole("button", { name: "Approve setup" }).click();
 
     await expect(root.getByText("Detected GTM-TEST123")).toBeVisible();
     await root.getByRole("button", { name: "Check GTM access" }).click();

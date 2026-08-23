@@ -2,12 +2,20 @@
 
 Status date: 2026-08-23
 
-GTM Observability currently turns a supported tracking intent into a confirmed tracking specification, generates a reviewable GTM setup, observes the website's GTM runtime, matches the observed container to Google access, guides a browser run, and can correlate that run with an aggregate read-only GA4 Realtime count increase. A guarded backend API can safely prepare one reusable managed workspace, durably plan and apply navigation and confirmed lead-form setups, validate the workspace, and create an immutable version. Separate backend clients can publish an exactly approved version and restore its recorded prior-live version. The website assistant does not yet expose those orchestration, approval, publication, or rollback actions.
+GTM Observability currently maintains one site-aware agent task from supported tracking
+intent through reviewable setup and verification. It observes the website's GTM
+runtime, matches the observed container to Google access, guides a browser run, and can
+correlate that run with an aggregate read-only GA4 Realtime count increase. A guarded
+backend API can safely prepare one reusable managed workspace, durably plan and apply
+navigation and confirmed lead-form setups, validate the workspace, and create an
+immutable version. Separate backend clients can publish an exactly approved version
+and restore its recorded prior-live version. The website agent does not yet expose
+those orchestration, approval, publication, or rollback actions.
 
 ## Current product workflow
 
 ```text
-Open the assistant and inspect page GTM / authorized access
+Open the agent and inspect page GTM / authorized access
     -> describe the tracking intent
     -> inspect the current page
     -> highlight and confirm the target
@@ -27,11 +35,13 @@ Each evidence stage is intentionally separate. A generated setup does not mean i
 
 ## What a practitioner can use
 
-### Website assistant
+### Website agent
 
-The Chrome extension injects a floating assistant into the current website. It can be opened from the extension action or keyboard command, moved, resized, collapsed, and restored with its saved local preferences.
+The Chrome extension injects a floating agent workbench into the current website. It
+can be opened from the extension action or keyboard command, moved, resized, collapsed,
+and restored with its saved local preferences.
 
-The assistant currently supports:
+The agent currently supports:
 
 - A pre-chat GTM connection card with the observed page container, exact authorized
   account/container match, and effective read-only, edit, or publication capability.
@@ -43,8 +53,17 @@ The assistant currently supports:
 - An evidence path that separates intent, page inspection, target confirmation, setup generation, GTM runtime, GTM access, browser verification, and platform confirmation.
 - Exact connected context carried into setup generation, browser verification, and
   optional aggregate GA4 Realtime confirmation without proprietary page meta tags.
+- One versioned, runtime-validated agent turn containing a bounded task goal, status,
+  plan, one optional question, safe actions, and action receipts.
+- In-place task progress from target selection through setup approval, download,
+  browser verification, and a structured final result rather than simulated streaming
+  response bubbles.
 
-The conversation classifier and state transitions are deterministic today. Model-backed conversation intake is the next product slice, but no production model currently interprets tracking intents or decides whether evidence passed.
+The conversation classifier and state transitions are deterministic today. The
+agent-turn contract is provider-neutral and retains a deterministic fallback, but no
+production model currently interprets tracking intents or decides whether evidence
+passed. Model-backed suggestion mode still requires the weighted provider comparison
+and an explicit routing decision.
 
 ### Navigation setup generation
 
@@ -55,7 +74,7 @@ After navigation targets are confirmed, the assistant generates a `navigation_cl
 - Required click variables.
 - The configured GA4 measurement ID.
 
-The assistant marks Setup generation as passed only when this artifact exists and offers `Download GTM setup`. The downloaded file is named `gtm-observability-navigation-click.json`.
+The agent marks Setup generation as passed only when this artifact exists and offers `Download GTM setup`. The downloaded file is named `gtm-observability-navigation-click.json`.
 
 If the container or measurement context is missing, generation remains pending and no download is offered.
 
@@ -77,7 +96,7 @@ The deterministic verdict engine covers successful browser verification, expecte
 
 Browser verification remains different from platform confirmation. Seeing one complete
 GA4 request leave the browser passes only the browser row. When separately enabled, the
-assistant records the expected event's Realtime count before the run and passes the
+agent records the expected event's Realtime count before the run and passes the
 platform row only after the same property's aggregate count increases. The UI states
 that this is before/after correlation, not user-level or event-level identity.
 
@@ -126,7 +145,7 @@ distinct visible states. No Analytics or GTM write is used.
 
 ## Managed GTM workspace
 
-Standard GTM accounts have three concurrent workspaces: the default workspace and two custom workspaces. The assistant therefore reserves at most one custom workspace named `GTM Observability` with an exact ownership marker.
+Standard GTM accounts have three concurrent workspaces: the default workspace and two custom workspaces. The agent therefore reserves at most one custom workspace named `GTM Observability` with an exact ownership marker.
 
 `Prepare managed workspace` performs a fresh inspection and then:
 
