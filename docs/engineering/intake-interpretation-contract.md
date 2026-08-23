@@ -111,10 +111,31 @@ validation. A score must equal its dimension total, outcome counts must equal th
 case results, latency must match recorded durations, and usage totals must match the
 cases that actually reported usage.
 
+## Backend evaluation runner
+
+The API package contains an offline runner that accepts exactly two or three injected
+shadow-provider adapters. It validates provider IDs, uniqueness, timeout configuration,
+report identity, clock state, corpus structure, and duplicate report identity before
+provider execution. This preflight prevents a malformed run from consuming future paid
+calls.
+
+Each adapter runs every corpus case through the shadow harness. Provider rejection,
+exceptions, and timeouts become ordinary hard-failure or inconclusive evaluation cases;
+they do not prevent the comparison from completing. After weighted evaluation, the
+runner discards shadow records, deterministic baselines, and provider interpretations.
+
+The file-backed report repository persists only the compact provider evaluations. It
+writes atomically with `0600` mode, returns clones, and fails closed on malformed JSON,
+unsupported collection schemas, invalid report contracts, duplicate report IDs, or
+providers covering different cases.
+
+There is deliberately no HTTP route for starting a comparison. A later owner-operated
+backend command can supply real adapters and credentials while keeping model execution
+off the public API surface.
+
 ## Deliberate boundary
 
 The repository still has no real provider adapter, model SDK, prompt, credential,
-shadow-record repository, API route, visible UI behavior, or GTM action. The next safe
-slice is the first offline comparison using two or three explicitly authorized,
-backend-configured adapters and this evaluator; it must not change the practitioner
-workflow.
+owner-operated evaluation command, API route, visible UI behavior, or GTM action. The
+next safe slice is explicitly authorized backend adapters and a credentialed offline
+command using this runner; it must not change the practitioner workflow.

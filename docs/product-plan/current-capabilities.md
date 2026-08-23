@@ -163,6 +163,15 @@ hard-failure, and inconclusive counts separately from average score, latency
 percentiles, token totals, estimated cost, and usage coverage. No real provider has
 been scored yet.
 
+The backend can now run exactly two or three injected providers through the complete
+corpus and atomically persist a versioned comparison report with owner-only file
+permissions. It preflights provider and report configuration before execution, retains
+degraded provider cases without aborting the comparison, and persists no messages,
+labels, interpretations, raw responses, prompts, credentials, or exception text.
+
+The runner is not connected to an HTTP route. Real adapters and an owner-operated
+credentialed command are still absent.
+
 ## Regression and delivery harness
 
 The repository protects the current behavior with:
@@ -184,7 +193,7 @@ Current completion gate:
 npm run verify
 ```
 
-The most recent full completion run passed 223 deterministic tests across 33 files and
+The most recent full completion run passed 227 deterministic tests across 34 files and
 all 26 Chromium workflows.
 
 ## Credentialed disposable-container evidence
@@ -216,14 +225,15 @@ The following product actions remain deliberately unimplemented or unexposed:
   assistant actions or public workflow routes.
 - Confirming receipt inside GA4 or Google Ads.
 - Scheduled monitoring and incident alerts.
-- Real model adapters, persisted shadow evaluation, or production LLM-based intake.
+- Real model adapters, an owner-operated credentialed comparison command, or production
+  LLM-based intake.
 - Retrieval from similar verified resolutions or model training.
 
 ## Next implementation boundary
 
-The next safe product slice runs the first offline weighted model comparison through
-explicitly authorized backend-configured adapters without giving a model execution
-authority:
+The next safe product slice adds explicitly authorized backend adapters and an
+owner-operated command for the first offline weighted model comparison without giving
+a model execution authority:
 
 ```text
 Privacy-filtered intent plus allowlisted page candidates
