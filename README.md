@@ -114,6 +114,22 @@ or the GTM container inventory. Explicit phrases such as “header, not footer�
 deterministically; fuzzy wording such as “the menu at the top” may use Ollama. Every
 suggestion still requires practitioner confirmation.
 
+One 32-case provider-neutral corpus automates navigation-scope acceptance without
+asserting exact model prose. The ordinary `npm test` gate validates and replays every
+case deterministically. Two explicit functional lanes exercise the production routing
+boundary against local Ollama:
+
+```bash
+npm run evaluate:navigation:smoke
+npm run evaluate:navigation:full
+```
+
+The smoke lane runs 15 representative cases; the full lane runs all 32. Explicit and
+generic cases stay deterministic, so Ollama receives only genuinely fuzzy cases. Both
+commands emit only counts, failed case IDs, supplied group IDs, ambiguity enums, and
+failure classes—never practitioner messages, model prose, prompts, or credentials.
+These are functional acceptance checks, not comparative model benchmarks.
+
 #### Agent command harness
 
 Routine local agent work is available through one closed, repository-owned command surface:

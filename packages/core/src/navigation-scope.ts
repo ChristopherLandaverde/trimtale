@@ -187,11 +187,11 @@ function normalizedMessages(messages: readonly string[]): string {
 
 export function shouldUseLocalNavigationScopeInterpretation(messages: readonly string[]): boolean {
   const message = normalizedMessages(messages);
-  return /\b(top|bottom|main|primary|secondary|utility|legal|social|logo|sticky|desktop|mobile|hamburger|drawer|sidebar)\b/.test(message);
+  return /\b(top|bottom|main|primary|secondary|utility|account|login|legal|social|logo|brand|sticky|desktop|mobile|hamburger|drawer|sidebar|breadcrumb)\b/.test(message);
 }
 
 function excluded(message: string, term: string): boolean {
-  return new RegExp(`\\b(?:not|exclude|excluding|without)\\s+(?:the\\s+)?${term}\\b`).test(message);
+  return new RegExp(`\\b(?:(?:not|exclude|excluding|without)\\s+(?:the\\s+)?|do\\s+not\\s+(?:track\\s+)?(?:the\\s+)?)${term}\\b`).test(message);
 }
 
 function joinedLabels(groups: readonly { label: string }[]): string {
@@ -207,11 +207,20 @@ export function navigationScopeClarificationForCandidates(
   if (groups.length === 0) return "No observable navigation group is available.";
   const candidates = new Set(candidateGroupIds);
   const included = groups.filter(({ id }) => candidates.has(id));
-  if (included.length === 0) return `Should this cover ${joinedLabels(groups)}?`;
+  if (included.length === 0) {
+    const detailed = `Should this cover ${joinedLabels(groups)}?`;
+    return detailed.length <= 240
+      ? detailed
+      : `Which of the ${groups.length} observed navigation groups should this cover?`;
+  }
   const excluded = groups.filter(({ id }) => !candidates.has(id));
-  return excluded.length > 0
+  const detailed = excluded.length > 0
     ? `Confirm ${included.map(({ label }) => label).join(" and ")} and exclude ${excluded.map(({ label }) => label).join(" and ")}?`
     : `Confirm ${included.map(({ label }) => label).join(" and ")}?`;
+  if (detailed.length <= 240) return detailed;
+  return excluded.length > 0
+    ? `Confirm ${included.map(({ label }) => label).join(" and ")} and exclude the other ${excluded.length} observed groups?`.slice(0, 240)
+    : `Confirm the ${included.length} proposed navigation groups?`;
 }
 
 export function interpretNavigationScopeDeterministically(
@@ -228,17 +237,40 @@ export function interpretNavigationScopeDeterministically(
       authority,
     };
   }
-  const message = normalizedMessages(messages);
-  const explicitlyExcluded = groups.filter((group) =>
-    excluded(message, group.area === "nav" ? "navigation" : group.area)
-    || excluded(message, group.label.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()));
-  let selected = groups.filter((group) => {
+  const message = normalizedMessages(messages.length > 1 ? [messages.at(-1)!] : messages);
+  const explicitlyExcluded = groups.filter((group) => {
+    const label = group.label.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const distinctive = label.split(" ").filter((term) =>
+      !["navigation", "links", "link", "menu"].includes(term));
+    return excluded(message, group.area === "nav" ? "navigation" : group.area)
+      || excluded(message, label)
+      || distinctive.some((term) => excluded(message, term));
+  });
+  const labelSelected = groups.filter((group) => {
     if (explicitlyExcluded.some(({ id }) => id === group.id)) return false;
     const label = group.label.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const distinctive = label.split(" ").filter((term) =>
+      !["navigation", "links", "link", "menu"].includes(term));
     return message.includes(label)
-      || (group.area !== "nav" && group.area !== "unknown" && new RegExp(`\\b${group.area}\\b`).test(message));
+      || (distinctive.length > 0 && distinctive.every((term) => new RegExp(`\\b${term}\\b`).test(message)));
   });
-  if (/\b(?:all|every|both)\b/.test(message)) {
+  const referencedAreas = [...new Set(groups
+    .map(({ area }) => area)
+    .filter((area) => area !== "nav" && area !== "unknown" && new RegExp(`\\b${area}\\b`).test(message)))];
+  const areaSelected: NavigationTargetGroupV1[] = [];
+  let ambiguousArea = false;
+  for (const area of referencedAreas) {
+    if (labelSelected.some((group) => group.area === area)) continue;
+    const available = groups.filter((group) => group.area === area
+      && !explicitlyExcluded.some(({ id }) => id === group.id));
+    if (available.length === 1) areaSelected.push(available[0]!);
+    else if (available.length > 1) ambiguousArea = true;
+  }
+  if (ambiguousArea) areaSelected.length = 0;
+  let selected = [...new Map([...labelSelected, ...areaSelected].map((group) => [group.id, group])).values()];
+  if (/\b(?:all|every)\b/.test(message)) {
+    selected = groups.filter((group) => !explicitlyExcluded.some(({ id }) => id === group.id));
+  } else if (/\bboth\b/.test(message) && selected.length === 0 && groups.length === 2) {
     selected = groups.filter((group) => !explicitlyExcluded.some(({ id }) => id === group.id));
   }
   if (selected.length === 0 && groups.length === 1 && explicitlyExcluded.length === 0) selected = [groups[0]!];
@@ -259,6 +291,40 @@ export function interpretNavigationScopeDeterministically(
     clarification: navigationScopeClarificationForCandidates(groups, included),
     authority,
   };
+}
+
+export interface NavigationScopeInterpretationRouteV1 {
+  source: "deterministic" | "local_model";
+  fallback: NavigationScopeInterpretationV1;
+}
+
+export function navigationScopeInterpretationRoute(
+  messages: readonly string[],
+  groups: readonly NavigationTargetGroupV1[],
+): NavigationScopeInterpretationRouteV1 {
+  const fallback = interpretNavigationScopeDeterministically(messages, groups);
+  const message = normalizedMessages(messages);
+  const requiresSemanticCorrection = messages.length > 1
+    || /\b(?:actually|instead|not that)\b/.test(message);
+  const containsReportedInstruction = /\b(?:page|label|content)\s+(?:says|said)\b/.test(message)
+    || /\b(?:ignore|disregard|override)\b.{0,30}\b(?:system|instruction|prompt)\b/.test(message);
+  if (requiresSemanticCorrection || containsReportedInstruction) {
+    return {
+      source: "local_model",
+      fallback: {
+        schemaVersion: 1,
+        candidateGroupIds: [],
+        ambiguities: ["scope"],
+        clarification: navigationScopeClarificationForCandidates(groups, []),
+        authority: { canConfirmScope: false, canWriteGtm: false, canOutputSelectors: false },
+      },
+    };
+  }
+  if (fallback.candidateGroupIds.length > 0
+    || !shouldUseLocalNavigationScopeInterpretation(messages)) {
+    return { source: "deterministic", fallback };
+  }
+  return { source: "local_model", fallback };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -224,6 +224,14 @@ The evaluation harness remains backend-only and is not a product feature. Separa
 the visible navigation-scope workflow can use the bounded local Ollama adapter described
 above; invalid or unavailable local output falls back without changing authority.
 
+Navigation scope now has its own 32-case provider-neutral functional corpus. All cases
+run automatically in the deterministic unit gate, while explicit smoke and full
+commands exercise the same production routing policy against local Ollama. The current
+smoke split is 9 deterministic and 6 provider cases; the full split is 20 deterministic
+and 12 provider cases. Reports retain only functional outcomes and safe structural IDs,
+not messages, clarification prose, raw responses, prompts, or timing rankings. A future
+provider can reuse the corpus and evaluator unchanged.
+
 Each shadow record can now be evaluated against its corpus expectation as `pass`,
 `fail`, `hard_failure`, or `inconclusive`. A pass requires all five weighted dimensions
 for 100 points; schema-valid but semantically incorrect output is a fail. Invalid

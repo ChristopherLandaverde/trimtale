@@ -49,6 +49,9 @@ describe("Ollama navigation scope provider", () => {
     const body = JSON.parse(String(captured?.init?.body)) as Record<string, unknown>;
     expect(body).toMatchObject({ model: "qwen3:30b", stream: false, think: false, keep_alive: "30m" });
     const messages = body.messages as Array<{ role: string; content: string }>;
+    expect(messages[0]?.content).toContain("one ordered conversation");
+    expect(messages[0]?.content).toContain("generic request");
+    expect(messages[0]?.content).toContain("all or every observed navigation group");
     expect(messages.at(-1)?.content).not.toContain("selector");
   });
 

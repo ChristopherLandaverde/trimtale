@@ -4,9 +4,8 @@ import {
   createNavigationScopeInterpretationInput,
   discoverNavigationTargetGroups,
   interpretConversationIntent,
-  interpretNavigationScopeDeterministically,
+  navigationScopeInterpretationRoute,
   isNavigationScopeInterpretationV1,
-  shouldUseLocalNavigationScopeInterpretation,
   type BrowserEvidence,
   type FormCandidate,
   type NavigationElement,
@@ -80,13 +79,9 @@ chrome.runtime.onConnect.addListener((port) => {
       send();
       return;
     }
-    const fallback = interpretNavigationScopeDeterministically([message.prompt], groups);
-    if (fallback.candidateGroupIds.length > 0) {
-      send(fallback, "deterministic");
-      return;
-    }
-    if (!shouldUseLocalNavigationScopeInterpretation([message.prompt])) {
-      send(fallback, "deterministic");
+    const route = navigationScopeInterpretationRoute([message.prompt], groups);
+    if (route.source === "deterministic") {
+      send(route.fallback, "deterministic");
       return;
     }
     const input = createNavigationScopeInterpretationInput([message.prompt], groups);
@@ -103,7 +98,7 @@ chrome.runtime.onConnect.addListener((port) => {
         throw new Error("local_model_invalid");
       }
       send(body.interpretation, "local_model", body.provider.model);
-    }).catch(() => send(fallback, "deterministic"));
+    }).catch(() => send(route.fallback, "deterministic"));
   });
 });
 

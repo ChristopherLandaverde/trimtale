@@ -20,6 +20,10 @@
     "test:e2e": "npm run build && playwright test",
     "verify": "npm run preflight && npm run check:change-docs && npm run check && npm test && npm run test:e2e",
     "evaluate:intake": "tsx apps/api/src/run-intake-evaluation.ts",
+    "preevaluate:navigation:smoke": "npm run build --workspace @gtm-observability/core",
+    "evaluate:navigation:smoke": "tsx apps/api/src/run-navigation-scope-evaluation.ts smoke",
+    "preevaluate:navigation:full": "npm run build --workspace @gtm-observability/core",
+    "evaluate:navigation:full": "tsx apps/api/src/run-navigation-scope-evaluation.ts full",
     "dev:api": "npm run dev --workspace @gtm-observability/api",
     "dev:fixture": "npm run dev --workspace @gtm-observability/fixture-site",
     "build:extension": "npm run build --workspace @gtm-observability/extension"

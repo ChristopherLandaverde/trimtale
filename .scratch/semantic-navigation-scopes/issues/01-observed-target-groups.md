@@ -25,5 +25,5 @@ semantic navigation scope that distinguishes page regions and repeated destinati
 - 2026-08-23: Implemented stable landmark groups, explicit include/exclude scope,
   group-level selection and highlights, duplicate header/footer destination coverage,
   and structural replacement of instruction-shaped labels. Full verification passes
-  294 unit/API tests and 36 Chromium journeys; exploratory review has no unresolved
+  307 unit/API tests and 36 Chromium journeys; exploratory review has no unresolved
   findings.

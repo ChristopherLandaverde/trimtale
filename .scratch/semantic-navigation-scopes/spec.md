@@ -38,3 +38,7 @@ contains hundreds of entities.
   GTM entities; unmarked entities are never updated automatically.
 - [x] No full HTML, selector, form value, cookie, storage value, OAuth material, or raw
   container dump enters model context.
+- [x] One provider-neutral canonical corpus is schema-validated and fully automated:
+  every case runs through deterministic acceptance/replay in `npm test`, a representative
+  smoke tier can invoke local Ollama on demand, and the complete corpus can invoke the
+  same adapter before release or a model/prompt change.
