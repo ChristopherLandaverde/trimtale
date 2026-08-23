@@ -272,6 +272,7 @@ describe("recognized container workspace workflow", () => {
     expect(result).toMatchObject({
       status: "recognized",
       publicId: "GTM-ABC123",
+      account: { accountId: "1", name: "Agency" },
       container: { name: "Lead site" },
       workspace: { status: "available", action: "create", workspaceCount: 1 },
     });

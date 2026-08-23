@@ -24,6 +24,22 @@ The first new interaction type is a lead-form submission represented by the GA4 
 - New diagnostic behavior enters the deterministic engine only through reviewed rules and scenario-corpus coverage.
 - Unsupported or unobservable cases produce a diagnostic handoff rather than a fabricated pass or failure.
 
+## Pre-chat GTM context
+
+Opening the website assistant starts one bounded, read-only connection check before the
+practitioner enters an instruction. The card shows the GTM public ID observed in page
+script URLs separately from the exact account and container returned through the saved
+GTM API authorization. An exact match includes account name, container name, and the
+backend's effective read-only, edit, or publication capability.
+
+No account discovery occurs solely because a website loaded. Offline, unconfigured,
+disconnected, no-container, inaccessible, multiple-container, and ambiguous-match
+states are explicit and do not block chat. A refresh control repeats the same bounded
+check. The extension does not inspect Google cookies or browser login, request profile
+or email scope, render raw backend errors, mutate GTM, or infer account identity from a
+public container ID. All provider names are strictly decoded and rendered as inert
+text.
+
 ## Supported first slice
 
 ### Interaction and event
