@@ -9,7 +9,7 @@ const screenshotOptions = {
   stylePath: resolve("tests/e2e/visual-stability.css"),
 };
 
-test("mounts and streams through the floating tracking assistant", async () => {
+test("mounts the floating tracking agent", async () => {
   const profile = await mkdtemp(join(tmpdir(), "gtm-observability-"));
   const extensionPath = resolve("apps/extension/dist");
   const context = await chromium.launchPersistentContext(profile, {
@@ -28,9 +28,10 @@ test("mounts and streams through the floating tracking assistant", async () => {
     await expect(assistant).toHaveClass(/collapsed/);
     await expect(assistant).toHaveScreenshot("assistant-collapsed.png", screenshotOptions);
 
-    await root.getByRole("button", { name: "Open tracking assistant" }).click();
+    await root.getByRole("button", { name: "Open tracking agent" }).click();
     await expect(assistant).not.toHaveClass(/collapsed/);
-    await expect(root.getByText("What do you want to track on this page?")).toBeVisible();
+    await expect(assistant).toHaveAttribute("aria-label", "Tracking agent");
+    await expect(root.getByText("What should we set up or check?", { exact: true })).toBeVisible();
     await expect(root.getByRole("button", { name: /model evaluation reports/i })).toHaveCount(0);
     await expect(root.getByText("Evals", { exact: true })).toHaveCount(0);
     await expect(root.getByLabel("Tracking request")).toBeFocused();
@@ -100,7 +101,7 @@ test("mounts and streams through the floating tracking assistant", async () => {
       event: { name: "navigation_click" },
     });
 
-    await root.getByRole("button", { name: "Collapse assistant" }).click();
+    await root.getByRole("button", { name: "Collapse agent" }).click();
     await expect(assistant).toHaveClass(/collapsed/);
     await site.reload();
     await expect(site.locator("#gtm-observability-root section.assistant")).toHaveClass(/collapsed/);
@@ -122,7 +123,7 @@ test("reports an observed GTM public container ID separately from setup generati
     const site = await context.newPage();
     await site.goto("http://127.0.0.1:4173/?gtm=GTM-TEST123");
     const root = site.locator("#gtm-observability-root");
-    await root.getByRole("button", { name: "Open tracking assistant" }).click();
+    await root.getByRole("button", { name: "Open tracking agent" }).click();
     await root.getByLabel("Tracking request").fill("navigation");
     await root.getByRole("button", { name: "Send request" }).click();
     await root.getByRole("button", { name: "Track all" }).click();
@@ -147,7 +148,7 @@ test("does not claim setup generation without measurement context", async () => 
     await site.goto("http://127.0.0.1:4173/?gtm=GTM-TEST123");
     await site.locator('meta[name="gtm-observability-measurement-id"]').evaluate((meta) => meta.remove());
     const root = site.locator("#gtm-observability-root");
-    await root.getByRole("button", { name: "Open tracking assistant" }).click();
+    await root.getByRole("button", { name: "Open tracking agent" }).click();
     await root.getByLabel("Tracking request").fill("navigation");
     await root.getByRole("button", { name: "Send request" }).click();
     await root.getByRole("button", { name: "Track all" }).click();
@@ -202,7 +203,7 @@ test("matches the observed container and explicitly prepares one managed workspa
     const site = await context.newPage();
     await site.goto("http://127.0.0.1:4173/?gtm=GTM-TEST123");
     const root = site.locator("#gtm-observability-root");
-    await root.getByRole("button", { name: "Open tracking assistant" }).click();
+    await root.getByRole("button", { name: "Open tracking agent" }).click();
     await root.getByLabel("Tracking request").fill("navigation");
     await root.getByRole("button", { name: "Send request" }).click();
     await root.getByRole("button", { name: "Track all" }).click();
@@ -240,7 +241,7 @@ test("renders page-controlled target labels as inert text", async () => {
       anchor.textContent = '<img src=x onerror="window.__unsafeHighlightExecuted=true">';
     });
     const root = site.locator("#gtm-observability-root");
-    await root.getByRole("button", { name: "Open tracking assistant" }).click();
+    await root.getByRole("button", { name: "Open tracking agent" }).click();
     await root.getByLabel("Tracking request").fill("navigation");
     await root.getByRole("button", { name: "Send request" }).click();
     await root.getByRole("button", { name: "Choose links" }).click();

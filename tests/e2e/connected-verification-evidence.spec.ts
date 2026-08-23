@@ -95,7 +95,7 @@ test("carries exact GTM context through generation, browser evidence, and GA4 co
       (elements) => elements.forEach((element) => element.remove()),
     );
     const root = page.locator("#gtm-observability-root");
-    await root.getByRole("button", { name: "Open tracking assistant" }).click();
+    await root.getByRole("button", { name: "Open tracking agent" }).click();
     await expect(root.getByRole("region", { name: "GTM connection" }).getByText("G-EXACT123", { exact: true }))
       .toBeVisible();
 
@@ -103,7 +103,7 @@ test("carries exact GTM context through generation, browser evidence, and GA4 co
     await root.getByRole("button", { name: "Send request" }).click();
     await root.getByRole("button", { name: "Contact sales" }).click();
     await root.getByRole("button", { name: "Review setup" }).click();
-    await root.getByRole("button", { name: "Confirm setup" }).click();
+    await root.getByRole("button", { name: "Approve setup" }).click();
     const evidence = root.getByRole("region", { name: "Tracking evidence path" });
     await expect(evidence.getByText("Reviewable generate_lead setup generated", { exact: true })).toBeVisible();
     await expect(evidence.getByText(/Agency.*Lead site.*G-EXACT123/)).toBeVisible();
@@ -133,7 +133,8 @@ test("carries exact GTM context through generation, browser evidence, and GA4 co
     await expect(evidence.getByText(/Browser request verified/)).toBeVisible();
     await expect(evidence.getByText(/GA4 Realtime count increased from 4 to 5/)).toBeVisible();
     await expect(evidence.getByText(/Aggregate correlation; no user or event-level identity/)).toBeVisible();
-    await expect(root.getByText("Platform confirmation: passed", { exact: false }).first()).toBeVisible();
+    await expect(root.locator(".agent-verification-result .agent-specification-row")
+      .filter({ hasText: "Platform confirmation" }).getByText("passed", { exact: true })).toBeVisible();
     expect(analyticsConfirms).toBe(1);
     await expect(root.getByText("private@example.test", { exact: true })).toHaveCount(0);
     await evidence.evaluate((element) => element.scrollIntoView({ block: "start" }));
@@ -210,12 +211,12 @@ test("keeps browser verification usable when the Analytics provider denies the r
       (elements) => elements.forEach((element) => element.remove()),
     );
     const root = page.locator("#gtm-observability-root");
-    await root.getByRole("button", { name: "Open tracking assistant" }).click();
+    await root.getByRole("button", { name: "Open tracking agent" }).click();
     await root.getByLabel("Tracking request").fill("Track leads from the contact form");
     await root.getByRole("button", { name: "Send request" }).click();
     await root.getByRole("button", { name: "Contact sales" }).click();
     await root.getByRole("button", { name: "Review setup" }).click();
-    await root.getByRole("button", { name: "Confirm setup" }).click();
+    await root.getByRole("button", { name: "Approve setup" }).click();
     await root.getByRole("button", { name: "Start verification" }).click();
 
     const evidence = root.getByRole("region", { name: "Tracking evidence path" });

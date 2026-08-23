@@ -21,7 +21,11 @@ Define what counts as a conversion
     -> present evidence
 ```
 
-The existing injected assistant is the product surface for this workflow. Its current interaction and visual design should remain stable while conversion capabilities are added; new technical capabilities should appear inside the existing conversation rather than introduce another customer-facing layer.
+The injected site-aware agent is the product surface for this workflow. One compact
+workbench should preserve the active task, plan, action receipts, approval checkpoints,
+and evidence while conversion capabilities are added; new technical capabilities
+should advance that task rather than introduce another customer-facing layer or a
+scripted chat transcript.
 
 GTM Observability has three layers:
 

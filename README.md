@@ -1,6 +1,6 @@
 # GTM Observability
 
-A site-aware assistant for setting up and verifying website conversions through conversation.
+A site-aware analytics agent for setting up and verifying website conversions from the website itself.
 
 This project does not replace GTM. GTM remains the configuration, execution, versioning, environment, and publishing layer. This product connects GTM configuration evidence with browser-runtime evidence so teams can detect broken tracking, understand why it broke, test corrections, and deploy verified GTM changes.
 

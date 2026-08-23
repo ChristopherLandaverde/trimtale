@@ -1,4 +1,5 @@
 import {
+  agentTurnForIntake,
   interpretConversationIntent,
   type BrowserEvidence,
   type FormCandidate,
@@ -35,6 +36,7 @@ chrome.runtime.onConnect.addListener((port) => {
       navigation: NavigationElement[];
       forms: FormCandidate[];
     };
+    connection?: { publicId: string; measurementId?: string };
   }) => {
     if (message.type !== "ASSISTANT_REQUEST" || !message.requestId || !message.prompt || !message.page) return;
     const page = message.page;
@@ -42,40 +44,18 @@ chrome.runtime.onConnect.addListener((port) => {
       navigationCount: page.navigation.length,
       forms: page.forms ?? [],
     });
-    let response: string;
-    let actions = intake.options;
-
-    if (intake.interaction === "navigation_click") {
-      response = `I found ${page.navigation.length} navigation links. Do you want to track all of them?`;
-    } else if (intake.state === "awaiting_target") {
-      response = `I found ${intake.options.length} forms. Which one represents the outcome you want to measure?`;
-    } else if (intake.state === "awaiting_success_evidence") {
-      response = `What proves ${intake.target?.label ?? "the form"} succeeded?`;
-    } else if (intake.state === "draft_ready") {
-      response = `I'll treat a successful ${intake.target?.label ?? "form"} submission as generate_lead. A submit attempt or validation error will not count.`;
-    } else if (intake.state === "insufficient_evidence") {
-      response = "I found the form, but I cannot safely observe what proves it succeeded. This needs a diagnostic handoff.";
-    } else if (intake.state === "unsupported") {
-      response = `I understand that as ${intake.interaction.replaceAll("_", " ")} tracking. That tracking type is not implemented in this build yet.`;
-    } else {
-      response = "What kind of interaction should I track? Try navigation, form, phone, or email.";
-    }
-    const chunks = response.match(/.{1,18}(?:\s|$)/g) ?? [response];
-    chunks.forEach((delta, index) => {
-      setTimeout(() => {
-        if (!port.sender) return;
-        port.postMessage({ type: "ASSISTANT_DELTA", requestId: message.requestId, delta });
-        if (index === chunks.length - 1) {
-          port.postMessage({
-            type: "ASSISTANT_DONE",
-            requestId: message.requestId,
-            actions,
-            navigation: page.navigation,
-            forms: page.forms,
-            intake,
-          });
-        }
-      }, index * 24);
+    const turn = agentTurnForIntake(intake, {
+      formCount: page.forms.length,
+      navigationCount: page.navigation.length,
+      ...(message.connection ? { connection: message.connection } : {}),
+    });
+    port.postMessage({
+      type: "AGENT_TURN",
+      requestId: message.requestId,
+      turn,
+      navigation: page.navigation,
+      forms: page.forms,
+      intake,
     });
   });
 });

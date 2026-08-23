@@ -1,12 +1,28 @@
 # GTM Observability
 
-GTM Observability is a commercial site-aware analytics assistant for implementing, investigating, and observing website measurement from the website itself. Google Tag Manager is its initial implementation target; verification evidence connects setup work with later monitoring and diagnosis.
+GTM Observability is a commercial site-aware analytics agent for implementing, investigating, and observing website measurement from the website itself. Google Tag Manager is its initial implementation target; verification evidence connects setup work with later monitoring and diagnosis.
 
 ## Language
 
-**Site-aware analytics assistant**:
-A persistent assistant that understands the current website, its measurement configuration, and its observed analytics behavior so a client operator or tracking practitioner can carry out tracking work in context.
-_Avoid_: Chatbot, AI tag generator, GTM copilot
+**Site-aware analytics agent**:
+A persistent agent that owns a tracking practitioner's stated task, understands the current website and connected measurement context, and coordinates bounded tools until it reaches evidence, an approval checkpoint, or an honest blocker.
+_Avoid_: Chatbot, AI tag generator, autonomous publisher, GTM copilot
+
+**Agent task**:
+The user-visible working state for one analytics outcome, including its goal, current plan, completed tool actions, next decision, and final result. It can span conversation turns but never replaces a durable tracking setup operation.
+_Avoid_: Chat session, prompt thread, tracking setup operation
+
+**Tool action**:
+A bounded capability the site-aware analytics agent may invoke to inspect, generate, verify, or propose a measurement change. Its validated result—not the agent's prose—is the source of truth.
+_Avoid_: Agent thought, plugin magic, autonomous decision
+
+**Action receipt**:
+A safe, user-visible record of a completed tool action and its result, such as page inspection, GTM recognition, browser verification, or collection acknowledgement.
+_Avoid_: Chain of thought, raw log, success toast
+
+**Approval checkpoint**:
+A decision that pauses an agent task until a tracking practitioner authorizes one exact reviewable action or artifact. Approval never grants general mutation or publication authority.
+_Avoid_: Confirmation button, blanket permission, agent consent
 
 **Tracking intent**:
 A plain-language description of the user behavior and analytics outcome a person wants to verify.
@@ -53,7 +69,7 @@ An investigation that exercises a website and compares observed tracking behavio
 _Avoid_: Preview, audit, scan
 
 **Diagnostic handoff**:
-A continuation of an inconclusive website investigation in a guided workspace that preserves the tracking intent and collected evidence while helping a person supply what the assistant could not observe.
+A continuation of an inconclusive website investigation in a guided workspace that preserves the tracking intent and collected evidence while helping a person supply what the agent could not observe.
 _Avoid_: Failure screen, manual debugging, escalation
 
 **Verified resolution**:
@@ -81,11 +97,11 @@ A GTM container whose public ID was observed on the current website and matched 
 _Avoid_: Detected account, assumed container, selected container
 
 **Managed workspace**:
-The single custom GTM workspace reserved by the site-aware analytics assistant for reviewable tracking-setup changes in one recognized container.
+The single custom GTM workspace reserved by the site-aware analytics agent for reviewable tracking-setup changes in one recognized container.
 _Avoid_: Temporary workspace, workspace per request, default workspace
 
 **Managed GTM entity**:
-A tag, trigger, or custom variable created by the site-aware analytics assistant in the managed workspace and carrying its exact ownership note. Only such an entity may be updated automatically.
+A tag, trigger, or custom variable created by the site-aware analytics agent in the managed workspace and carrying its exact ownership note. Only such an entity may be updated automatically.
 _Avoid_: AI tag, owned tag, generated entity
 
 **Tracking practitioner**:
@@ -119,6 +135,10 @@ _Avoid_: AI confidence, success probability, platform confidence
 **Platform confirmation**:
 Evidence from an analytics or advertising destination that it received or processed tracking data. It remains separate from implementation confidence because browser evidence cannot prove every platform-side outcome.
 _Avoid_: Browser verification, guaranteed attribution, delivery confidence
+
+**Collection acknowledgement**:
+Evidence that a destination collection endpoint returned a successful transport response, such as HTTP 204, for a validated analytics request. It proves endpoint acknowledgement but not reporting, attribution, or platform processing.
+_Avoid_: Platform confirmation, GA4 event received, attribution confirmation
 
 **Evidence path**:
 The ordered evidence connecting an observed interaction to its tracking configuration and destination outcome, showing where measurement succeeded, remains unconfirmed, or failed.
