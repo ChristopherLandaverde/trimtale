@@ -109,6 +109,7 @@ export interface GtmContainerExport {
     };
     tag: unknown[];
     trigger: unknown[];
+    variable?: unknown[];
     builtInVariable: unknown[];
   };
 }
