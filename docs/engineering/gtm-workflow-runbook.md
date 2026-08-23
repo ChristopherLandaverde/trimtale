@@ -193,9 +193,11 @@ The disposable exercise used container `GTM-PCJ3Q5RK` only:
 - Operation: `operation_spec_disposable_form_smoke_v3`.
 - Current state: `published`; no rollback required.
 
-The live tag-signal smoke passed with one exact `generate_lead` request. The disposable
-page currently lacks `#workflow-smoke-form`, so a real form interaction has not yet
-produced the post-publication evidence required for `completed`. That is the first
+The live tag-signal smoke passed with one exact `generate_lead` request. The tracked
+verification-target source and local Chromium journey now include
+`#workflow-smoke-form`, but the live disposable page has not yet received that build.
+A real form interaction therefore has not yet produced the post-publication evidence
+required for `completed`. Deployment and evidence collection are the remaining first
 operational task in the August 24 roadmap.
 
 ## Recovery guide

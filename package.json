@@ -12,7 +12,7 @@
     "preflight": "node scripts/workflow-preflight.mjs local",
     "preflight:google": "node scripts/workflow-preflight.mjs google",
     "preflight:publication": "node scripts/workflow-preflight.mjs publication",
-    "build": "npm run build --workspace @gtm-observability/core && npm run build --workspace @gtm-observability/api && npm run build --workspace @gtm-observability/fixture-site && npm run build --workspace @gtm-observability/extension",
+    "build": "npm run build --workspace @gtm-observability/core && npm run build --workspace @gtm-observability/api && npm run build --workspace @gtm-observability/fixture-site && npm run build --workspace @gtm-observability/verification-target && npm run build --workspace @gtm-observability/extension",
     "check:change-docs": "node scripts/check-change-docs.mjs",
     "check": "npm run build --workspace @gtm-observability/core && npm run typecheck --workspaces --if-present",
     "test": "vitest run",

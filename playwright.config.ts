@@ -34,5 +34,13 @@ export default defineConfig({
       stdout: "pipe",
       stderr: "pipe",
     },
+    {
+      name: "verification-target",
+      command: "npm run start --workspace @gtm-observability/verification-target",
+      url: "http://127.0.0.1:4175/health",
+      reuseExistingServer,
+      stdout: "pipe",
+      stderr: "pipe",
+    },
   ],
 });
