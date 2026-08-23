@@ -40,6 +40,7 @@ These are product capabilities, not three separate interfaces. Internally, the b
 
 ## Documents
 
+- [What Exists Today](./current-capabilities.md) - Plain-language inventory of working behavior, safety boundaries, verification coverage, and remaining work.
 - [Build Stages](./build-stages.md) - MVP-to-full-product sequence.
 - [Technical Architecture](./technical-architecture.md) - System components and agent/workflow design.
 - [Go-To-Market Timing](./go-to-market.md) - When to build the website, market, sell, and narrow positioning.
