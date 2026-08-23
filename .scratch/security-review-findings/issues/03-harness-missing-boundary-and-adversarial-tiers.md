@@ -1,6 +1,6 @@
 # Delivery harness has no regression tier for boundary defaults or adversarial input
 
-Status: open
+Status: resolved
 
 ## Objective
 
@@ -58,3 +58,16 @@ inspecting future issue files' `## Regression contract` sections.
 - `docs/engineering/delivery-harness.md` documents both additions.
 - `AGENTS.md` still accurately points to the updated document (no changes
   expected there unless the summary in `AGENTS.md` itself goes stale).
+
+## Comments
+
+- 2026-08-22: Added a fail-closed boundary/configuration regression tier, required
+  adversarial-page coverage during exploratory review, recorded the natural API and
+  extension test placement, and updated the `AGENTS.md` summary so the agent-owned
+  completion loop cannot silently omit the new requirement.
+
+## Answer
+
+The delivery workflow now explicitly tests permissive defaults and attacker-shaped
+inputs instead of relying on ordinary negative cases to expose security-boundary
+regressions.
