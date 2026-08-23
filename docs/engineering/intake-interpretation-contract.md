@@ -24,7 +24,7 @@ cookies, storage, credentials, OAuth material, and unrelated page text are there
 outside the model-facing contract.
 
 Acceptance-corpus cases may retain `sourceMessages` and `privateSentinels` as test-only
-fixtures. A future harness must pass only the case's validated `input` to a provider.
+fixtures. The shadow harness passes only the case's validated `input` to a provider.
 Tests require every private sentinel to be absent from both that input and its expected
 interpretation.
 
@@ -60,9 +60,31 @@ selector output, silent confirmation, evidence verdicts, GTM mutation, platform-
 claims, and private-value disclosure. Runtime validation also requires complete
 coverage so removing a required category fails the regression contract.
 
+## Shadow execution
+
+The shared domain package includes a provider-neutral shadow harness. A provider adapter
+has only an opaque ID and one asynchronous `interpret` method. It receives a cloned,
+validated intake input and an abort signal; no SDK-specific request or response type
+crosses the boundary.
+
+Before calling the provider, the harness validates both the input and deterministic
+baseline. After the call, it accepts only an envelope containing a valid interpretation
+and optional bounded token and estimated-cost metrics. Invalid envelopes and
+interpretations are discarded. Provider exceptions and timeouts become safe
+`provider_error` or `provider_timeout` codes without retaining exception text.
+
+Each versioned shadow record pairs the deterministic baseline with a validated provider
+interpretation when available. It retains opaque run, input, and provider IDs; coarse
+input counts; start time and duration; optional usage metrics; and a safe status. It
+does not retain messages, candidate labels, prompts, raw provider output, credentials,
+or exception details.
+
+The corpus runner processes only each case's `id`, `input`, and `expected` baseline;
+test-only `sourceMessages` and `privateSentinels` never reach a provider.
+
 ## Deliberate boundary
 
-This slice makes no provider call and adds no prompt, credential, visible UI behavior,
-or GTM action. The next safe slice is a provider-neutral shadow harness that sends only
-validated input, validates structured output, and records it beside the deterministic
-baseline without changing the practitioner workflow.
+The repository still has no real provider adapter, model SDK, prompt, credential,
+shadow-record repository, API route, visible UI behavior, or GTM action. The next safe
+slice is an offline weighted comparison using backend-configured adapters and this
+harness; it must not change the practitioner workflow.

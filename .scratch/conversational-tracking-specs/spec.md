@@ -114,6 +114,22 @@ Assistant: I'll track a successful Contact sales submission as generate_lead.
 - Preserve the original tracking intent alongside the normalized specification.
 - Do not send full page HTML or form field values to the backend or model.
 
+## Intake interpretation shadow evaluation
+
+Before a language model can influence conversation intake, a provider-neutral harness
+runs privacy-filtered inputs against the intake acceptance corpus. The harness validates
+the input and deterministic baseline before calling an injected provider adapter, then
+validates the provider envelope and interpretation before returning a shadow record.
+
+The shadow record retains only opaque identifiers, coarse input counts, timing,
+optional bounded token and cost metrics, the deterministic baseline, and either a
+validated provider interpretation or a safe failure code. It never retains messages,
+candidate labels, raw provider output, prompts, credentials, or exception text.
+
+Accepted shadow interpretations remain non-authoritative and do not alter conversation
+state. Provider SDKs, backend credentials, persistence, model comparison, routing, and
+visible suggestions remain separate decisions.
+
 ## Tracking specification contract
 
 ```ts
@@ -270,6 +286,9 @@ A verified resolution records normalized symptoms, relevant environment attribut
 - [x] Every run produces versioned, redacted run evidence.
 - [x] Browser verification remains distinct from platform confirmation.
 - [x] Unsupported or unobservable forms produce a diagnostic handoff.
+- [x] The intake acceptance corpus runs through a provider-neutral shadow harness.
+- [x] Shadow records discard invalid output, raw responses, exception text, and private
+  model-facing values while preserving the deterministic baseline.
 - [x] `npm run verify` passes without real Google credentials or external services.
 
 ## Success measures
