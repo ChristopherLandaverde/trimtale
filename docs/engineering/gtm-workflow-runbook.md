@@ -191,14 +191,16 @@ The disposable exercise used container `GTM-PCJ3Q5RK` only:
 - Published version: `3`, fingerprint `1787458659661`.
 - Rollback version: `2`, fingerprint `1786828091962`.
 - Operation: `operation_spec_disposable_form_smoke_v3`.
-- Current state: `published`; no rollback required.
+- Evidence run: `run_spec_disposable_form_smoke_v3_1787493019725`.
+- Current state: `completed`; no rollback required.
 
-The live tag-signal smoke passed with one exact `generate_lead` request. The tracked
-verification-target source and local Chromium journey now include
-`#workflow-smoke-form`, but the live disposable page has not yet received that build.
-A real form interaction therefore has not yet produced the post-publication evidence
-required for `completed`. Deployment and evidence collection are the remaining first
-operational task in the August 24 roadmap.
+The live ConsentFlow page now includes `#workflow-smoke-form`. A real Chromium
+submission observed the successful visible outcome, one metadata-only
+`gtm_observability_smoke_success` event, and exactly one `generate_lead` request with
+`form_id`, `form_name`, and production `page_location` transported as `dl`. The
+normalized verdict was `browser_verified`; browser verification passed while platform
+confirmation remained `unverified`. That passing evidence completed the operation
+without invoking rollback.
 
 ## Recovery guide
 

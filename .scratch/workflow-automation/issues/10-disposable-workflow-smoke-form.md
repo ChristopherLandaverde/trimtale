@@ -1,6 +1,6 @@
 # Add the disposable workflow smoke form
 
-Status: claimed
+Status: resolved
 
 ## Objective
 
@@ -60,3 +60,16 @@ Required invariants:
   Google evidence remain pending after the code PR.
 - 2026-08-23: Full `npm run verify` passed with 205 deterministic tests across 30 files
   and all 26 Chromium workflows.
+- 2026-08-23: ConsentFlow-Debugger PR #1 merged as `663d57c` after all seven hosted
+  checks passed. The additive landing-page form was deployed to the approved
+  `consentflow` production project as Vercel deployment
+  `dpl_9AAiTgLfLjeL1yZS5G6cw7B5NAsT`; direct checks confirmed credential and Vercel
+  metadata paths return `404`.
+- 2026-08-23: Real Chromium run
+  `run_spec_disposable_form_smoke_v3_1787493019725` observed the valid form outcome,
+  one metadata-only data-layer event, and exactly one `generate_lead` request with
+  `form_id`, `form_name`, and `dl=https://consentflow-psi.vercel.app/`. The normalized
+  verdict was `browser_verified`, browser verification passed, and platform
+  confirmation remained `unverified`. Operation
+  `operation_spec_disposable_form_smoke_v3` advanced from `published` to `completed`;
+  no rollback was required. Owner-only evidence is retained under `.data/run-evidence/`.

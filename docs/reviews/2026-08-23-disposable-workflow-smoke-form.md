@@ -52,3 +52,41 @@ Result: pass.
 
 No application finding blocks the local slice. Deployment and credentialed Google
 evidence remain separate approval-gated operational work.
+
+## Production follow-up
+
+Build: ConsentFlow-Debugger `main` at `663d57c`, deployed as Vercel deployment
+`dpl_9AAiTgLfLjeL1yZS5G6cw7B5NAsT` and aliased to
+`https://consentflow-psi.vercel.app/`.
+
+Environment: Playwright Chromium 1234 on Linux against the public production alias,
+loading published container `GTM-PCJ3Q5RK` version `3`.
+
+### Security and invalid-input checks
+
+- The deployment preserved the existing ConsentFlow title, navigation, and marketing
+  content; the form was additive.
+- Empty submission remained invalid and produced no success state or GA4 request.
+- Local Chromium adversarial input remained invalid and was never interpreted as
+  markup or script.
+- Repeated valid local submission remained idempotent.
+- `/.env.local` and `/.vercel/project.json` both returned `404`; local credential and
+  link files remained uncommitted and mode `0600`.
+
+### Live successful outcome
+
+Production Chromium run `run_spec_disposable_form_smoke_v3_1787493019725` observed:
+
+- visible `Verification request received.` outcome;
+- one `gtm_observability_smoke_success` event with form metadata and no entered value;
+- exactly one GA4 `generate_lead` request;
+- `ep.form_id=workflow-smoke-form`;
+- `ep.form_name=Disposable workflow smoke form`; and
+- `dl=https://consentflow-psi.vercel.app/` as the standard wire representation of
+  `page_location`.
+
+The normalized verdict was `browser_verified`. Browser verification passed, platform
+confirmation remained `unverified`, and the published operation advanced to
+`completed` without rollback.
+
+Production result: pass.
