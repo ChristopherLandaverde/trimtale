@@ -1,6 +1,6 @@
 # Stabilize the form-candidate highlight visual
 
-Status: open
+Status: resolved
 
 ## Objective
 
@@ -21,3 +21,17 @@ recorded visual review; retry success alone is not approval.
   intake journey flaky. The first screenshot comparison differed by 3,293 pixels (1%)
   at `tests/e2e/conversation-intake.spec.ts:55`; Playwright's retry passed without a code
   change. No baseline was updated.
+- 2026-08-23: Claimed after workflow hardening merged in PR #33. The historical log
+  shows two identical mismatching captures 100 ms apart after animations were disabled
+  and fonts reported loaded; a fresh-worker retry passed. Twenty consecutive local
+  fresh-profile repetitions passed, ruling out an ordinary active animation or a
+  consistently changed baseline. Investigation is focusing on one-time Chromium font
+  and shadow-root layout initialization before considering any snapshot change.
+- 2026-08-23: The document had screenshot typography installed before interaction, but
+  the candidate-label shadow root received it only temporarily during capture. The
+  journey now installs that same screenshot-only CSS in the target shadow root before
+  measurement and asserts Arial there; assistant and production styles are untouched.
+  The accepted baselines passed unchanged across 20 consecutive fresh profiles, five
+  isolated cold-cache launches, and the full 25-workflow Chromium gate. `npm run
+  verify` also passed all 202 deterministic tests across 29 files. No snapshot was
+  updated.

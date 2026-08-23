@@ -1,4 +1,4 @@
-import { expect, test, chromium } from "@playwright/test";
+import { expect, test, chromium, type Locator } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -9,10 +9,24 @@ interface IntakeCase {
   message: string;
 }
 
+const visualStabilityStylePath = resolve("tests/e2e/visual-stability.css");
+const visualStabilityCss = readFileSync(visualStabilityStylePath, "utf8");
+
 const screenshotOptions = {
   animations: "disabled" as const,
-  stylePath: resolve("tests/e2e/visual-stability.css"),
+  stylePath: visualStabilityStylePath,
 };
+
+async function stabilizeShadowRoot(host: Locator): Promise<void> {
+  await host.evaluate((element, css) => {
+    const shadow = element.shadowRoot;
+    if (!shadow) throw new Error("Expected an open shadow root for visual normalization");
+    const style = document.createElement("style");
+    style.dataset.visualStability = "true";
+    style.textContent = css;
+    shadow.append(style);
+  }, visualStabilityCss);
+}
 
 function acceptanceCase(id: string): IntakeCase {
   const contract = JSON.parse(readFileSync(
@@ -38,7 +52,7 @@ test("clarifies a form intent and requires explicit specification confirmation",
   try {
     const site = await context.newPage();
     await site.goto("http://127.0.0.1:4173/");
-    await site.addStyleTag({ path: screenshotOptions.stylePath });
+    await site.addStyleTag({ content: visualStabilityCss });
     const root = site.locator("#gtm-observability-root");
     await root.getByRole("button", { name: "Open tracking assistant" }).click();
 
@@ -52,6 +66,8 @@ test("clarifies a form intent and requires explicit specification confirmation",
     await expect(targets.locator(".target.candidate")).toHaveCount(2);
     await expect(targets.locator(".target.candidate[data-target-id='contact']")).toHaveCount(1);
     await expect(targets.locator(".target.candidate[data-target-id='newsletter']")).toHaveCount(1);
+    await stabilizeShadowRoot(targets);
+    await expect(targets.locator(".target span").first()).toHaveCSS("font-family", /Arial/);
     await expect(site).toHaveScreenshot("form-candidate-highlights.png", screenshotOptions);
     await expect(root.getByRole("button", { name: "Confirm setup" })).toHaveCount(0);
 
