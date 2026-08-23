@@ -129,8 +129,15 @@ The API can run a separately gated OAuth flow and discover the connected trackin
 GOOGLE_OAUTH_CLIENT_ID=...
 GOOGLE_OAUTH_CLIENT_SECRET=...
 GOOGLE_OAUTH_REDIRECT_URI=http://127.0.0.1:8787/api/google/oauth/callback
+EXTENSION_ORIGIN=chrome-extension://<extension-id>
 npm run dev:api
 ```
+
+Find the unpacked extension ID on `chrome://extensions` and configure its exact
+`chrome-extension://` origin. Google-backed API routes fail closed for browser
+origins when `EXTENSION_ORIGIN` is absent, `*`, or different from the request origin;
+they never emit a wildcard CORS header. Direct OAuth navigation and server-side
+clients that do not send an `Origin` header remain supported.
 
 Register the exact redirect URI in the Google Cloud OAuth client and enable the Tag Manager API. Then open `http://127.0.0.1:8787/api/google/oauth/start`; after consent, `GET /api/google/accounts` returns each accessible account with its containers. OAuth tokens are held only in backend memory and are lost when the process exits. Ordinary `npm run verify` remains credential-free and never calls Google.
 
