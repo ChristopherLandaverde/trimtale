@@ -67,3 +67,7 @@ The managed workspace uses a stable name and description marker controlled by th
 - Creating a container version.
 - Publishing a container version.
 - Platform-side GA4 or Google Ads confirmation.
+
+## Generated setup evidence
+
+A confirmed supported tracking specification generates a reviewable GTM container file before workspace preparation. Generation is passed only when the actual artifact exists; downloading it is optional and does not imply it was applied. Guidance targets the one managed workspace or an existing review workspace and never instructs creation of a workspace per request.

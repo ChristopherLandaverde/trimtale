@@ -137,7 +137,7 @@ function createFormContainerFile(request: FormSetupRequest): GtmContainerExport 
     containerVersion: {
       path: `${base}/versions/0`, accountId, containerId, containerVersionId: "0",
       name: "GTM Observability - Confirmed form setup",
-      description: "Generated generate_lead tracking from practitioner-confirmed success evidence. Import with Merge into a new workspace.",
+      description: "Generated generate_lead tracking from practitioner-confirmed success evidence. Apply to the recognized managed workspace or import with Merge; never overwrite.",
       container: { path: base, accountId, containerId, name: request.container.name || "GTM Observability import", publicId: request.container.publicId, usageContext: ["WEB"] },
       trigger: triggers,
       tag: [{
@@ -171,7 +171,7 @@ export function createFormSetupProposal(request: FormSetupRequest): FormSetupPro
     eventName: "generate_lead",
     measurementId: request.measurementId.toUpperCase(),
     warnings: [
-      "Import with Merge into a new GTM workspace. Never choose Overwrite.",
+      "Apply to the recognized managed workspace, or import with Merge into an existing review workspace. Never choose Overwrite.",
       "This setup uses browser-observable success evidence and does not confirm GA4 platform processing.",
       "Review every generated trigger before publishing. Production publishing is not performed.",
     ],
@@ -203,7 +203,7 @@ function createContainerFile(request: SetupRequest): GtmContainerExport {
       containerId,
       containerVersionId: "0",
       name: "GTM Observability - Navigation click setup",
-      description: "Generated navigation_click tracking. Import with Merge into a new workspace.",
+      description: "Generated navigation_click tracking. Apply to the recognized managed workspace or import with Merge; never overwrite.",
       container: {
         path: base,
         accountId,
@@ -294,7 +294,7 @@ export function createSetupProposal(request: SetupRequest): SetupProposal {
     measurementId: request.measurementId.toUpperCase(),
     navigation,
     warnings: [
-      "Import with Merge into a new GTM workspace. Never choose Overwrite.",
+      "Apply to the recognized managed workspace, or import with Merge into an existing review workspace. Never choose Overwrite.",
       "This preflight does not confirm GA4 platform processing.",
     ],
     preflight: {

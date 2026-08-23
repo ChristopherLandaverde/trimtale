@@ -34,7 +34,7 @@ describe("confirmed form setup generation", () => {
     expect(proposal.containerFile.containerVersion.trigger).toHaveLength(1);
     expect(proposal.containerFile.containerVersion.trigger[0]).toMatchObject({ type: triggerType });
     expect(JSON.stringify(proposal.containerFile.containerVersion.trigger[0])).toContain(expectedValue);
-    expect(proposal.warnings.join(" ")).toMatch(/Merge.*new GTM workspace/);
+    expect(proposal.warnings.join(" ")).toMatch(/managed workspace.*Merge.*existing review workspace/);
     expect(proposal.warnings.join(" ")).toContain("does not confirm GA4 platform processing");
   });
 

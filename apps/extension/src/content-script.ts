@@ -1,5 +1,6 @@
 import {
   createFormSetupProposal,
+  createSetupProposal,
   determineFormVerdict,
   normalizeFormRunEvidence,
   observeGtmRuntime,
@@ -11,6 +12,7 @@ import {
   type NavigationArea,
   type NavigationElement,
   type SuccessEvidence,
+  type SetupProposal,
   type TrackingRunEvidenceV1,
   type TrackingSpecificationV1,
 } from "@gtm-observability/core";
@@ -33,6 +35,8 @@ interface EvidencePathContext {
   intentDetail: string;
   inspectedDetail: string;
   confirmedDetail: string;
+  setupGenerated: boolean;
+  setupDetail: string;
 }
 
 interface GtmWorkspaceResult {
@@ -139,11 +143,31 @@ function formSetupProposal(result: ConversationIntakeResult) {
   });
 }
 
+function navigationSetupProposal(navigation: NavigationElement[]): SetupProposal | undefined {
+  const measurementId = fixtureMeta("gtm-observability-measurement-id");
+  const runtime = inspectGtmRuntime();
+  const publicId = runtime.status === "detected" && runtime.containerIds.length === 1
+    ? runtime.containerIds[0]
+    : fixtureMeta("gtm-observability-container-id");
+  if (!measurementId || !publicId || navigation.length === 0) return undefined;
+  return createSetupProposal({
+    intent: "Track navigation links",
+    pageUrl: location.href,
+    measurementId,
+    navigation,
+    container: { accountId: "0", containerId: "0", publicId, name: "GTM Observability import" },
+  });
+}
+
+function containerFileDownloadHref(containerFile: unknown): string {
+  const content = JSON.stringify(containerFile, null, 2);
+  return `data:application/json;charset=utf-8,${encodeURIComponent(content)}`;
+}
+
 function formSetupDownloadHref(result: ConversationIntakeResult): string | undefined {
   const proposal = formSetupProposal(result);
   if (!proposal) return undefined;
-  const content = JSON.stringify(proposal.containerFile, null, 2);
-  return `data:application/json;charset=utf-8,${encodeURIComponent(content)}`;
+  return containerFileDownloadHref(proposal.containerFile);
 }
 
 function formExplanation(verdict: TrackingRunEvidenceV1["verdict"]): string {
@@ -464,7 +488,7 @@ function renderEvidencePath(context: EvidencePathContext): void {
     { state: "passed", label: "Intent understood", detail: context.intentDetail },
     { state: "passed", label: "Page inspected", detail: context.inspectedDetail },
     { state: "passed", label: "Targets confirmed", detail: context.confirmedDetail },
-    { state: "pending", label: "Setup generation", detail: "No setup generated from this conversation yet" },
+    { state: context.setupGenerated ? "passed" : "pending", label: "Setup generation", detail: context.setupDetail },
     { state: runtime.status === "detected" ? "passed" : "pending", label: "GTM runtime", detail: runtimeDetail },
     { state: "pending", label: "GTM access", detail: runtime.status === "detected" ? "Observed container has not been matched to Google access" : "Requires an observed container" },
     { state: "pending", label: "Browser verification", detail: "Runs after the GTM setup is installed" },
@@ -554,11 +578,35 @@ function renderEvidencePath(context: EvidencePathContext): void {
 function confirmNavigation(navigation: NavigationElement[]): void {
   highlightTargets(navigationTargets(navigation), "confirmed");
   addMessage(`${navigation.length} navigation link${navigation.length === 1 ? "" : "s"} selected and highlighted on the page.`, "assistant");
+  const proposal = navigationSetupProposal(navigation);
   renderEvidencePath({
     intentDetail: "Navigation clicks → navigation_click",
     inspectedDetail: `${navigation.length} matching link${navigation.length === 1 ? "" : "s"} found`,
     confirmedDetail: `${navigation.length} highlighted on this page`,
+    setupGenerated: proposal !== undefined,
+    setupDetail: proposal
+      ? "Reviewable navigation_click setup generated"
+      : "Connect a GTM container and GA4 measurement ID to generate setup",
   });
+  if (proposal) renderNavigationSetupDownload(proposal);
+}
+
+function renderNavigationSetupDownload(proposal: SetupProposal): void {
+  const row = document.createElement("div");
+  row.className = "quick-actions";
+  const download = document.createElement("a");
+  download.className = "quick";
+  download.textContent = "Download GTM setup";
+  download.href = containerFileDownloadHref(proposal.containerFile);
+  download.download = "gtm-observability-navigation-click.json";
+  download.setAttribute("role", "button");
+  download.addEventListener("click", () => {
+    row.remove();
+    addMessage("Downloaded the generated navigation_click setup. Nothing was applied or published.", "assistant");
+  }, { once: true });
+  row.append(download);
+  responseList?.append(row);
+  responseList?.scrollTo({ top: responseList.scrollHeight });
 }
 
 function renderNavigationPicker(navigation: NavigationElement[]): void {
@@ -658,10 +706,15 @@ function handleAssistantAction(actionId: string, requestId: string): void {
   }
   if (actionId === "confirm-form-specification" && intake?.canConfirm) {
     addMessage("Form tracking specification confirmed.", "assistant");
+    const proposal = formSetupProposal(intake);
     renderEvidencePath({
       intentDetail: `Successful ${intake.target?.label ?? "form"} submission → generate_lead`,
       inspectedDetail: `${forms.length} form${forms.length === 1 ? "" : "s"} found`,
       confirmedDetail: `${intake.target?.label ?? "Selected form"} highlighted on this page`,
+      setupGenerated: proposal !== undefined,
+      setupDetail: proposal
+        ? "Reviewable generate_lead setup generated"
+        : "Connect a GTM container and GA4 measurement ID to generate setup",
     });
     renderQuickActions(requestId, [
       { id: "download-form-setup", label: "Download GTM setup" },
