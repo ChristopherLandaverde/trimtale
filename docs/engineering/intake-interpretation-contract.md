@@ -133,9 +133,75 @@ There is deliberately no HTTP route for starting a comparison. A later owner-ope
 backend command can supply real adapters and credentials while keeping model execution
 off the public API surface.
 
+## Owner-operated OpenAI evaluation
+
+The API package now includes a replaceable OpenAI Responses API adapter and the offline
+`npm run evaluate:intake` command. The adapter uses the fixed official HTTPS endpoint
+with raw `fetch`, sends the already validated model-facing input, sets `store: false`,
+provides no tools, and requests a strict `json_schema` response. The runtime intake
+validator still enforces bounded text, grounded IDs, one-question clarification, and
+the non-authoritative authority block after the structured response is parsed.
+
+The adapter accepts an abort signal from the shadow harness, caps the response body,
+requires a completed response with bounded token usage, and converts every HTTP,
+transport, refusal, malformed-response, incomplete-response, or usage failure into the
+same generic provider error. Raw response bodies, Authorization headers, API keys, and
+exception details are not returned, logged, or persisted. Per-model input and output
+rates are explicit configuration values; the report's cost is an estimate calculated
+from returned token counts rather than a billing receipt.
+
+The command requires `OPENAI_API_KEY` in the backend process environment and a
+workspace-relative JSON path in `INTAKE_EVALUATION_CONFIG`. The configuration contains
+no credential and has this shape (replace every placeholder with a model that supports
+Structured Outputs and its current published rates):
+
+```json
+{
+  "schemaVersion": 1,
+  "reportPath": ".data/intake-evaluations.json",
+  "timeoutMs": 30000,
+  "maxOutputTokens": 4096,
+  "providers": [
+    {
+      "id": "openai-model-a",
+      "model": "<structured-output-model-a>",
+      "inputCostPerMillionTokensUsd": "<current-input-rate>",
+      "outputCostPerMillionTokensUsd": "<current-output-rate>"
+    },
+    {
+      "id": "openai-model-b",
+      "model": "<structured-output-model-b>",
+      "inputCostPerMillionTokensUsd": "<current-input-rate>",
+      "outputCostPerMillionTokensUsd": "<current-output-rate>"
+    }
+  ]
+}
+```
+
+Rates must be positive JSON numbers in a real configuration. The report path must stay
+under ignored `.data/`; the command rejects absolute, parent-traversing, tracked-file,
+and symbolic-link storage paths. Store the local configuration under `.data/`, inject
+the key through an owner-controlled secret environment, and then invoke:
+
+```bash
+INTAKE_EVALUATION_CONFIG=.data/intake-evaluation-config.json npm run evaluate:intake
+```
+
+One invocation sends every 14-case corpus input to every configured model: 28 requests
+for two models or 42 for three. It is therefore deliberately excluded from ordinary
+verification and must be invoked only after separately reviewing model compatibility,
+rates, spend, and the configured output budget. The command prints one privacy-safe
+summary and writes the full compact report to the configured owner-only file.
+
+OpenAI request fields and response usage follow the official
+[Responses API reference](https://developers.openai.com/api/reference/cli/resources/responses/methods/create).
+Current rates must be taken from [OpenAI API pricing](https://openai.com/api/pricing/)
+at execution time rather than copied from this repository.
+
 ## Deliberate boundary
 
-The repository still has no real provider adapter, model SDK, prompt, credential,
-owner-operated evaluation command, API route, visible UI behavior, or GTM action. The
-next safe slice is explicitly authorized backend adapters and a credentialed offline
-command using this runner; it must not change the practitioner workflow.
+The repository now has one dormant real provider adapter, a fixed instruction, and an
+owner-operated credentialed command. It does not contain a credential, checked-in
+model choice or price, automatic execution, paid-call test, public execution route,
+visible UI behavior, production intake influence, or GTM action. The next safe slice
+is a read-only report API that cannot start model execution, followed by a report UI.
