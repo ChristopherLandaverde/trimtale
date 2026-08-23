@@ -49,6 +49,8 @@ export interface TrackingSetupOperationV1 {
     checkedAt: string;
     workspaceFingerprint: string;
     errors: string[];
+    workspaceChanges?: unknown[];
+    previewVersionFingerprint?: string;
   };
   version?: {
     path: string;
@@ -210,6 +212,9 @@ export function validateTrackingOperation(value: unknown): string[] {
     if (!validTimestamp(validation.checkedAt) || !nonempty(validation.workspaceFingerprint)
       || !Array.isArray(validation.errors) || validation.errors.some((item) => typeof item !== "string")) {
       errors.push("validation is invalid");
+    }
+    if (validation.workspaceChanges !== undefined && !Array.isArray(validation.workspaceChanges)) {
+      errors.push("validation.workspaceChanges is invalid");
     }
     if (workspace && validation.workspaceFingerprint !== workspace.fingerprint) {
       errors.push("validation.workspaceFingerprint must match workspace.fingerprint");

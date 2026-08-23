@@ -58,8 +58,8 @@ local readiness
 - [x] Tracking change plans classify create, reuse, no-op, and conflict behavior.
 - [x] A durable operation record can resume after interruption from freshly read state.
 - [x] Managed-workspace application is idempotent and ownership constrained.
-- [ ] Workspace validation produces reviewable compiler and change evidence.
-- [ ] Version creation records an immutable fingerprint and prior live version.
+- [x] Workspace validation produces reviewable compiler and change evidence.
+- [x] Version creation records an immutable fingerprint and prior live version.
 - [ ] Publication requires approval bound to that fingerprint.
 - [ ] Post-publication verification and rollback evidence complete the operation.
 

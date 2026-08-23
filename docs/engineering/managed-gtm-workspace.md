@@ -24,11 +24,12 @@ GOOGLE_GTM_CONTAINER_WRITES_ENABLED is absent
 OAuth scope: tagmanager.readonly
 ```
 
-Explicitly enabling workspace preparation at backend startup requests both read-only and container-edit scopes:
+Explicitly enabling the managed GTM write workflow at backend startup requests
+read-only, container-edit, and container-version-edit scopes:
 
 ```text
 GOOGLE_GTM_CONTAINER_WRITES_ENABLED=true
-OAuth scopes: tagmanager.readonly tagmanager.edit.containers
+OAuth scopes: tagmanager.readonly tagmanager.edit.containers tagmanager.edit.containerversions
 ```
 
 Changing this setting requires a new Google OAuth consent flow. A previously issued read-only token does not gain write permission.

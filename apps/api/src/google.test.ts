@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   GoogleOAuthSession,
   GtmDiscoveryClient,
+  GTM_EDIT_CONTAINER_VERSIONS_SCOPE,
   GTM_EDIT_CONTAINERS_SCOPE,
   GTM_READONLY_SCOPE,
   googleGtmWritesEnabled,
@@ -58,7 +59,11 @@ describe("Google OAuth configuration", () => {
 
     const session = new GoogleOAuthSession(config, vi.fn<typeof fetch>(), Date.now, true);
     const scopes = new URL(session.authorizationUrl()).searchParams.get("scope")?.split(" ");
-    expect(scopes).toEqual([GTM_READONLY_SCOPE, GTM_EDIT_CONTAINERS_SCOPE]);
+    expect(scopes).toEqual([
+      GTM_READONLY_SCOPE,
+      GTM_EDIT_CONTAINERS_SCOPE,
+      GTM_EDIT_CONTAINER_VERSIONS_SCOPE,
+    ]);
   });
 });
 
