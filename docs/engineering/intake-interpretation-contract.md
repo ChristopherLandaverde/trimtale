@@ -198,10 +198,33 @@ OpenAI request fields and response usage follow the official
 Current rates must be taken from [OpenAI API pricing](https://openai.com/api/pricing/)
 at execution time rather than copied from this repository.
 
+## Read-only report API
+
+The loopback API reads the command's report collection from
+`INTAKE_EVALUATION_REPORT_STORE`, defaulting to `.data/intake-evaluations.json`:
+
+| Method and path | Result |
+|---|---|
+| `GET /api/intake-evaluations` | Versioned newest-first report summaries with provider outcome, score, latency, and usage aggregates; case rows omitted |
+| `GET /api/intake-evaluations/:reportId` | One complete runtime-validated compact report with safe per-case outcomes and dimensions |
+
+Every request constructs a fresh report repository and validates the whole collection,
+which makes separately written reports visible without restarting the server. A missing
+file returns an empty list. Malformed JSON, unsupported or invalid schemas, and
+duplicate reports return only `503 Intake evaluation reports are unavailable`; file
+content and validation details are not exposed. Unknown opaque IDs return 404 and
+recognized POST, PUT, PATCH, and DELETE requests return 405 without touching storage.
+
+These routes use the same exact-origin boundary as the Google integration. A browser
+must match `EXTENSION_ORIGIN`; absent, wildcard, null, attacker, prefix, and suffix
+origins fail closed. Originless requests are accepted because the server binds only to
+`127.0.0.1`. The route module imports the report repository only—it cannot import or
+invoke the provider, runner, command, credential, GTM workflow, or publication path.
+
 ## Deliberate boundary
 
 The repository now has one dormant real provider adapter, a fixed instruction, and an
 owner-operated credentialed command. It does not contain a credential, checked-in
-model choice or price, automatic execution, paid-call test, public execution route,
-visible UI behavior, production intake influence, or GTM action. The next safe slice
-is a read-only report API that cannot start model execution, followed by a report UI.
+model choice or price, automatic execution, paid-call test, model-execution route,
+visible UI behavior, production intake influence, or GTM action. Its only new network
+surface is the protected read-only report API. The next safe slice is the report UI.

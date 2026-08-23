@@ -7,12 +7,17 @@ function isGoogleRoute(pathname: string): boolean {
   return pathname === "/api/google" || pathname.startsWith("/api/google/");
 }
 
+function isIntakeEvaluationRoute(pathname: string): boolean {
+  return pathname === "/api/intake-evaluations"
+    || pathname.startsWith("/api/intake-evaluations/");
+}
+
 export function corsDecision(
   pathname: string,
   requestOrigin: string | undefined,
   configuredExtensionOrigin: string | undefined,
 ): CorsDecision {
-  if (!isGoogleRoute(pathname)) {
+  if (!isGoogleRoute(pathname) && !isIntakeEvaluationRoute(pathname)) {
     return { allowed: true, allowOrigin: "*" };
   }
 

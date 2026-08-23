@@ -1,4 +1,5 @@
 import { defineConfig } from "@playwright/test";
+import { resolve } from "node:path";
 
 const reuseExistingServer = process.env.PLAYWRIGHT_REUSE_SERVERS === "true";
 
@@ -22,6 +23,10 @@ export default defineConfig({
       name: "api",
       command: "npm run start --workspace @gtm-observability/api",
       url: "http://127.0.0.1:8787/health",
+      env: {
+        EXTENSION_ORIGIN: "chrome-extension://gtm-observability-e2e",
+        INTAKE_EVALUATION_REPORT_STORE: resolve("tests/fixtures/intake-evaluation-reports.json"),
+      },
       reuseExistingServer,
       stdout: "pipe",
       stderr: "pipe",

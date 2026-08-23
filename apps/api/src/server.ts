@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { createSetupProposal, type SetupRequest } from "@gtm-observability/core";
 import { resolve } from "node:path";
 import { corsDecision } from "./cors.js";
+import { intakeEvaluationApiResponse } from "./intake-evaluation-api.js";
 import {
   GoogleIntegrationError,
   GoogleOAuthSession,
@@ -48,6 +49,10 @@ const workflowRunner = discoveryClient
       discoveryClient,
     )
   : undefined;
+const intakeEvaluationReportStorePath = resolve(
+  process.env.INTAKE_EVALUATION_REPORT_STORE?.trim()
+    || ".data/intake-evaluations.json",
+);
 
 function applyCors(request: IncomingMessage, response: ServerResponse, pathname: string): boolean {
   const decision = corsDecision(pathname, request.headers.origin, configuredExtensionOrigin);
@@ -94,6 +99,16 @@ const server = createServer(async (request, response) => {
 
   if (request.method === "GET" && request.url === "/health") {
     sendJson(response, 200, { status: "ok", service: "gtm-observability-api" });
+    return;
+  }
+
+  const intakeEvaluationResponse = intakeEvaluationApiResponse(
+    request.method ?? "",
+    requestUrl.pathname,
+    intakeEvaluationReportStorePath,
+  );
+  if (intakeEvaluationResponse) {
+    sendJson(response, intakeEvaluationResponse.status, intakeEvaluationResponse.body);
     return;
   }
 
