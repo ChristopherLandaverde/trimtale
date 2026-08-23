@@ -127,9 +127,9 @@ work. It does not load environment files or select any credentialed script. Loca
 `.env*.local`, `.vercel/`, and generated `.build/` artifacts are ignored repository-wide
 to keep credentials, deployment linkage, and generated output out of commits.
 
-### Read-only Google Tag Manager integration
+### Google Tag Manager integration
 
-The API can run a separately gated OAuth flow and discover the connected tracking practitioner's GTM accounts and containers. This lane requests only the `tagmanager.readonly` scope and is disabled unless all three variables are set:
+The API can run a separately gated OAuth flow and discover the connected tracking practitioner's GTM accounts and containers. It is read-only by default and is disabled unless the OAuth variables are set:
 
 ```bash
 GOOGLE_OAUTH_CLIENT_ID=...
@@ -145,7 +145,13 @@ origins when `EXTENSION_ORIGIN` is absent, `*`, or different from the request or
 they never emit a wildcard CORS header. Direct OAuth navigation and server-side
 clients that do not send an `Origin` header remain supported.
 
-Register the exact redirect URI in the Google Cloud OAuth client and enable the Tag Manager API. Then open `http://127.0.0.1:8787/api/google/oauth/start`; after consent, `GET /api/google/accounts` returns each accessible account with its containers. OAuth tokens are held only in backend memory and are lost when the process exits. Ordinary `npm run verify` remains credential-free and never calls Google.
+Register the exact redirect URI in the Google Cloud OAuth client and enable the Tag
+Manager API. Then open `http://127.0.0.1:8787/api/google/oauth/start`; after consent,
+`GET /api/google/accounts` returns each accessible account with its containers. Set
+`GOOGLE_OAUTH_TOKEN_STORE` to a backend-local path to persist only an owner-readable
+refresh token and reconnect after restart without another browser consent. Without that
+setting, authorization remains memory-only. Ordinary `npm run verify` remains
+credential-free and never calls Google.
 
 Before starting an explicitly credentialed workspace-write session, validate only the
 presence and shape of its configuration without printing values:
@@ -158,11 +164,16 @@ This Google preflight remains outside `npm run agent` and ordinary verification.
 checks the OAuth client variables, exact local callback, exact extension origin, and
 explicit container-write switch; it does not contact Google or prove live access.
 
-Production publication remains separately disabled. For an explicitly approved
-publication session, set `GOOGLE_GTM_PUBLICATION_ENABLED=true` and run
-`npm run preflight:publication`. This adds the `tagmanager.publish` OAuth scope only
-for that session; ordinary Google preflight, CI, and `npm run verify` never enable or
-call publication.
+Container edits require `GOOGLE_GTM_CONTAINER_WRITES_ENABLED=true` before consent.
+Request publish consent separately with
+`GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED=true`; this does not enable publication.
+For an explicitly approved publication session, also set
+`GOOGLE_GTM_PUBLICATION_ENABLED=true` and run `npm run preflight:publication`.
+Ordinary Google preflight, CI, and `npm run verify` never enable or call publication.
+
+See the [GTM setup workflow operator runbook](docs/engineering/gtm-workflow-runbook.md)
+for durable operation paths, exact-fingerprint approval, API quota behavior,
+post-publication evidence, and rollback.
 
 After choosing a disposable container, `GET /api/google/accounts/:accountId/containers/:containerId/context` retrieves its workspaces and live version entity context. This includes the existing tags, triggers, variables, and built-in variables needed to plan an isolated workspace change. It remains read-only.
 

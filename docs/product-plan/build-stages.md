@@ -40,7 +40,8 @@ Build:
 
 Do not build yet:
 
-- Full AI agent.
+- A broad autonomous AI agent. Model-backed conversation intake may begin earlier when
+  it returns grounded specification candidates and cannot mutate tracking state.
 - Direct GTM publishing.
 - Google Ads attribution confirmation.
 - Broad website crawling.
@@ -150,11 +151,14 @@ ads_platform_pending
 ads_attribution_unconfirmed
 ```
 
-## Stage 6: Agent UX
+## Stage 6: Agent UX expansion
 
 Goal: make the deterministic system easier and more enjoyable to operate.
 
 The agent should call existing tools. It should not be the source of truth.
+Natural-language conversation intake begins during setup and verification rather than
+waiting for this stage. Stage 6 expands that constrained intake into multi-tool
+diagnosis, remediation, scanning, and reporting after those tools are reliable.
 
 Supported first intents:
 
