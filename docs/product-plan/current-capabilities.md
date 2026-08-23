@@ -111,6 +111,8 @@ The shared domain package includes:
 - Explicit browser-verification and platform-confirmation boundaries.
 - A scenario corpus for known successful, failing, ambiguous, consent-limited, dynamic, and cross-origin cases.
 - A verified-resolution format requiring failing-before evidence, passing-after evidence, a controlled cause and corrective action, and human confirmation.
+- A read-only tracking change planner that classifies supported generated entities as
+  create, reuse, no-op, or conflict against freshly read managed-workspace entities.
 
 Verified resolutions can be saved and retrieved through the API's file-backed repository. They do not currently retrain a model or modify deterministic verdict rules. Similarity retrieval and active learning are future work.
 

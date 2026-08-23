@@ -1,11 +1,15 @@
 import { randomBytes } from "node:crypto";
 import {
+  createTrackingChangePlan,
   GTM_MANAGED_WORKSPACE_DESCRIPTION,
   GTM_MANAGED_WORKSPACE_NAME,
   inspectManagedWorkspace,
   normalizePublicContainerId,
   recognizeContainer,
+  type GtmContainerExport,
+  type GtmEntitySet,
   type ManagedWorkspaceInspection,
+  type TrackingChangePlan,
 } from "@gtm-observability/core";
 
 export const GTM_READONLY_SCOPE = "https://www.googleapis.com/auth/tagmanager.readonly";
@@ -115,6 +119,24 @@ export type GtmManagedWorkspacePreparation =
         reservedNameCount: number;
       }
       | { status: "sync_conflict"; workspaceCount: number; workspace: GtmWorkspace };
+  };
+
+export type GtmManagedWorkspacePlanning =
+  | { status: "not_accessible"; publicId: string }
+  | { status: "ambiguous"; publicId: string; matchCount: number }
+  | {
+    status: "workspace_required" | "workspace_unavailable";
+    publicId: string;
+    container: GtmContainer;
+    workspace: ManagedWorkspaceInspection<GtmWorkspace>;
+  }
+  | {
+    status: "planned";
+    publicId: string;
+    container: GtmContainer;
+    workspace: GtmWorkspace;
+    workspaceFingerprint?: string;
+    plan: TrackingChangePlan;
   };
 
 type Fetch = typeof fetch;
@@ -275,6 +297,26 @@ interface WorkspaceStatusResponse {
   mergeConflict?: unknown[];
 }
 
+interface TagListResponse {
+  tag?: unknown[];
+  nextPageToken?: string;
+}
+
+interface TriggerListResponse {
+  trigger?: unknown[];
+  nextPageToken?: string;
+}
+
+interface VariableListResponse {
+  variable?: unknown[];
+  nextPageToken?: string;
+}
+
+interface BuiltInVariableListResponse {
+  builtInVariable?: unknown[];
+  nextPageToken?: string;
+}
+
 export class GtmDiscoveryClient {
   private readonly preparations = new Map<string, Promise<GtmManagedWorkspacePreparation>>();
 
@@ -328,6 +370,71 @@ export class GtmDiscoveryClient {
       container: context.container,
       liveVersion: context.liveVersion,
       workspace: inspectManagedWorkspace(context.workspaces),
+    };
+  }
+
+  async workspaceEntitySet(workspace: GtmWorkspace): Promise<GtmEntitySet> {
+    if (!/^accounts\/\d+\/containers\/\d+\/workspaces\/\d+$/.test(workspace.path)) {
+      throw new GoogleIntegrationError("GTM workspace path is malformed.", 400);
+    }
+    const parent = `/${workspace.path}`;
+    const [tag, trigger, variable, builtInVariable] = await Promise.all([
+      this.listAll<unknown, TagListResponse>(`${parent}/tags`, "tag"),
+      this.listAll<unknown, TriggerListResponse>(`${parent}/triggers`, "trigger"),
+      this.listAll<unknown, VariableListResponse>(`${parent}/variables`, "variable"),
+      this.listAll<unknown, BuiltInVariableListResponse>(
+        `${parent}/built_in_variables`,
+        "builtInVariable",
+      ),
+    ]);
+    return { tag, trigger, variable, builtInVariable };
+  }
+
+  async planManagedWorkspace(
+    publicId: string,
+    generatedSetup: GtmContainerExport,
+  ): Promise<GtmManagedWorkspacePlanning> {
+    const normalizedPublicId = normalizePublicContainerId(publicId);
+    if (
+      normalizePublicContainerId(generatedSetup.containerVersion.container.publicId)
+      !== normalizedPublicId
+    ) {
+      throw new GoogleIntegrationError(
+        "Generated tracking setup does not belong to the observed GTM container.",
+        400,
+      );
+    }
+
+    const inspection = await this.inspectObservedContainer(normalizedPublicId);
+    if (inspection.status !== "recognized") return inspection;
+    if (inspection.workspace.status !== "available") {
+      return {
+        status: "workspace_unavailable",
+        publicId: inspection.publicId,
+        container: inspection.container,
+        workspace: inspection.workspace,
+      };
+    }
+    if (inspection.workspace.action === "create") {
+      return {
+        status: "workspace_required",
+        publicId: inspection.publicId,
+        container: inspection.container,
+        workspace: inspection.workspace,
+      };
+    }
+
+    this.assertWorkspacePath(inspection.workspace.workspace, inspection.container);
+    const entities = await this.workspaceEntitySet(inspection.workspace.workspace);
+    return {
+      status: "planned",
+      publicId: inspection.publicId,
+      container: inspection.container,
+      workspace: inspection.workspace.workspace,
+      ...(inspection.workspace.workspace.fingerprint
+        ? { workspaceFingerprint: inspection.workspace.workspace.fingerprint }
+        : {}),
+      plan: createTrackingChangePlan(generatedSetup, entities),
     };
   }
 

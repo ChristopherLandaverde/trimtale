@@ -8,6 +8,7 @@ import {
   googleOAuthConfig,
 } from "./google.js";
 import {
+  createSetupProposal,
   GTM_MANAGED_WORKSPACE_DESCRIPTION,
   GTM_MANAGED_WORKSPACE_NAME,
 } from "@gtm-observability/core";
@@ -155,6 +156,12 @@ function googleFixtureFetch(options: {
   workspaces: Array<Record<string, unknown>>;
   sync?: Record<string, unknown>;
   createdWorkspace?: Record<string, unknown>;
+  entities?: {
+    tag?: unknown[];
+    trigger?: unknown[];
+    variable?: unknown[];
+    builtInVariable?: unknown[];
+  };
 }) {
   return vi.fn<typeof fetch>(async (input, init) => {
     const url = new URL(input.toString());
@@ -182,6 +189,12 @@ function googleFixtureFetch(options: {
       });
     }
     if (url.pathname.endsWith("/workspaces")) return Response.json({ workspace: options.workspaces });
+    if (url.pathname.endsWith("/tags")) return Response.json({ tag: options.entities?.tag ?? [] });
+    if (url.pathname.endsWith("/triggers")) return Response.json({ trigger: options.entities?.trigger ?? [] });
+    if (url.pathname.endsWith("/variables")) return Response.json({ variable: options.entities?.variable ?? [] });
+    if (url.pathname.endsWith("/built_in_variables")) {
+      return Response.json({ builtInVariable: options.entities?.builtInVariable ?? [] });
+    }
     if (url.pathname.endsWith(":sync")) return Response.json(options.sync ?? { syncStatus: {} });
     if (url.pathname.endsWith("/status")) return Response.json({ workspaceChange: [], mergeConflict: [] });
     if (url.pathname.endsWith("/versions:live")) {
@@ -240,6 +253,79 @@ describe("recognized container workspace workflow", () => {
     expect(result).toMatchObject({ status: "recognized", workspace: { status: "reused", workspace: managedWorkspace } });
     expect(fetcher.mock.calls.filter(([input]) => input.toString().endsWith(":sync"))).toHaveLength(1);
     expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  });
+
+  it("plans against freshly read managed-workspace entities without mutation", async () => {
+    const setup = createSetupProposal({
+      intent: "Track navigation clicks",
+      pageUrl: "https://example.test/",
+      measurementId: "G-TEST123456",
+      container: {
+        accountId: "1",
+        containerId: "10",
+        publicId: "GTM-ABC123",
+        name: "Lead site",
+      },
+      navigation: [{
+        id: "pricing",
+        text: "Pricing",
+        href: "https://example.test/pricing",
+        area: "nav",
+        selector: "nav a[href='/pricing']",
+      }],
+    }).containerFile;
+    const entities = structuredClone(setup.containerVersion);
+    const trigger = entities.trigger[0] as Record<string, unknown>;
+    const tag = entities.tag[0] as Record<string, unknown>;
+    trigger.triggerId = "42";
+    tag.tagId = "43";
+    tag.firingTriggerId = ["42"];
+    const fetcher = googleFixtureFetch({
+      workspaces: [defaultWorkspace, managedWorkspace],
+      entities,
+    });
+    const client = new GtmDiscoveryClient(async () => "token", fetcher, false);
+
+    const result = await client.planManagedWorkspace("GTM-ABC123", setup);
+
+    expect(result).toMatchObject({
+      status: "planned",
+      workspaceFingerprint: "managed-2",
+      plan: { status: "ready" },
+    });
+    expect(result.status === "planned" && result.plan.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "trigger", action: "reuse", existingId: "42" }),
+      expect.objectContaining({ kind: "tag", action: "reuse", existingId: "43" }),
+    ]));
+    expect(fetcher.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+  });
+
+  it("requires workspace preparation before reading entities", async () => {
+    const setup = createSetupProposal({
+      intent: "Track navigation clicks",
+      pageUrl: "https://example.test/",
+      measurementId: "G-TEST123456",
+      container: {
+        accountId: "1",
+        containerId: "10",
+        publicId: "GTM-ABC123",
+        name: "Lead site",
+      },
+      navigation: [{
+        id: "pricing",
+        text: "Pricing",
+        href: "https://example.test/pricing",
+        area: "nav",
+        selector: "nav a[href='/pricing']",
+      }],
+    }).containerFile;
+    const fetcher = googleFixtureFetch({ workspaces: [defaultWorkspace] });
+    const client = new GtmDiscoveryClient(async () => "token", fetcher, false);
+
+    const result = await client.planManagedWorkspace("GTM-ABC123", setup);
+
+    expect(result).toMatchObject({ status: "workspace_required" });
+    expect(fetcher.mock.calls.some(([input]) => input.toString().endsWith("/tags"))).toBe(false);
   });
 
   it("creates once for concurrent repeated preparation", async () => {
