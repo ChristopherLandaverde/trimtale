@@ -166,6 +166,14 @@ repository provides transactional coordination.
 - OAuth publish consent and publication execution are intentionally independent.
 - Ordinary CI uses fake Google responses and cannot mutate a live container.
 
+### Delivery maintenance
+
+The August 23 merged-main runs passed, but GitHub Actions warned that
+`actions/checkout@v4` and `actions/setup-node@v4` target deprecated Node 20 while the
+runner forces them onto Node 24. This is not blocking today. Upgrade those actions to
+their current Node-24-compatible major versions before GitHub removes the compatibility
+path, then rerun the full verification gate and inspect any checkout/cache differences.
+
 ## First live operation handoff
 
 The disposable exercise used container `GTM-PCJ3Q5RK` only:
