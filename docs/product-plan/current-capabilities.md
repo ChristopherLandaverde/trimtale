@@ -163,11 +163,13 @@ approval. Prior-live version `2` remains available at fingerprint `1786828091962
 A live Chromium signal produced exactly one correctly parameterized `generate_lead`
 request. GA4 transmitted the standard `page_location` field as wire parameter `dl`;
 the evidence normalizer and verdict engine now accept and privacy-filter that standard
-representation. The operation remains `published`, not `completed`, because the
-live disposable page does not yet contain the real `#workflow-smoke-form` interaction.
-The tracked verification-target source and local Chromium journey now contain that
-interaction, but deployment and credentialed evidence are still pending. Browser
-evidence continues to leave platform confirmation unverified.
+representation. The live ConsentFlow page now contains the real
+`#workflow-smoke-form` interaction. Evidence run
+`run_spec_disposable_form_smoke_v3_1787493019725` observed one successful outcome,
+one metadata-only event, and exactly one expected GA4 request. Its normalized verdict
+was `browser_verified`, so operation `operation_spec_disposable_form_smoke_v3` is now
+`completed` with no rollback required. Browser evidence continues to leave platform
+confirmation unverified.
 
 ## What is not built yet
 
