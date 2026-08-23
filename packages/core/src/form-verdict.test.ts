@@ -80,6 +80,22 @@ describe("deterministic form verdict engine", () => {
     expect(determineFormVerdict(liveRequest).code).toBe("browser_verified");
   });
 
+  it("accepts observable success plus one complete GA4 request when data-layer internals are unavailable", () => {
+    const liveRequest = observations({
+      dataLayer: { matchingEvents: [] },
+      tagFired: true,
+      network: { ga4Requests: [{
+        url: "https://www.google-analytics.com/g/collect?en=generate_lead&ep.form_id=workflow-smoke-form&ep.form_name=Disposable_workflow_smoke_form&dl=https%3A%2F%2Fconsentflow-psi.vercel.app%2F",
+        observedAt: "2026-08-23T18:00:00.000Z",
+      }] },
+    });
+
+    expect(determineFormVerdict(liveRequest)).toMatchObject({
+      code: "browser_verified",
+      browserVerification: "passed",
+    });
+  });
+
   it("still requires page location in either supported wire representation", () => {
     const noPageLocation = observations({
       network: { ga4Requests: [{

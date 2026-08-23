@@ -96,6 +96,7 @@ function validConnectionStatus(value: unknown): value is {
   publicationScopeRequested: boolean;
   publicationEnabled: boolean;
   tokenPersistenceEnabled: boolean;
+  analyticsReadEnabled: boolean;
 } {
   return isRecord(value)
     && typeof value.configured === "boolean"
@@ -104,7 +105,8 @@ function validConnectionStatus(value: unknown): value is {
     && typeof value.containerWritesEnabled === "boolean"
     && typeof value.publicationScopeRequested === "boolean"
     && typeof value.publicationEnabled === "boolean"
-    && typeof value.tokenPersistenceEnabled === "boolean";
+    && typeof value.tokenPersistenceEnabled === "boolean"
+    && typeof value.analyticsReadEnabled === "boolean";
 }
 
 function validObservedContainerIds(value: unknown): value is string[] {
@@ -134,6 +136,7 @@ chrome.runtime.onMessage.addListener(
           publicationScopeRequested: status.publicationScopeRequested,
           publicationEnabled: status.publicationEnabled,
           tokenPersistenceEnabled: status.tokenPersistenceEnabled,
+          analyticsReadEnabled: status.analyticsReadEnabled,
         };
         if (!safeStatus.configured || !safeStatus.connected || containerIds.length !== 1) {
           sendResponse({ ok: true, status: safeStatus, containerIds });
@@ -150,6 +153,62 @@ chrome.runtime.onMessage.addListener(
         sendResponse({ ok: true, status: safeStatus, containerIds, recognition });
       })
       .catch(() => sendResponse({ ok: false, error: "service_offline" }));
+    return true;
+  },
+);
+
+chrome.runtime.onMessage.addListener(
+  (message: unknown, _sender, sendResponse) => {
+    if (!isRecord(message) || message.type !== "GA4_VERIFICATION_REQUEST") return undefined;
+    const operation = message.operation;
+    let endpoint: string;
+    let body: Record<string, string>;
+    if (operation === "start"
+      && typeof message.measurementId === "string"
+      && /^G-[A-Z0-9]+$/.test(message.measurementId)
+      && typeof message.eventName === "string"
+      && /^[a-z][a-z0-9_]{0,39}$/.test(message.eventName)) {
+      endpoint = "start";
+      body = { measurementId: message.measurementId, eventName: message.eventName };
+    } else if (operation === "confirm"
+      && typeof message.verificationId === "string"
+      && /^[A-Za-z0-9_-]{1,128}$/.test(message.verificationId)) {
+      endpoint = "confirm";
+      body = { verificationId: message.verificationId };
+    } else {
+      sendResponse({ ok: false, error: "invalid_request" });
+      return undefined;
+    }
+    void fetch(`http://127.0.0.1:8787/api/google/analytics/verifications/${endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then(async (response) => {
+      if (!response.ok) {
+        let providerCode: unknown;
+        try {
+          const errorBody: unknown = await response.json();
+          providerCode = isRecord(errorBody) ? errorBody.code : undefined;
+        } catch {
+          providerCode = undefined;
+        }
+        const error = providerCode === "reads_disabled"
+          ? "analytics_disabled"
+          : providerCode === "provider_forbidden"
+            ? "analytics_provider_forbidden"
+          : operation === "start" && response.status === 404
+            ? "measurement_not_accessible"
+            : operation === "start" && response.status === 409
+              ? "measurement_ambiguous"
+              : operation === "confirm" && (response.status === 404 || response.status === 410)
+                ? "verification_expired"
+                : "analytics_unavailable";
+        sendResponse({ ok: false, error });
+        return;
+      }
+      const result: unknown = await response.json();
+      sendResponse({ ok: true, result });
+    }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
     return true;
   },
 );

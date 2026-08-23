@@ -2,7 +2,7 @@
 
 Status date: 2026-08-23
 
-GTM Observability currently turns a supported tracking intent into a confirmed tracking specification, generates a reviewable GTM setup, observes the website's GTM runtime, matches the observed container to Google access, and safely prepares one reusable managed workspace. A guarded backend API can durably plan and apply navigation and confirmed lead-form setups, validate the workspace, and create an immutable version. Separate backend clients can publish an exactly approved version and restore its recorded prior-live version. The website assistant does not yet expose those orchestration, approval, publication, or rollback actions.
+GTM Observability currently turns a supported tracking intent into a confirmed tracking specification, generates a reviewable GTM setup, observes the website's GTM runtime, matches the observed container to Google access, guides a browser run, and can correlate that run with an aggregate read-only GA4 Realtime count increase. A guarded backend API can safely prepare one reusable managed workspace, durably plan and apply navigation and confirmed lead-form setups, validate the workspace, and create an immutable version. Separate backend clients can publish an exactly approved version and restore its recorded prior-live version. The website assistant does not yet expose those orchestration, approval, publication, or rollback actions.
 
 ## Current product workflow
 
@@ -14,8 +14,11 @@ Open the assistant and inspect page GTM / authorized access
     -> confirm the tracking specification
     -> generate a reviewable GTM setup
     -> optionally download the GTM JSON
-    -> observe the website's GTM container ID
-    -> match that ID to one accessible Google container
+    -> use the exact pre-chat GTM container and GA4 destination context
+    -> record a read-only GA4 Realtime baseline
+    -> submit the guided browser run once
+    -> classify the browser request independently
+    -> optionally confirm an aggregate GA4 Realtime count increase
     -> create or reuse one managed workspace
     -> stop before applying or publishing changes
 ```
@@ -38,6 +41,8 @@ The assistant currently supports:
 - Explicit target and tracking-specification confirmation.
 - Clear unsupported handoffs for interaction types that are understood but not implemented.
 - An evidence path that separates intent, page inspection, target confirmation, setup generation, GTM runtime, GTM access, browser verification, and platform confirmation.
+- Exact connected context carried into setup generation, browser verification, and
+  optional aggregate GA4 Realtime confirmation without proprietary page meta tags.
 
 The conversation classifier and state transitions are deterministic today. Model-backed conversation intake is the next product slice, but no production model currently interprets tracking intents or decides whether evidence passed.
 
@@ -70,7 +75,11 @@ The lead-generation flow can:
 
 The deterministic verdict engine covers successful browser verification, expected validation failures, missing events, tags that did not fire, missing requests, missing parameters, duplicate requests, consent limitations, server errors, and insufficient observable evidence.
 
-Browser verification remains different from platform confirmation. Seeing a GA4 request leave the browser does not prove that GA4 or Google Ads processed it.
+Browser verification remains different from platform confirmation. Seeing one complete
+GA4 request leave the browser passes only the browser row. When separately enabled, the
+assistant records the expected event's Realtime count before the run and passes the
+platform row only after the same property's aggregate count increases. The UI states
+that this is before/after correlation, not user-level or event-level identity.
 
 ## GTM container recognition
 
@@ -85,7 +94,8 @@ and the page exposes exactly one public ID, the backend:
 2. Requires one exact, case-insensitive public-ID match.
 3. Reports the matching GTM account name and container name.
 4. Reads the matching container, live version, and current workspaces.
-5. Reports whether one managed workspace can be created or reused.
+5. Returns sorted, unique GA4 measurement IDs extracted from the live version.
+6. Reports whether one managed workspace can be created or reused.
 
 The card distinguishes local-service failure, unconfigured OAuth, disconnected Google
 authorization, no page container, inaccessible IDs, and ambiguous or multiple IDs.
@@ -97,6 +107,22 @@ session. The OAuth grant does not include profile or email scope, so no email is
 Account and container names are strictly decoded and rendered as inert text. Opening or
 refreshing the card performs read-only requests only; it never prepares a workspace,
 applies a change, or publishes.
+
+## Read-only GA4 platform correlation
+
+Analytics access is separately gated by `GOOGLE_ANALYTICS_READS_ENABLED=true` and the
+least-privilege `analytics.readonly` OAuth scope. The backend uses Analytics Admin
+reads to require exactly one property/data-stream match for the recognized measurement
+ID. Zero and multiple matches fail closed.
+
+Starting a guided run records the expected event's Realtime `eventCount` and retains an
+opaque verification handle for ten minutes in bounded process memory. Confirmation is
+eligible only after browser verification passes and succeeds only when a later read of
+the same property/event is greater than the baseline. Equal counts remain pending and
+can be retried. The state is non-durable and contains no browser cookies, form values,
+submitted personal data, or event/user identity. Analytics disabled, provider access
+denied, inaccessible or ambiguous destinations, expiry, and local-service failure are
+distinct visible states. No Analytics or GTM write is used.
 
 ## Managed GTM workspace
 
@@ -243,8 +269,9 @@ representation. The live ConsentFlow page now contains the real
 `run_spec_disposable_form_smoke_v3_1787493019725` observed one successful outcome,
 one metadata-only event, and exactly one expected GA4 request. Its normalized verdict
 was `browser_verified`, so operation `operation_spec_disposable_form_smoke_v3` is now
-`completed` with no rollback required. Browser evidence continues to leave platform
-confirmation unverified.
+`completed` with no rollback required. A later connected-verification review exercised
+the separately gated read-only destination check; browser evidence and aggregate
+platform correlation remain independent claims.
 
 ## What is not built yet
 
@@ -255,7 +282,8 @@ The following product actions remain deliberately unimplemented or unexposed:
 - Presenting an exact version fingerprint for approval in the practitioner UI.
 - Exposing approval, publication, rollback, and post-publication evidence as visible
   assistant actions or public workflow routes.
-- Confirming receipt inside GA4 or Google Ads.
+- Event-level or user-level receipt identity inside GA4, and Google Ads confirmation.
+- Durable platform-confirmation history beyond the bounded page-session correlation.
 - Scheduled monitoring and incident alerts.
 - A customer-facing model-evaluation report UI; evaluation remains backend-only.
 - Production LLM-based intake or any model influence on visible conversation state.

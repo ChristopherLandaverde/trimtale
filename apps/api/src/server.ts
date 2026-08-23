@@ -15,6 +15,11 @@ import {
 } from "./google.js";
 import { TrackingOperationRepository } from "./tracking-operations.js";
 import { TrackingWorkflowRunner, type TrackingWorkflowRequest } from "./workflow-runner.js";
+import {
+  AnalyticsIntegrationError,
+  GoogleAnalyticsReadClient,
+  googleAnalyticsReadsEnabled,
+} from "./analytics.js";
 
 const port = Number.parseInt(process.env.PORT ?? "8787", 10);
 const configuredExtensionOrigin = process.env.EXTENSION_ORIGIN;
@@ -23,6 +28,7 @@ const oauthConfig = googleOAuthConfig();
 const containerWritesEnabled = googleGtmWritesEnabled();
 const publicationEnabled = googleGtmPublicationEnabled();
 const publicationScopeRequested = googleGtmPublicationScopeRequested();
+const analyticsReadEnabled = googleAnalyticsReadsEnabled();
 const oauthTokenStorePath = process.env.GOOGLE_OAUTH_TOKEN_STORE?.trim();
 const oauthTokenStore = oauthConfig && oauthTokenStorePath
   ? new FileGoogleOAuthTokenStore(resolve(oauthTokenStorePath), oauthConfig.clientId)
@@ -35,10 +41,14 @@ const oauthSession = oauthConfig
       containerWritesEnabled,
       publicationScopeRequested,
       oauthTokenStore,
+      analyticsReadEnabled,
     )
   : undefined;
 const discoveryClient = oauthSession
   ? new GtmDiscoveryClient(() => oauthSession.accessToken(), fetch, containerWritesEnabled, publicationEnabled)
+  : undefined;
+const analyticsClient = oauthSession
+  ? new GoogleAnalyticsReadClient(() => oauthSession.accessToken(), fetch, analyticsReadEnabled)
   : undefined;
 const workflowRunner = discoveryClient
   ? new TrackingWorkflowRunner(
@@ -121,7 +131,67 @@ const server = createServer(async (request, response) => {
       publicationScopeRequested,
       publicationEnabled,
       tokenPersistenceEnabled: oauthTokenStore !== undefined,
+      analyticsReadEnabled,
     });
+    return;
+  }
+
+  if (request.method === "POST" && requestUrl.pathname === "/api/google/analytics/verifications/start") {
+    if (!analyticsClient) {
+      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
+      return;
+    }
+    try {
+      const body = await readJson(request);
+      const record = typeof body === "object" && body !== null && !Array.isArray(body)
+        ? body as Record<string, unknown>
+        : undefined;
+      if (typeof record?.measurementId !== "string" || typeof record.eventName !== "string") {
+        sendJson(response, 400, { error: "Measurement ID and event name are required." });
+        return;
+      }
+      sendJson(response, 200, await analyticsClient.start({
+        measurementId: record.measurementId,
+        eventName: record.eventName,
+      }));
+    } catch (integrationError) {
+      const status = integrationError instanceof AnalyticsIntegrationError ? integrationError.status : 502;
+      const message = integrationError instanceof AnalyticsIntegrationError
+        ? integrationError.message
+        : "Unable to start Analytics verification.";
+      const code = integrationError instanceof AnalyticsIntegrationError
+        ? integrationError.code
+        : "provider_unavailable";
+      sendJson(response, status, { error: message, code });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && requestUrl.pathname === "/api/google/analytics/verifications/confirm") {
+    if (!analyticsClient) {
+      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
+      return;
+    }
+    try {
+      const body = await readJson(request);
+      const verificationId = typeof body === "object" && body !== null && !Array.isArray(body)
+        ? (body as Record<string, unknown>).verificationId
+        : undefined;
+      if (typeof verificationId !== "string") {
+        sendJson(response, 400, { error: "Analytics verification ID is required." });
+        return;
+      }
+      sendJson(response, 200, await analyticsClient.confirm(verificationId));
+    } catch (integrationError) {
+      const status = integrationError instanceof AnalyticsIntegrationError ? integrationError.status : 502;
+      const message = integrationError instanceof AnalyticsIntegrationError
+        ? integrationError.message
+        : "Unable to confirm Analytics verification.";
+      const code = integrationError instanceof AnalyticsIntegrationError
+        ? integrationError.code
+        : "provider_unavailable";
+      sendJson(response, status, { error: message, code });
+    }
     return;
   }
 
