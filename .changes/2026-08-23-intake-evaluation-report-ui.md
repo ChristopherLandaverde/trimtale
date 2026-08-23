@@ -1,5 +1,8 @@
 # Add the intake evaluation report UI
 
+> Historical change: this customer-facing surface was removed by issue 20 after
+> product direction clarified that model evaluations are backend-only observability.
+
 Change record version: 2
 
 Issue: `.scratch/conversational-tracking-specs/issues/19-intake-evaluation-report-ui.md`
@@ -71,3 +74,6 @@ during review were fixed and baseline-protected. No blocker or high finding rema
 The accepted specification, engineering guide, current capabilities, issue 19, and
 exploratory review document the view states, strict bridge/decoder boundary, visible
 authority language, interaction behavior, and remaining production-model boundary.
+
+The later backend-only boundary change removes the extension control, bridge, decoder,
+and panel while retaining this record as implementation history.

@@ -221,32 +221,12 @@ origins fail closed. Originless requests are accepted because the server binds o
 `127.0.0.1`. The route module imports the report repository only—it cannot import or
 invoke the provider, runner, command, credential, GTM workflow, or publication path.
 
-## Extension report view
-
-The assistant's compact `Evals` control opens a read-only overlay panel. The content
-script never fetches arbitrary URLs: it asks the service worker for either the fixed
-list route or one detail route whose opaque ID passes the identifier allowlist. The
-service worker always uses GET with `cache: no-store`, discards non-success response
-bodies, and returns a generic bridge failure without transport detail.
-
-The content script strictly validates exact list, summary, report, provider, metric,
-outcome, case, dimension, usage, and cross-provider consistency before rendering. It
-caps the list at 100 reports and rejects unexpected fields, unsafe IDs, invalid dates,
-unbounded metrics, inconsistent counts, and malformed case evidence. Provider IDs,
-case IDs, metrics, and safe failure codes are inserted with text properties only.
-
-The panel renders newest-first selection, explicit passing/degraded/safety/inconclusive
-badges, aggregate score/outcome/latency/cost/coverage evidence, and non-pass case rows.
-Empty and unavailable states expose refresh or retry only—never model execution. The
-conversation and composer are inert while the panel is open and preserved when it
-closes. The visible boundary says models cannot confirm specifications, change GTM, or
-prove platform receipt.
-
 ## Deliberate boundary
 
 The repository now has one dormant real provider adapter, a fixed instruction, and an
 owner-operated credentialed command. It does not contain a credential, checked-in
 model choice or price, automatic execution, paid-call test, model-execution route,
-production intake influence, or GTM action. Its model UI is evidence-only over the
+visible model-report UI, production intake influence, or GTM action. Evaluation reports
+are operator observability artifacts available only through the backend command and
 protected read API. Advancing any model into visible conversation suggestions remains a
 separate feature-flag and evaluation decision.
