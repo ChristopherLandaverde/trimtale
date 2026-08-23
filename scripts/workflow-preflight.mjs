@@ -78,6 +78,18 @@ export function evaluateGoogleReadiness(environment) {
   ];
 }
 
+export function evaluatePublicationReadiness(environment) {
+  return [
+    ...evaluateGoogleReadiness(environment),
+    check(
+      "production publication",
+      environment.GOOGLE_GTM_PUBLICATION_ENABLED === "true",
+      "separately enabled",
+      "set GOOGLE_GTM_PUBLICATION_ENABLED=true only for an approved publication session",
+    ),
+  ];
+}
+
 export function formatPreflightReport(title, checks) {
   const lines = checks.map(
     ({ name, ok, detail }) => `${ok ? "PASS" : "FAIL"}  ${name}: ${detail}`,
@@ -115,12 +127,16 @@ export async function runWorkflowPreflight(mode, environment = process.env, writ
     ? await collectLocalReadiness()
     : mode === "google"
       ? evaluateGoogleReadiness(environment)
+      : mode === "publication"
+        ? evaluatePublicationReadiness(environment)
       : undefined;
   if (!checks) {
-    writeOutput("Unknown preflight mode. Expected 'local' or 'google'.");
+    writeOutput("Unknown preflight mode. Expected 'local', 'google', or 'publication'.");
     return 2;
   }
-  const title = mode === "local" ? "Local workflow preflight" : "Google integration preflight";
+  const title = mode === "local" ? "Local workflow preflight"
+    : mode === "google" ? "Google integration preflight"
+      : "Publication session preflight";
   writeOutput(formatPreflightReport(title, checks));
   return checks.every(({ ok }) => ok) ? 0 : 1;
 }

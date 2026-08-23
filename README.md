@@ -158,6 +158,12 @@ This Google preflight remains outside `npm run agent` and ordinary verification.
 checks the OAuth client variables, exact local callback, exact extension origin, and
 explicit container-write switch; it does not contact Google or prove live access.
 
+Production publication remains separately disabled. For an explicitly approved
+publication session, set `GOOGLE_GTM_PUBLICATION_ENABLED=true` and run
+`npm run preflight:publication`. This adds the `tagmanager.publish` OAuth scope only
+for that session; ordinary Google preflight, CI, and `npm run verify` never enable or
+call publication.
+
 After choosing a disposable container, `GET /api/google/accounts/:accountId/containers/:containerId/context` retrieves its workspaces and live version entity context. This includes the existing tags, triggers, variables, and built-in variables needed to plan an isolated workspace change. It remains read-only.
 
 For an opt-in live smoke check, supply a short-lived token carrying the same read-only scope:
