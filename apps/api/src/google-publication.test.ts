@@ -84,6 +84,16 @@ describe("approved publication and rollback", () => {
       .publishApprovedVersion(approved())).rejects.toThrow("publication failed");
   });
 
+  it("refuses a version with no publication approval before any Google call", async () => {
+    const operation = approved();
+    operation.status = "versioned";
+    delete operation.approval;
+    const fetcher = publicationFetch();
+    await expect(new GtmDiscoveryClient(async () => "token", fetcher, true, true, () => now)
+      .publishApprovedVersion(operation)).rejects.toMatchObject({ status: 409 });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it("rolls back only from the failed published fingerprint to the recorded prior live fingerprint", async () => {
     const operation = approved();
     operation.status = "rollback_required";

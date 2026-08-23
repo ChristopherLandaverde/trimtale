@@ -60,8 +60,8 @@ local readiness
 - [x] Managed-workspace application is idempotent and ownership constrained.
 - [x] Workspace validation produces reviewable compiler and change evidence.
 - [x] Version creation records an immutable fingerprint and prior live version.
-- [ ] Publication requires approval bound to that fingerprint.
-- [ ] Post-publication verification and rollback evidence complete the operation.
+- [x] Publication requires approval bound to that fingerprint.
+- [x] Post-publication verification and rollback evidence complete the operation.
 
 ## Out of scope
 

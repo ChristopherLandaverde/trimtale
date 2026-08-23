@@ -36,8 +36,10 @@ publish scope and switch.
 
 ## Verification
 
-Focused publication, Google, and preflight tests pass. Full `npm run agent -- verify`
-evidence will be recorded before completion.
+`npm run agent -- verify` passed local preflight, change-documentation and strict
+TypeScript checks, all 184 deterministic tests, every workspace build, and all 25
+Chromium workflows. The focused publication contract contains nine core/Google tests
+plus OAuth and publication-preflight guards.
 
 ## Exploratory review
 
