@@ -206,6 +206,26 @@ unconfigured, attacker, prefix, and suffix origins are denied, while originless 
 requests remain supported on the loopback-bound server. These routes import no
 provider adapter or command and have no execution or write behavior.
 
+## Model evaluation report UI
+
+The existing tracking assistant includes a read-only `Evals` control that opens a
+focused model-evaluation panel without replacing the conversation. It requests only the
+protected list and detail GET routes through the extension service worker. Both payloads
+must pass strict frontend runtime validation before any report value is rendered.
+
+The newest report opens by default and a labeled selector can load earlier reports.
+Each provider card displays its average score, pass/fail/hard-failure/inconclusive
+counts, p95 latency, estimated cost, usage coverage, and either all-passed evidence or
+safe non-pass case rows. Passing, degraded, safety-failure, and inconclusive states use
+distinct labels and tones. The panel always states that offline model evidence cannot
+confirm a specification, change GTM, or prove platform receipt.
+
+Empty storage explains the owner-operated workflow but offers no run action. Transport,
+API, malformed, inconsistent, and attacker-shaped responses collapse into one retryable
+unavailable state that says no model call was started. All report values enter the DOM
+as text. Opening makes the transcript and composer inert; closing restores focus and
+preserves the transcript, draft, collapse behavior, and overlay preferences.
+
 ## Tracking specification contract
 
 ```ts
@@ -375,6 +395,8 @@ A verified resolution records normalized symptoms, relevant environment attribut
   OpenAI models without exposing credentials or paid execution through HTTP.
 - [x] The loopback backend exposes extension-origin-protected, read-only aggregate and
   detail views of validated intake evaluation reports.
+- [x] The assistant renders strict, read-only empty, passing, degraded, inconclusive,
+  unavailable, and adversarial-safe model-evaluation states without an execution action.
 - [x] `npm run verify` passes without real Google credentials or external services.
 
 ## Success measures
