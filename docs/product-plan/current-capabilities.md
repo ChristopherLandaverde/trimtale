@@ -175,6 +175,13 @@ estimates, and backend-only credentials. The command is excluded from ordinary
 verification and does nothing until an owner supplies compatible model IDs, current
 rates, a key, and explicitly invokes its 28- or 42-request comparison.
 
+The loopback API now exposes validated comparison evidence through protected read-only
+list and detail routes. Lists contain newest-first aggregates without case rows; detail
+responses contain the existing compact case outcomes and dimensions. Each request
+reopens the report file, corrupted data produces one generic unavailable response, and
+browser access requires the exact configured extension origin. No route can start a
+model call or write a report.
+
 ## Regression and delivery harness
 
 The repository protects the current behavior with:
@@ -228,8 +235,7 @@ The following product actions remain deliberately unimplemented or unexposed:
   assistant actions or public workflow routes.
 - Confirming receipt inside GA4 or Google Ads.
 - Scheduled monitoring and incident alerts.
-- A read-only model-comparison report API, visible comparison UI, or production
-  LLM-based intake.
+- A visible model-comparison UI or production LLM-based intake.
 - Retrieval from similar verified resolutions or model training.
 
 ## Next implementation boundary

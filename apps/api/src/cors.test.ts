@@ -13,6 +13,8 @@ describe("API CORS boundary", () => {
       "/api/google/containers/prepare-workspace",
       "/api/google/workflows/plan",
       "/api/google/workflows/operation_spec_123/resume",
+      "/api/intake-evaluations",
+      "/api/intake-evaluations/intake_report_123",
     ]) {
       expect(corsDecision(pathname, "https://attacker.example", undefined)).toEqual({
         allowed: false,
@@ -40,6 +42,23 @@ describe("API CORS boundary", () => {
     expect(corsDecision("/api/google/oauth/callback", undefined, extensionOrigin)).toEqual({
       allowed: true,
     });
+  });
+
+  it("protects model-comparison reports with the exact extension origin", () => {
+    for (const pathname of [
+      "/api/intake-evaluations",
+      "/api/intake-evaluations/intake_report_123",
+    ]) {
+      expect(corsDecision(pathname, extensionOrigin, extensionOrigin)).toEqual({
+        allowed: true,
+        allowOrigin: extensionOrigin,
+      });
+      expect(corsDecision(pathname, undefined, extensionOrigin)).toEqual({ allowed: true });
+      expect(corsDecision(pathname, "https://attacker.example", extensionOrigin)).toEqual({ allowed: false });
+      expect(corsDecision(pathname, `${extensionOrigin}.attacker`, extensionOrigin)).toEqual({ allowed: false });
+      expect(corsDecision(pathname, extensionOrigin, "*")).toEqual({ allowed: false });
+      expect(corsDecision(pathname, extensionOrigin, "null")).toEqual({ allowed: false });
+    }
   });
 
   it("preserves the public CORS behavior of non-Google local routes", () => {

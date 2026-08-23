@@ -187,6 +187,25 @@ The command has no schedule or HTTP trigger and is excluded from ordinary verifi
 It remains dormant until an owner separately selects compatible models and current
 rates, supplies a credential, reviews the 28- or 42-request spend, and invokes it.
 
+## Read-only comparison reports
+
+The local backend exposes reports through two read-only routes:
+
+- `GET /api/intake-evaluations` returns newest-first aggregate summaries without case
+  rows.
+- `GET /api/intake-evaluations/:reportId` returns one complete validated compact report.
+
+The server reopens and runtime-validates the configured report collection on each
+request, so a report produced by the separate owner command appears without an API
+restart. Missing storage is a valid empty state. Corrupted, unsupported, invalid, or
+duplicate collections fail closed with one generic unavailable response; unknown valid
+IDs return not found and every recognized non-GET request returns read-only.
+
+Browser access requires the exact configured extension origin. Wildcard, null,
+unconfigured, attacker, prefix, and suffix origins are denied, while originless local
+requests remain supported on the loopback-bound server. These routes import no
+provider adapter or command and have no execution or write behavior.
+
 ## Tracking specification contract
 
 ```ts
@@ -354,6 +373,8 @@ A verified resolution records normalized symptoms, relevant environment attribut
   privacy-safe, runtime-validated comparison report.
 - [x] An owner-operated backend command can connect two or three explicitly configured
   OpenAI models without exposing credentials or paid execution through HTTP.
+- [x] The loopback backend exposes extension-origin-protected, read-only aggregate and
+  detail views of validated intake evaluation reports.
 - [x] `npm run verify` passes without real Google credentials or external services.
 
 ## Success measures
