@@ -69,4 +69,24 @@ describe("deterministic form verdict engine", () => {
       expect(determineFormVerdict(evidence).browserVerification).not.toBe("passed");
     }
   });
+
+  it("accepts GA4's standard dl wire parameter as page_location evidence", () => {
+    const liveRequest = observations({
+      network: { ga4Requests: [{
+        url: "https://www.google-analytics.com/g/collect?en=generate_lead&ep.form_id=workflow-smoke-form&ep.form_name=Disposable_workflow_smoke_form&dl=https%3A%2F%2Fconsentflow-psi.vercel.app%2F",
+        observedAt: "2026-08-23T04:30:00.000Z",
+      }] },
+    });
+    expect(determineFormVerdict(liveRequest).code).toBe("browser_verified");
+  });
+
+  it("still requires page location in either supported wire representation", () => {
+    const noPageLocation = observations({
+      network: { ga4Requests: [{
+        url: "https://www.google-analytics.com/g/collect?en=generate_lead&ep.form_id=contact&ep.form_name=Contact_sales",
+        observedAt: "2026-08-23T04:30:00.000Z",
+      }] },
+    });
+    expect(determineFormVerdict(noPageLocation).code).toBe("missing_parameter");
+  });
 });

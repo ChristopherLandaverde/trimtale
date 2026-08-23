@@ -18,7 +18,8 @@ const nextActions: Record<ScenarioVerdictCode, string> = {
 function requestHasRequiredParameters(url: string): boolean {
   try {
     const parameters = new URL(url).searchParams;
-    return ["ep.form_id", "ep.form_name", "ep.page_location"].every((key) => Boolean(parameters.get(key)));
+    return ["ep.form_id", "ep.form_name"].every((key) => Boolean(parameters.get(key)))
+      && Boolean(parameters.get("ep.page_location") || parameters.get("dl"));
   } catch {
     return false;
   }
