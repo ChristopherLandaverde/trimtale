@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createSetupProposal, type SetupRequest } from "@gtm-observability/core";
+import { corsDecision } from "./cors.js";
 import {
   GoogleIntegrationError,
   GoogleOAuthSession,
@@ -9,7 +10,7 @@ import {
 } from "./google.js";
 
 const port = Number.parseInt(process.env.PORT ?? "8787", 10);
-const allowedOrigin = process.env.EXTENSION_ORIGIN ?? "*";
+const configuredExtensionOrigin = process.env.EXTENSION_ORIGIN;
 const maximumBodyBytes = 256_000;
 const oauthConfig = googleOAuthConfig();
 const containerWritesEnabled = googleGtmWritesEnabled();
@@ -20,15 +21,18 @@ const discoveryClient = oauthSession
   ? new GtmDiscoveryClient(() => oauthSession.accessToken(), fetch, containerWritesEnabled)
   : undefined;
 
-function setCors(response: ServerResponse): void {
-  response.setHeader("Access-Control-Allow-Origin", allowedOrigin);
+function applyCors(request: IncomingMessage, response: ServerResponse, pathname: string): boolean {
+  const decision = corsDecision(pathname, request.headers.origin, configuredExtensionOrigin);
+  if (decision.allowOrigin) {
+    response.setHeader("Access-Control-Allow-Origin", decision.allowOrigin);
+  }
   response.setHeader("Access-Control-Allow-Headers", "Content-Type");
   response.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   response.setHeader("Vary", "Origin");
+  return decision.allowed;
 }
 
 function sendJson(response: ServerResponse, status: number, value: unknown): void {
-  setCors(response);
   response.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
   response.end(JSON.stringify(value));
 }
@@ -48,8 +52,13 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
 }
 
 const server = createServer(async (request, response) => {
+  const requestUrl = new URL(request.url ?? "/", `http://${request.headers.host ?? "127.0.0.1"}`);
+  if (!applyCors(request, response, requestUrl.pathname)) {
+    sendJson(response, 403, { error: "Request origin is not allowed." });
+    return;
+  }
+
   if (request.method === "OPTIONS") {
-    setCors(response);
     response.writeHead(204);
     response.end();
     return;
@@ -59,8 +68,6 @@ const server = createServer(async (request, response) => {
     sendJson(response, 200, { status: "ok", service: "gtm-observability-api" });
     return;
   }
-
-  const requestUrl = new URL(request.url ?? "/", `http://${request.headers.host ?? "127.0.0.1"}`);
 
   if (request.method === "GET" && requestUrl.pathname === "/api/google/status") {
     sendJson(response, 200, {
