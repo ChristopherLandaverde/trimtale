@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   evaluateGoogleReadiness,
   evaluateLocalReadiness,
+  evaluatePublicationReadiness,
   formatPreflightReport,
 } from "./workflow-preflight.mjs";
 
@@ -72,5 +73,23 @@ describe("workflow preflight", () => {
       "extension origin",
       "container writes",
     ]);
+  });
+
+  it("keeps production publication behind a separate exact readiness switch", () => {
+    const base = {
+      GOOGLE_OAUTH_CLIENT_ID: "client-id",
+      GOOGLE_OAUTH_CLIENT_SECRET: "client-secret",
+      GOOGLE_OAUTH_REDIRECT_URI: "http://127.0.0.1:8787/api/google/oauth/callback",
+      EXTENSION_ORIGIN: `chrome-extension://${"a".repeat(32)}`,
+      GOOGLE_GTM_CONTAINER_WRITES_ENABLED: "true",
+    };
+    expect(evaluatePublicationReadiness(base).at(-1)).toMatchObject({
+      name: "production publication",
+      ok: false,
+    });
+    expect(evaluatePublicationReadiness({
+      ...base,
+      GOOGLE_GTM_PUBLICATION_ENABLED: "true",
+    }).every(({ ok }) => ok)).toBe(true);
   });
 });

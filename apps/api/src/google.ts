@@ -8,6 +8,7 @@ import {
   GTM_MANAGED_WORKSPACE_NAME,
   inspectManagedWorkspace,
   normalizePublicContainerId,
+  publicationApprovalCurrent,
   recognizeContainer,
   type GtmContainerExport,
   type GtmEntitySet,
@@ -20,6 +21,7 @@ import {
 export const GTM_READONLY_SCOPE = "https://www.googleapis.com/auth/tagmanager.readonly";
 export const GTM_EDIT_CONTAINERS_SCOPE = "https://www.googleapis.com/auth/tagmanager.edit.containers";
 export const GTM_EDIT_CONTAINER_VERSIONS_SCOPE = "https://www.googleapis.com/auth/tagmanager.edit.containerversions";
+export const GTM_PUBLISH_SCOPE = "https://www.googleapis.com/auth/tagmanager.publish";
 
 const authorizationEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
 const tokenEndpoint = "https://oauth2.googleapis.com/token";
@@ -189,6 +191,10 @@ export function googleGtmWritesEnabled(
   return environment.GOOGLE_GTM_CONTAINER_WRITES_ENABLED === "true";
 }
 
+export function googleGtmPublicationEnabled(environment: NodeJS.ProcessEnv = process.env): boolean {
+  return environment.GOOGLE_GTM_PUBLICATION_ENABLED === "true";
+}
+
 export class GoogleIntegrationError extends Error {
   constructor(
     message: string,
@@ -216,6 +222,7 @@ export class GoogleOAuthSession {
     private readonly fetcher: Fetch = fetch,
     private readonly now: () => number = Date.now,
     private readonly containerWritesEnabled = false,
+    private readonly publicationEnabled = false,
   ) {}
 
   isConnected(): boolean {
@@ -232,7 +239,7 @@ export class GoogleOAuthSession {
       redirect_uri: this.config.redirectUri,
       response_type: "code",
       scope: this.containerWritesEnabled
-        ? `${GTM_READONLY_SCOPE} ${GTM_EDIT_CONTAINERS_SCOPE} ${GTM_EDIT_CONTAINER_VERSIONS_SCOPE}`
+        ? `${GTM_READONLY_SCOPE} ${GTM_EDIT_CONTAINERS_SCOPE} ${GTM_EDIT_CONTAINER_VERSIONS_SCOPE}${this.publicationEnabled ? ` ${GTM_PUBLISH_SCOPE}` : ""}`
         : GTM_READONLY_SCOPE,
       access_type: "offline",
       include_granted_scopes: "true",
@@ -339,6 +346,11 @@ interface WorkspaceCreateVersionResponse extends WorkspacePreviewResponse {
   newWorkspacePath?: string;
 }
 
+interface PublishVersionResponse {
+  containerVersion?: GtmContainerVersion;
+  compilerError?: boolean;
+}
+
 export interface GtmWorkspaceValidationEvidence {
   status: "passed" | "failed";
   checkedAt: string;
@@ -388,6 +400,8 @@ export class GtmDiscoveryClient {
     private readonly getAccessToken: () => Promise<string>,
     private readonly fetcher: Fetch = fetch,
     private readonly containerWritesEnabled = false,
+    private readonly publicationEnabled = false,
+    private readonly now: () => number = Date.now,
   ) {}
 
   async discover(): Promise<GtmAccountDiscovery[]> {
@@ -710,6 +724,69 @@ export class GtmDiscoveryClient {
         priorLiveVersionPath: inspection.liveVersion.path,
         priorLiveVersionFingerprint: inspection.liveVersion.fingerprint,
       },
+    };
+  }
+
+  async publishApprovedVersion(operation: TrackingSetupOperationV1): Promise<{
+    publishedAt: string;
+    versionFingerprint: string;
+  }> {
+    if (!this.publicationEnabled) throw new GoogleIntegrationError("GTM publication is disabled on this backend.", 403);
+    assertTrackingOperation(operation);
+    if (operation.status !== "approved" || !operation.version || !publicationApprovalCurrent(operation, this.now())) {
+      throw new GoogleIntegrationError("Publication requires current approval for the exact version fingerprint.", 409);
+    }
+    const [version, inspection] = await Promise.all([
+      this.get<GtmContainerVersion>(`/${operation.version.path}`),
+      this.inspectObservedContainer(operation.container.publicId),
+    ]);
+    if (version.fingerprint !== operation.version.fingerprint) {
+      throw new GoogleIntegrationError("The approved immutable version fingerprint changed.", 409);
+    }
+    if (inspection.status !== "recognized"
+      || inspection.liveVersion.fingerprint !== operation.version.priorLiveVersionFingerprint) {
+      throw new GoogleIntegrationError("The live container changed after version review.", 409);
+    }
+    const published = await this.post<PublishVersionResponse>(
+      `/${operation.version.path}:publish?fingerprint=${encodeURIComponent(operation.version.fingerprint)}`,
+    );
+    if (published.compilerError || published.containerVersion?.fingerprint !== operation.version.fingerprint) {
+      throw new GoogleIntegrationError("Google did not confirm publication of the approved version.", 502);
+    }
+    return { publishedAt: new Date(this.now()).toISOString(), versionFingerprint: operation.version.fingerprint };
+  }
+
+  async rollbackPublishedVersion(operation: TrackingSetupOperationV1): Promise<{
+    targetVersionFingerprint: string;
+    status: "completed";
+    completedAt: string;
+  }> {
+    if (!this.publicationEnabled) throw new GoogleIntegrationError("GTM publication is disabled on this backend.", 403);
+    assertTrackingOperation(operation);
+    if (operation.status !== "rollback_required" || !operation.version || !operation.rollback) {
+      throw new GoogleIntegrationError("Rollback requires failed publication evidence and a recorded target.", 409);
+    }
+    const [target, inspection] = await Promise.all([
+      this.get<GtmContainerVersion>(`/${operation.version.priorLiveVersionPath}`),
+      this.inspectObservedContainer(operation.container.publicId),
+    ]);
+    if (target.fingerprint !== operation.version.priorLiveVersionFingerprint
+      || operation.rollback.targetVersionFingerprint !== target.fingerprint) {
+      throw new GoogleIntegrationError("The rollback target fingerprint is stale.", 409);
+    }
+    if (inspection.status !== "recognized" || inspection.liveVersion.fingerprint !== operation.version.fingerprint) {
+      throw new GoogleIntegrationError("The live container no longer matches the failed publication.", 409);
+    }
+    const restored = await this.post<PublishVersionResponse>(
+      `/${operation.version.priorLiveVersionPath}:publish?fingerprint=${encodeURIComponent(target.fingerprint)}`,
+    );
+    if (restored.compilerError || restored.containerVersion?.fingerprint !== target.fingerprint) {
+      throw new GoogleIntegrationError("Google did not confirm rollback publication.", 502);
+    }
+    return {
+      targetVersionFingerprint: target.fingerprint,
+      status: "completed",
+      completedAt: new Date(this.now()).toISOString(),
     };
   }
 

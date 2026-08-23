@@ -32,6 +32,9 @@ GOOGLE_GTM_CONTAINER_WRITES_ENABLED=true
 OAuth scopes: tagmanager.readonly tagmanager.edit.containers tagmanager.edit.containerversions
 ```
 
+The production `tagmanager.publish` scope is excluded unless the separate
+`GOOGLE_GTM_PUBLICATION_ENABLED=true` boundary is also enabled for an approved session.
+
 Changing this setting requires a new Google OAuth consent flow. A previously issued read-only token does not gain write permission.
 
 ## API workflow

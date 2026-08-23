@@ -5,6 +5,8 @@ import {
   GTM_EDIT_CONTAINER_VERSIONS_SCOPE,
   GTM_EDIT_CONTAINERS_SCOPE,
   GTM_READONLY_SCOPE,
+  GTM_PUBLISH_SCOPE,
+  googleGtmPublicationEnabled,
   googleGtmWritesEnabled,
   googleOAuthConfig,
 } from "./google.js";
@@ -64,6 +66,14 @@ describe("Google OAuth configuration", () => {
       GTM_EDIT_CONTAINERS_SCOPE,
       GTM_EDIT_CONTAINER_VERSIONS_SCOPE,
     ]);
+  });
+
+  it("requests publish access only behind separate exact enablement", () => {
+    expect(googleGtmPublicationEnabled({})).toBe(false);
+    expect(googleGtmPublicationEnabled({ GOOGLE_GTM_PUBLICATION_ENABLED: "TRUE" })).toBe(false);
+    expect(googleGtmPublicationEnabled({ GOOGLE_GTM_PUBLICATION_ENABLED: "true" })).toBe(true);
+    const session = new GoogleOAuthSession(config, vi.fn<typeof fetch>(), Date.now, true, true);
+    expect(new URL(session.authorizationUrl()).searchParams.get("scope")?.split(" ")).toContain(GTM_PUBLISH_SCOPE);
   });
 });
 

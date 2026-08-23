@@ -5,6 +5,7 @@ import {
   GoogleIntegrationError,
   GoogleOAuthSession,
   GtmDiscoveryClient,
+  googleGtmPublicationEnabled,
   googleGtmWritesEnabled,
   googleOAuthConfig,
 } from "./google.js";
@@ -14,11 +15,12 @@ const configuredExtensionOrigin = process.env.EXTENSION_ORIGIN;
 const maximumBodyBytes = 256_000;
 const oauthConfig = googleOAuthConfig();
 const containerWritesEnabled = googleGtmWritesEnabled();
+const publicationEnabled = googleGtmPublicationEnabled();
 const oauthSession = oauthConfig
-  ? new GoogleOAuthSession(oauthConfig, fetch, Date.now, containerWritesEnabled)
+  ? new GoogleOAuthSession(oauthConfig, fetch, Date.now, containerWritesEnabled, publicationEnabled)
   : undefined;
 const discoveryClient = oauthSession
-  ? new GtmDiscoveryClient(() => oauthSession.accessToken(), fetch, containerWritesEnabled)
+  ? new GtmDiscoveryClient(() => oauthSession.accessToken(), fetch, containerWritesEnabled, publicationEnabled)
   : undefined;
 
 function applyCors(request: IncomingMessage, response: ServerResponse, pathname: string): boolean {
@@ -75,6 +77,7 @@ const server = createServer(async (request, response) => {
       connected: oauthSession?.isConnected() ?? false,
       scope: containerWritesEnabled ? "container-edit" : "read-only",
       containerWritesEnabled,
+      publicationEnabled,
     });
     return;
   }
