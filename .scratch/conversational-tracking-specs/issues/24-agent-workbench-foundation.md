@@ -80,3 +80,8 @@ the corresponding Playwright snapshot directories.
   assistant terminology; no blocker/high finding remains. The issue stays active only
   because its stacked base, issue 23, still requires live GA4 Realtime evidence before
   this branch can become mergeable.
+- 2026-08-23: Product-owner walkthrough accepted the task-centered UX and rejected the
+  Northstar fixture as a useful interactive review target. Fixtures remain automation
+  infrastructure only. Future practitioner walkthroughs default to an explicitly
+  authorized GTM-connected site such as ConsentFlow and begin with visible access and
+  destination context.

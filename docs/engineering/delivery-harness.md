@@ -76,6 +76,13 @@ A user-visible issue may resolve only when its review has no unresolved blocker/
 
 Exploratory review does not require the user to operate Chromium or describe what went wrong. It is part of the agent-owned completion gate.
 
+Deterministic fixture sites remain the repeatable target for automated regression and
+agent-owned exploratory checks. Do not present those fixtures as practitioner demos or
+ask the product owner to evaluate them interactively. A practitioner-facing walkthrough
+must use an explicitly authorized website with a GTM container that the connected
+Google grant can recognize—ConsentFlow is the default current target—and must show the
+account, container, effective access, and GA4 destination before intake begins.
+
 ## Regression tiers
 
 ### Contract regressions
