@@ -31,6 +31,8 @@ test("mounts and streams through the floating tracking assistant", async () => {
     await root.getByRole("button", { name: "Open tracking assistant" }).click();
     await expect(assistant).not.toHaveClass(/collapsed/);
     await expect(root.getByText("What do you want to track on this page?")).toBeVisible();
+    await expect(root.getByRole("button", { name: /model evaluation reports/i })).toHaveCount(0);
+    await expect(root.getByText("Evals", { exact: true })).toHaveCount(0);
     await expect(root.getByLabel("Tracking request")).toBeFocused();
     expect(await assistant.evaluate((element) => getComputedStyle(element).fontFamily)).toContain("Inter");
     await root.getByLabel("Tracking request").evaluate((element) => (element as HTMLElement).blur());

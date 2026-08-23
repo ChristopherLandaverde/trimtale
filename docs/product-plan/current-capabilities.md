@@ -182,13 +182,9 @@ reopens the report file, corrupted data produces one generic unavailable respons
 browser access requires the exact configured extension origin. No route can start a
 model call or write a report.
 
-The assistant now exposes those reports through a focused `Evals` panel. It shows
-newest-first report selection, provider scores and explicit outcome counts, p95 latency,
-estimated cost, usage coverage, safe non-pass case evidence, and distinct passing,
-degraded, safety-failure, and inconclusive labels. Empty and unavailable states cannot
-start a run. Strict frontend decoding rejects malformed and attacker-shaped payloads,
-and the visible boundary keeps offline model evidence separate from specification,
-GTM, verdict, and platform authority.
+Evaluation reports remain backend-only operator observability artifacts. The extension
+does not request or display them, and the customer-facing assistant has no evaluation
+control or report state.
 
 ## Regression and delivery harness
 
@@ -211,8 +207,8 @@ Current completion gate:
 npm run verify
 ```
 
-The most recent full completion run passed 274 deterministic tests across 38 files and
-all 30 Chromium workflows.
+The most recent full completion run passed 264 deterministic tests across 37 files and
+all 27 Chromium workflows.
 
 ## Credentialed disposable-container evidence
 
@@ -243,12 +239,13 @@ The following product actions remain deliberately unimplemented or unexposed:
   assistant actions or public workflow routes.
 - Confirming receipt inside GA4 or Google Ads.
 - Scheduled monitoring and incident alerts.
+- A customer-facing model-evaluation report UI; evaluation remains backend-only.
 - Production LLM-based intake or any model influence on visible conversation state.
 - Retrieval from similar verified resolutions or model training.
 
 ## Next implementation boundary
 
-The adapter, owner command, report API, and evidence UI are built but no real model has
+The adapter, owner command, and report API are built but no real model has
 been selected or scored. The next external operation is an explicit owner decision:
 choose two or three Structured Outputs-compatible models, confirm current rates and the
 28- or 42-request budget, inject the backend credential, and invoke the offline command:
@@ -263,8 +260,9 @@ Privacy-filtered intent plus allowlisted page candidates
 
 The comparison remains offline and cannot affect visible intake. Verdict classification,
 GTM mutation, version approval, publication, rollback, and platform claims remain
-deterministic or explicitly human authorized. A later feature-flagged suggestion slice
-can be considered only after the corpus has no hard failures and while preserving
+deterministic or explicitly human authorized. Evaluation remains an internal release
+gate rather than a customer feature. A later feature-flagged suggestion slice can be
+considered only after the corpus has no hard failures and while preserving
 tracking-specification confirmation.
 
 ## Related documents

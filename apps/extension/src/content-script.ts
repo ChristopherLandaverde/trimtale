@@ -16,15 +16,6 @@ import {
   type TrackingRunEvidenceV1,
   type TrackingSpecificationV1,
 } from "@gtm-observability/core";
-import {
-  decodeIntakeEvaluationDetailResponse,
-  decodeIntakeEvaluationListResponse,
-  intakeProviderDisplayState,
-  type IntakeEvaluationReportSummaryV1,
-  type IntakeEvaluationReportV1,
-  type IntakeProviderDisplayState,
-  type IntakeProviderEvaluationSummaryV1,
-} from "./intake-evaluation-view.js";
 
 declare global {
   interface Window { __gtmObservabilityInstalled?: boolean; }
@@ -88,9 +79,6 @@ let host: HTMLDivElement | undefined;
 let frame: HTMLElement | undefined;
 let responseList: HTMLElement | undefined;
 let composer: HTMLTextAreaElement | undefined;
-let reportPanel: HTMLElement | undefined;
-let reportContent: HTMLElement | undefined;
-let reportToggle: HTMLButtonElement | undefined;
 let port: chrome.runtime.Port | undefined;
 let targetHost: HTMLDivElement | undefined;
 interface PageTarget { id: string; label: string; selector: string; }
@@ -103,13 +91,6 @@ const intakeByRequest = new Map<string, ConversationIntakeResult>();
 const formsByRequest = new Map<string, FormCandidate[]>();
 const recentFormRequests: Array<{ url: string; observedAt: string }> = [];
 let activeFormVerification: { requestId: string; intake: ConversationIntakeResult } | undefined;
-let reportRequestSequence = 0;
-
-interface IntakeEvaluationBridgeResponse {
-  ok: boolean;
-  status: number;
-  body?: unknown;
-}
 
 function successEvidenceFor(result: ConversationIntakeResult): SuccessEvidence | undefined {
   const signal = result.successSignal;
@@ -428,7 +409,6 @@ function applyPreferences(): void {
 }
 
 function setCollapsed(collapsed: boolean): void {
-  if (collapsed && reportPanel && !reportPanel.hidden) setEvaluationPanelOpen(false, false);
   preferences.collapsed = collapsed;
   applyPreferences();
   persistPreferences();
@@ -873,326 +853,6 @@ function submitPrompt(): void {
   persistPreferences();
 }
 
-function clearElement(element: HTMLElement): void {
-  while (element.firstChild) element.firstChild.remove();
-}
-
-function evaluationButton(label: string, className: string, action: () => void): HTMLButtonElement {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = className;
-  button.textContent = label;
-  button.addEventListener("click", action);
-  return button;
-}
-
-function evaluationTimestamp(value: string): string {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: "UTC",
-  }).format(new Date(value)).replace(", 24:", ", 00:") + " UTC";
-}
-
-function evaluationDuration(value: number): string {
-  if (value < 1_000) return `${Math.round(value)} ms`;
-  return `${Math.round(value / 100) / 10} s`;
-}
-
-function evaluationCost(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: value > 0 && value < 0.01 ? 4 : 2,
-    maximumFractionDigits: value > 0 && value < 0.01 ? 6 : 2,
-  }).format(value);
-}
-
-function evaluationStateCopy(state: IntakeProviderDisplayState): { label: string; detail: string } {
-  if (state === "passing") return { label: "Passing", detail: "Every acceptance case passed" };
-  if (state === "hard_failure") return { label: "Safety failure", detail: "At least one gating failure needs review" };
-  if (state === "inconclusive") return { label: "Inconclusive", detail: "At least one provider call did not complete" };
-  return { label: "Degraded", detail: "At least one semantic case did not pass" };
-}
-
-function evaluationOutcomeLabel(value: string): string {
-  if (value === "hard_failure") return "Hard failure";
-  return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
-}
-
-function evaluationFailureDetail(item: IntakeEvaluationReportV1["providers"][number]["cases"][number]): string {
-  if (item.hardFailures.length > 0) return item.hardFailures.join(", ").replaceAll("_", " ");
-  if (item.harnessFailureCode) return item.harnessFailureCode.replaceAll("_", " ");
-  return item.outcome === "fail" ? "Semantic mismatch" : "No completed provider result";
-}
-
-async function requestEvaluationReports(reportId?: string): Promise<unknown> {
-  const response: unknown = await chrome.runtime.sendMessage({
-    type: "INTAKE_EVALUATION_REPORTS_REQUEST",
-    ...(reportId ? { reportId } : {}),
-  });
-  if (typeof response !== "object" || response === null || Array.isArray(response)) {
-    throw new Error("reports_unavailable");
-  }
-  const bridge = response as Partial<IntakeEvaluationBridgeResponse>;
-  if (bridge.ok !== true || bridge.status !== 200 || !("body" in bridge)) {
-    throw new Error("reports_unavailable");
-  }
-  return bridge.body;
-}
-
-function renderEvaluationNotice(
-  title: string,
-  copy: string,
-  options: { retry?: boolean; empty?: boolean } = {},
-): void {
-  if (!reportContent) return;
-  clearElement(reportContent);
-  const state = document.createElement("section");
-  state.className = `evaluation-notice${options.empty ? " empty" : " unavailable"}`;
-  state.setAttribute("role", "status");
-  const marker = document.createElement("span");
-  marker.className = "evaluation-notice-marker";
-  marker.setAttribute("aria-hidden", "true");
-  marker.textContent = options.empty ? "○" : "!";
-  const heading = document.createElement("h3");
-  heading.textContent = title;
-  const paragraph = document.createElement("p");
-  paragraph.textContent = copy;
-  state.append(marker, heading, paragraph);
-  if (options.retry) {
-    state.append(evaluationButton("Try again", "evaluation-action", () => { void loadEvaluationReports(); }));
-  }
-  reportContent.append(state);
-}
-
-function renderEvaluationLoading(target: HTMLElement, copy = "Loading evaluation evidence…"): void {
-  clearElement(target);
-  const loading = document.createElement("div");
-  loading.className = "evaluation-loading";
-  loading.setAttribute("role", "status");
-  loading.textContent = copy;
-  target.append(loading);
-}
-
-function appendEvaluationMetric(parent: HTMLElement, label: string, value: string): void {
-  const metric = document.createElement("div");
-  metric.className = "evaluation-metric";
-  const metricValue = document.createElement("strong");
-  metricValue.textContent = value;
-  const metricLabel = document.createElement("span");
-  metricLabel.textContent = label;
-  metric.append(metricValue, metricLabel);
-  parent.append(metric);
-}
-
-function renderProviderCard(provider: IntakeEvaluationReportV1["providers"][number]): HTMLElement {
-  const state = intakeProviderDisplayState(provider);
-  const stateCopy = evaluationStateCopy(state);
-  const card = document.createElement("section");
-  card.className = `evaluation-provider ${state}`;
-  card.setAttribute("aria-label", `Provider ${provider.providerId}: ${stateCopy.label}`);
-
-  const heading = document.createElement("div");
-  heading.className = "evaluation-provider-heading";
-  const identity = document.createElement("div");
-  const providerName = document.createElement("h3");
-  providerName.textContent = provider.providerId;
-  const providerDetail = document.createElement("p");
-  providerDetail.textContent = stateCopy.detail;
-  identity.append(providerName, providerDetail);
-  const badge = document.createElement("span");
-  badge.className = "evaluation-badge";
-  badge.textContent = stateCopy.label;
-  heading.append(identity, badge);
-
-  const score = document.createElement("div");
-  score.className = "evaluation-score";
-  const scoreValue = document.createElement("strong");
-  scoreValue.textContent = String(provider.averageScore);
-  const scoreLabel = document.createElement("span");
-  scoreLabel.textContent = "/100 average";
-  score.append(scoreValue, scoreLabel);
-
-  const outcomes = document.createElement("div");
-  outcomes.className = "evaluation-outcomes";
-  for (const [label, value, tone] of [
-    ["Pass", provider.outcomes.pass, "pass"],
-    ["Fail", provider.outcomes.fail, "fail"],
-    ["Hard", provider.outcomes.hardFailure, "hard"],
-    ["Unknown", provider.outcomes.inconclusive, "unknown"],
-  ] as const) {
-    const item = document.createElement("div");
-    item.className = `evaluation-outcome ${tone}`;
-    const count = document.createElement("strong");
-    count.textContent = String(value);
-    const copy = document.createElement("span");
-    copy.textContent = label;
-    item.append(count, copy);
-    outcomes.append(item);
-  }
-
-  const metrics = document.createElement("div");
-  metrics.className = "evaluation-metrics";
-  appendEvaluationMetric(metrics, "p95 latency", evaluationDuration(provider.latency.p95Ms));
-  appendEvaluationMetric(metrics, "estimated cost", evaluationCost(provider.usage.estimatedCostUsd));
-  appendEvaluationMetric(
-    metrics,
-    "usage coverage",
-    `${provider.usage.reportedCaseCount}/${provider.caseCount}`,
-  );
-
-  const caseEvidence = document.createElement("div");
-  caseEvidence.className = "evaluation-cases";
-  const nonPassing = provider.cases.filter((item) => item.outcome !== "pass");
-  const casesHeading = document.createElement("h4");
-  casesHeading.textContent = nonPassing.length === 0 ? "Case evidence" : `Needs review · ${nonPassing.length}`;
-  caseEvidence.append(casesHeading);
-  if (nonPassing.length === 0) {
-    const allPassed = document.createElement("p");
-    allPassed.textContent = `All ${provider.caseCount} acceptance cases passed.`;
-    caseEvidence.append(allPassed);
-  } else {
-    for (const item of nonPassing) {
-      const row = document.createElement("div");
-      row.className = `evaluation-case ${item.outcome}`;
-      const caseIdentity = document.createElement("div");
-      const caseId = document.createElement("strong");
-      caseId.textContent = item.inputId;
-      const failure = document.createElement("span");
-      failure.textContent = evaluationFailureDetail(item);
-      caseIdentity.append(caseId, failure);
-      const result = document.createElement("div");
-      const outcome = document.createElement("strong");
-      outcome.textContent = evaluationOutcomeLabel(item.outcome);
-      const points = document.createElement("span");
-      points.textContent = `${item.score}/100`;
-      result.append(outcome, points);
-      row.append(caseIdentity, result);
-      caseEvidence.append(row);
-    }
-  }
-
-  card.append(heading, score, outcomes, metrics, caseEvidence);
-  return card;
-}
-
-function renderEvaluationReport(report: IntakeEvaluationReportV1, target: HTMLElement): void {
-  clearElement(target);
-  const overview = document.createElement("section");
-  overview.className = "evaluation-overview";
-  const eyebrow = document.createElement("span");
-  eyebrow.className = "evaluation-eyebrow";
-  eyebrow.textContent = "Offline acceptance evidence";
-  const heading = document.createElement("h2");
-  heading.textContent = "Model evaluation report";
-  const metadata = document.createElement("p");
-  metadata.textContent = `${evaluationTimestamp(report.createdAt)} · ${report.corpusCaseCount} cases · ${report.providers.length} providers`;
-  const boundary = document.createElement("div");
-  boundary.className = "evaluation-boundary";
-  boundary.textContent = "Models cannot confirm specifications, change GTM, or prove platform receipt.";
-  overview.append(eyebrow, heading, metadata, boundary);
-  target.append(overview);
-  for (const provider of report.providers) target.append(renderProviderCard(provider));
-}
-
-async function loadEvaluationDetail(reportId: string, target: HTMLElement, sequence: number): Promise<void> {
-  renderEvaluationLoading(target, "Loading case evidence…");
-  try {
-    const raw = await requestEvaluationReports(reportId);
-    const report = decodeIntakeEvaluationDetailResponse(raw);
-    if (!report || report.id !== reportId) throw new Error("reports_unavailable");
-    if (sequence !== reportRequestSequence || reportPanel?.hidden) return;
-    renderEvaluationReport(report, target);
-  } catch {
-    if (sequence !== reportRequestSequence || reportPanel?.hidden) return;
-    renderEvaluationNotice(
-      "Reports unavailable",
-      "The local report API could not be reached or its stored evidence failed validation. No model call was started.",
-      { retry: true },
-    );
-  }
-}
-
-function reportOptionLabel(report: IntakeEvaluationReportSummaryV1): string {
-  return `${evaluationTimestamp(report.createdAt)} · ${report.id}`;
-}
-
-async function loadEvaluationReports(): Promise<void> {
-  if (!reportContent || reportPanel?.hidden) return;
-  const sequence = ++reportRequestSequence;
-  renderEvaluationLoading(reportContent);
-  try {
-    const raw = await requestEvaluationReports();
-    const reports = decodeIntakeEvaluationListResponse(raw);
-    if (!reports) throw new Error("reports_unavailable");
-    if (sequence !== reportRequestSequence || reportPanel?.hidden) return;
-    if (reports.length === 0) {
-      renderEvaluationNotice(
-        "No model evaluations yet",
-        "Run the owner-only backend evaluation workflow when you are ready. This panel can read reports, but it cannot start a model call.",
-        { empty: true },
-      );
-      return;
-    }
-
-    clearElement(reportContent);
-    const controls = document.createElement("div");
-    controls.className = "evaluation-controls";
-    const label = document.createElement("label");
-    label.textContent = "Evaluation report";
-    const select = document.createElement("select");
-    select.setAttribute("aria-label", "Evaluation report");
-    for (const report of reports) {
-      const option = document.createElement("option");
-      option.value = report.id;
-      option.textContent = reportOptionLabel(report);
-      select.append(option);
-    }
-    label.append(select);
-    controls.append(label);
-    const detail = document.createElement("div");
-    detail.className = "evaluation-detail";
-    reportContent.append(controls, detail);
-    select.addEventListener("change", () => {
-      const detailSequence = ++reportRequestSequence;
-      void loadEvaluationDetail(select.value, detail, detailSequence);
-    });
-    await loadEvaluationDetail(reports[0]!.id, detail, sequence);
-  } catch {
-    if (sequence !== reportRequestSequence || reportPanel?.hidden) return;
-    renderEvaluationNotice(
-      "Reports unavailable",
-      "The local report API could not be reached or its stored evidence failed validation. No model call was started.",
-      { retry: true },
-    );
-  }
-}
-
-function setEvaluationPanelOpen(open: boolean, returnFocus = true): void {
-  if (!reportPanel || !reportToggle || !responseList || !composer) return;
-  reportPanel.hidden = !open;
-  reportToggle.setAttribute("aria-expanded", String(open));
-  responseList.inert = open;
-  const composerRegion = composer.closest<HTMLElement>(".composer");
-  if (composerRegion) composerRegion.inert = open;
-  if (open) {
-    preferences.width = Math.max(preferences.width, 440);
-    preferences.height = Math.max(preferences.height, 560);
-    applyPreferences();
-    persistPreferences();
-    reportPanel.querySelector<HTMLElement>("h2")?.focus();
-    void loadEvaluationReports();
-  } else {
-    reportRequestSequence += 1;
-    if (returnFocus) reportToggle.focus();
-  }
-}
-
 function enableDragging(handle: HTMLElement): void {
   handle.addEventListener("pointerdown", (event) => {
     if ((event.target as Element).closest("button")) return;
@@ -1223,14 +883,12 @@ async function mountOverlay(): Promise<void> {
       :host { all: initial; }
       .assistant { position: fixed; z-index: 2147483647; min-width: 310px; min-height: 220px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow: hidden; resize: both; border: 1px solid rgba(255,255,255,.19); border-radius: 22px; background: linear-gradient(145deg, rgba(26,32,38,.78), rgba(12,17,21,.7)); color: #f5f7f8; box-shadow: 0 24px 70px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.08); backdrop-filter: blur(26px) saturate(145%); -webkit-backdrop-filter: blur(26px) saturate(145%); font: 13px/1.45 Inter, ui-sans-serif, system-ui, sans-serif; display: grid; grid-template-rows: 30px 1fr auto; transition: width .18s ease, height .18s ease, border-color .18s ease, box-shadow .18s ease; }
       .assistant:focus-within { border-color: rgba(167,243,208,.32); box-shadow: 0 26px 76px rgba(0,0,0,.34), 0 0 0 1px rgba(167,243,208,.08), inset 0 1px 0 rgba(255,255,255,.1); }
-      .drag { position: relative; cursor: grab; display: flex; justify-content: space-between; align-items: center; padding: 0 9px; user-select: none; }
+      .drag { position: relative; cursor: grab; display: flex; justify-content: flex-end; align-items: center; padding: 0 9px; user-select: none; }
       .drag::before { content: ""; position: absolute; left: 50%; width: 34px; height: 3px; border-radius: 99px; transform: translateX(-50%); background: rgba(255,255,255,.16); }
       .drag:active { cursor: grabbing; }
       button { border: 0; cursor: pointer; font: inherit; }
       .icon { width: 24px; height: 24px; border-radius: 50%; color: #aab4bc; background: transparent; font-size: 17px; }
       .icon:hover { color: white; background: rgba(255,255,255,.08); }
-      .reports-toggle { position: relative; z-index: 1; padding: 3px 8px; border: 1px solid rgba(167,243,208,.16); border-radius: 999px; color: #bcd2c8; background: rgba(18,29,25,.52); font-size: 9px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-      .reports-toggle:hover, .reports-toggle[aria-expanded="true"] { color: #e8fff3; border-color: rgba(167,243,208,.38); background: rgba(40,72,61,.68); }
       .messages { overflow: auto; padding: 4px 16px 12px; display: flex; flex-direction: column; gap: 10px; }
       .message { max-width: 88%; padding: 9px 11px; border-radius: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
       .message.bot { align-self: flex-start; color: #e5ebef; background: rgba(41,50,57,.72); border: 1px solid rgba(255,255,255,.06); border-radius: 4px 14px 14px 14px; }
@@ -1264,65 +922,6 @@ async function mountOverlay(): Promise<void> {
       textarea::placeholder { color: #87939c; }
       .send { width: 38px; height: 38px; border-radius: 12px; color: #0c1b15; background: linear-gradient(145deg, #c4fae0, #8de8bd); box-shadow: 0 5px 16px rgba(86,220,157,.16), inset 0 1px 0 rgba(255,255,255,.5); font-size: 20px; transition: transform .15s ease, box-shadow .15s ease; }
       .send:hover { transform: translateY(-1px); box-shadow: 0 7px 20px rgba(86,220,157,.24), inset 0 1px 0 rgba(255,255,255,.55); }
-      .evaluation-panel { position: absolute; z-index: 4; inset: 30px 0 0; overflow: hidden; display: grid; grid-template-rows: auto minmax(0,1fr); color: #eef4f1; background: linear-gradient(160deg, #141b1f, #0a0f12); border-top: 1px solid rgba(255,255,255,.08); }
-      .evaluation-panel[hidden] { display: none; }
-      .evaluation-panel-header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 16px 12px; border-bottom: 1px solid rgba(255,255,255,.08); background: #1a2227; }
-      .evaluation-panel-header span { display: block; color: #83c8a7; font-size: 9px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; }
-      .evaluation-panel-header h2 { margin: 1px 0 0; outline: none; color: #f4f8f6; font-size: 15px; font-weight: 680; }
-      .evaluation-panel-actions { display: flex; gap: 5px; }
-      .evaluation-panel-actions button { width: 28px; height: 28px; border-radius: 9px; color: #aeb9b5; background: rgba(255,255,255,.045); }
-      .evaluation-panel-actions button:hover, .evaluation-panel-actions button:focus-visible { color: white; background: rgba(255,255,255,.1); outline: 2px solid rgba(167,243,208,.28); outline-offset: 1px; }
-      .evaluation-content { min-height: 0; overflow: auto; padding: 14px 16px 20px; display: grid; align-content: start; gap: 12px; }
-      .evaluation-loading { min-height: 210px; display: grid; place-items: center; color: #9daaa5; background: linear-gradient(100deg, rgba(45,55,59,.2), rgba(167,243,208,.08), rgba(45,55,59,.2)); background-size: 220% 100%; animation: shimmer 1.15s linear infinite; border: 1px solid rgba(255,255,255,.06); border-radius: 15px; }
-      .evaluation-notice { min-height: 300px; padding: 24px; display: grid; place-items: center; align-content: center; gap: 8px; text-align: center; border: 1px solid rgba(255,255,255,.08); border-radius: 17px; background: rgba(26,34,38,.62); }
-      .evaluation-notice-marker { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 13px; color: #f6c768; background: rgba(246,199,104,.1); box-shadow: inset 0 0 0 1px rgba(246,199,104,.2); font-size: 17px; font-weight: 750; }
-      .evaluation-notice.empty .evaluation-notice-marker { color: #8de8bd; background: rgba(141,232,189,.09); box-shadow: inset 0 0 0 1px rgba(141,232,189,.18); }
-      .evaluation-notice h3 { margin: 4px 0 0; color: #f2f6f4; font-size: 15px; }
-      .evaluation-notice p { max-width: 310px; margin: 0; color: #98a5a0; font-size: 11px; }
-      .evaluation-action { margin-top: 7px; padding: 7px 11px; border: 1px solid rgba(167,243,208,.26); border-radius: 9px; color: #e2faed; background: rgba(40,72,61,.6); font-size: 11px; }
-      .evaluation-controls { display: flex; align-items: end; justify-content: space-between; gap: 10px; }
-      .evaluation-controls label { width: 100%; display: grid; gap: 4px; color: #8e9b96; font-size: 9px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-      .evaluation-controls select { width: 100%; min-height: 34px; padding: 6px 30px 6px 9px; border: 1px solid rgba(255,255,255,.11); border-radius: 10px; outline: none; color: #e7efeb; background: #20292d; font: 500 10px/1.2 Inter, ui-sans-serif, system-ui, sans-serif; }
-      .evaluation-controls select:focus { border-color: rgba(167,243,208,.42); box-shadow: 0 0 0 3px rgba(167,243,208,.07); }
-      .evaluation-detail { display: grid; gap: 12px; }
-      .evaluation-overview { padding: 13px; border: 1px solid rgba(141,232,189,.16); border-radius: 15px; background: linear-gradient(145deg, rgba(40,72,61,.3), rgba(22,31,34,.5)); }
-      .evaluation-eyebrow { color: #86caaa; font-size: 9px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
-      .evaluation-overview h2 { margin: 3px 0 2px; color: #f3f8f5; font-size: 17px; }
-      .evaluation-overview p { margin: 0; color: #99a7a1; font-size: 10px; }
-      .evaluation-boundary { margin-top: 10px; padding: 8px 9px; border-left: 2px solid #8de8bd; border-radius: 5px 9px 9px 5px; color: #b8c8c1; background: rgba(10,19,16,.48); font-size: 10px; }
-      .evaluation-provider { display: grid; gap: 11px; padding: 13px; border: 1px solid rgba(255,255,255,.09); border-radius: 15px; background: rgba(25,33,37,.72); box-shadow: inset 0 1px 0 rgba(255,255,255,.025); }
-      .evaluation-provider.hard_failure { border-color: rgba(246,127,127,.3); }
-      .evaluation-provider.inconclusive { border-color: rgba(246,199,104,.28); }
-      .evaluation-provider-heading { display: flex; align-items: start; justify-content: space-between; gap: 10px; }
-      .evaluation-provider-heading h3 { margin: 0; color: #f0f5f2; font-size: 13px; overflow-wrap: anywhere; }
-      .evaluation-provider-heading p { margin: 2px 0 0; color: #87958f; font-size: 9px; }
-      .evaluation-badge { flex: none; padding: 3px 7px; border-radius: 999px; color: #9cf0c5; background: rgba(63,130,96,.18); box-shadow: inset 0 0 0 1px rgba(141,232,189,.2); font-size: 9px; font-weight: 700; }
-      .hard_failure .evaluation-badge { color: #ffaaaa; background: rgba(137,45,45,.18); box-shadow: inset 0 0 0 1px rgba(246,127,127,.25); }
-      .inconclusive .evaluation-badge, .degraded .evaluation-badge { color: #f6d58f; background: rgba(133,96,32,.18); box-shadow: inset 0 0 0 1px rgba(246,199,104,.24); }
-      .evaluation-score { display: flex; align-items: baseline; gap: 4px; }
-      .evaluation-score strong { color: #f5faf7; font-size: 27px; line-height: 1; letter-spacing: -.04em; }
-      .evaluation-score span { color: #7f8d87; font-size: 9px; }
-      .evaluation-outcomes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
-      .evaluation-outcome { padding: 6px; display: grid; gap: 1px; border-radius: 9px; background: rgba(255,255,255,.035); }
-      .evaluation-outcome strong { color: #dfe8e3; font-size: 13px; }
-      .evaluation-outcome span { color: #7e8b86; font-size: 8px; text-transform: uppercase; }
-      .evaluation-outcome.pass strong { color: #8de8bd; }
-      .evaluation-outcome.fail strong, .evaluation-outcome.unknown strong { color: #f6c768; }
-      .evaluation-outcome.hard strong { color: #f67f7f; }
-      .evaluation-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-      .evaluation-metric { min-width: 0; display: grid; gap: 1px; }
-      .evaluation-metric strong { overflow: hidden; color: #dce5e0; font-size: 10px; text-overflow: ellipsis; }
-      .evaluation-metric span { color: #77857f; font-size: 8px; text-transform: uppercase; }
-      .evaluation-cases { padding-top: 9px; display: grid; gap: 5px; border-top: 1px solid rgba(255,255,255,.07); }
-      .evaluation-cases h4 { margin: 0 0 2px; color: #a9b7b0; font-size: 9px; letter-spacing: .06em; text-transform: uppercase; }
-      .evaluation-cases > p { margin: 0; color: #8c9a94; font-size: 10px; }
-      .evaluation-case { padding: 7px 8px; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; border-radius: 9px; background: rgba(255,255,255,.03); }
-      .evaluation-case > div { min-width: 0; display: grid; gap: 1px; }
-      .evaluation-case > div:last-child { text-align: right; }
-      .evaluation-case strong { overflow-wrap: anywhere; color: #dce5e0; font-size: 9px; }
-      .evaluation-case span { color: #7f8d87; font-size: 8px; }
-      .evaluation-case.hard_failure > div:last-child strong { color: #f67f7f; }
-      .evaluation-case.fail > div:last-child strong, .evaluation-case.inconclusive > div:last-child strong { color: #f6c768; }
       .assistant.collapsed { width: 48px !important; height: 48px !important; min-width: 48px; min-height: 48px; resize: none; display: grid; place-items: center; border-radius: 16px; border-color: rgba(255,255,255,.24); background: linear-gradient(145deg, rgba(48,58,67,.76), rgba(17,23,28,.7)); box-shadow: 0 12px 34px rgba(0,0,0,.3), 0 0 0 1px rgba(167,243,208,.05), inset 0 1px 0 rgba(255,255,255,.14); backdrop-filter: blur(18px) saturate(150%); -webkit-backdrop-filter: blur(18px) saturate(150%); }
       .collapsed .drag, .collapsed .messages, .collapsed .composer { display: none; }
       .orb { display: none; position: relative; width: 100%; height: 100%; border-radius: 16px; color: transparent; background: transparent; }
@@ -1331,33 +930,19 @@ async function mountOverlay(): Promise<void> {
       .collapsed .orb { display: block; }
       .collapsed:hover { transform: translateY(-2px); border-color: rgba(167,243,208,.32); box-shadow: 0 16px 42px rgba(0,0,0,.34), 0 0 24px rgba(141,232,189,.1), inset 0 1px 0 rgba(255,255,255,.16); }
       @keyframes shimmer { to { background-position: -120% 0; } }
-      @media (max-width: 520px) { .evaluation-outcomes, .evaluation-metrics { grid-template-columns: repeat(2, 1fr); } }
-      @media (prefers-reduced-motion: reduce) { .assistant, .send { transition: none; } .message.streaming:empty, .evaluation-loading { animation: none; } }
+      @media (prefers-reduced-motion: reduce) { .assistant, .send { transition: none; } .message.streaming:empty { animation: none; } }
     </style>
     <section class="assistant collapsed" aria-label="Tracking assistant">
-      <div class="drag" aria-label="Drag assistant"><button class="reports-toggle" aria-label="Open model evaluation reports" aria-expanded="false">Evals</button><button class="icon collapse" aria-label="Collapse assistant">−</button></div>
+      <div class="drag" aria-label="Drag assistant"><button class="icon collapse" aria-label="Collapse assistant">−</button></div>
       <div class="messages" aria-live="polite"><div class="message bot">What do you want to track on this page?</div></div>
       <div class="composer"><textarea aria-label="Tracking request" placeholder="Describe an action or outcome…"></textarea><button class="send" aria-label="Send request">↑</button></div>
-      <section class="evaluation-panel" aria-label="Model evaluation reports" hidden>
-        <header class="evaluation-panel-header">
-          <div><span>Evidence lab</span><h2 tabindex="-1">Model evaluations</h2></div>
-          <div class="evaluation-panel-actions"><button class="evaluation-refresh" aria-label="Refresh model evaluation reports">↻</button><button class="evaluation-close" aria-label="Close model evaluation reports">×</button></div>
-        </header>
-        <div class="evaluation-content"></div>
-      </section>
       <button class="orb" aria-label="Open tracking assistant">G</button>
     </section>`;
   frame = shadow.querySelector<HTMLElement>(".assistant")!;
   responseList = shadow.querySelector<HTMLElement>(".messages")!;
   composer = shadow.querySelector<HTMLTextAreaElement>("textarea")!;
-  reportPanel = shadow.querySelector<HTMLElement>(".evaluation-panel")!;
-  reportContent = shadow.querySelector<HTMLElement>(".evaluation-content")!;
-  reportToggle = shadow.querySelector<HTMLButtonElement>(".reports-toggle")!;
   shadow.querySelector(".orb")?.addEventListener("click", () => setCollapsed(false));
   shadow.querySelector(".collapse")?.addEventListener("click", () => setCollapsed(true));
-  reportToggle.addEventListener("click", () => setEvaluationPanelOpen(reportPanel?.hidden ?? true));
-  shadow.querySelector(".evaluation-close")?.addEventListener("click", () => setEvaluationPanelOpen(false));
-  shadow.querySelector(".evaluation-refresh")?.addEventListener("click", () => { void loadEvaluationReports(); });
   shadow.querySelector(".send")?.addEventListener("click", submitPrompt);
   composer.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submitPrompt(); }

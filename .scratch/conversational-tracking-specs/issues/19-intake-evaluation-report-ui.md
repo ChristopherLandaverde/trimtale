@@ -89,3 +89,5 @@ Required invariants:
   documentation, every workspace build and strict check, all 274 deterministic tests
   across 38 files, and all 30 Chromium workflows. No provider command, credential,
   external request, or paid call ran.
+- 2026-08-23: Superseded by issue 20 after product direction clarified that evaluation
+  is backend-only observability and must not be a customer-facing assistant feature.

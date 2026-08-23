@@ -1,5 +1,8 @@
 # Intake evaluation report UI exploratory review
 
+> Historical review: the frontend surface reviewed here was removed by issue 20 after
+> product direction clarified that model evaluations are backend-only observability.
+
 Date: 2026-08-23
 
 ## Environment
