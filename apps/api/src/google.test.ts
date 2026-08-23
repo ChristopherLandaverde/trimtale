@@ -7,6 +7,7 @@ import {
   GTM_READONLY_SCOPE,
   GTM_PUBLISH_SCOPE,
   googleGtmPublicationEnabled,
+  googleGtmPublicationScopeRequested,
   googleGtmWritesEnabled,
   googleOAuthConfig,
 } from "./google.js";
@@ -68,16 +69,34 @@ describe("Google OAuth configuration", () => {
     ]);
   });
 
-  it("requests publish access only behind separate exact enablement", () => {
+  it("requests publish access only behind separate exact scope consent", () => {
     expect(googleGtmPublicationEnabled({})).toBe(false);
     expect(googleGtmPublicationEnabled({ GOOGLE_GTM_PUBLICATION_ENABLED: "TRUE" })).toBe(false);
     expect(googleGtmPublicationEnabled({ GOOGLE_GTM_PUBLICATION_ENABLED: "true" })).toBe(true);
+    expect(googleGtmPublicationScopeRequested({})).toBe(false);
+    expect(googleGtmPublicationScopeRequested({ GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED: "TRUE" })).toBe(false);
+    expect(googleGtmPublicationScopeRequested({ GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED: "true" })).toBe(true);
     const session = new GoogleOAuthSession(config, vi.fn<typeof fetch>(), Date.now, true, true);
     expect(new URL(session.authorizationUrl()).searchParams.get("scope")?.split(" ")).toContain(GTM_PUBLISH_SCOPE);
   });
 });
 
 describe("read-only GTM discovery", () => {
+  it("waits and retries a quota-limited Google request without changing the operation", async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json(
+        { error: { message: "quota" } },
+        { status: 429, headers: { "Retry-After": "0" } },
+      ))
+      .mockResolvedValue(Response.json({ account: [] }));
+    const wait = vi.fn(async () => undefined);
+    const client = new GtmDiscoveryClient(async () => "token", fetcher, false, false, Date.now, wait);
+
+    await expect(client.discover()).resolves.toEqual([]);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(wait).toHaveBeenCalledWith(0);
+  });
+
   it("lists every account and its containers across pages", async () => {
     const fetcher = vi.fn<typeof fetch>(async (input) => {
       const url = new URL(input.toString());

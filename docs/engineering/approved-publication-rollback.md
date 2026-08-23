@@ -1,9 +1,11 @@
 # Approved publication, verification, and rollback
 
 Production publication is the only stage that requires both persisted practitioner
-approval and separate backend enablement. `GOOGLE_GTM_PUBLICATION_ENABLED=true` adds
-Google's `tagmanager.publish` scope and is checked by `npm run preflight:publication`.
-The ordinary Google preflight and CI never require this flag.
+approval and separate backend enablement. OAuth consent and execution are independent:
+`GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED=true` includes Google's `tagmanager.publish`
+scope in the one-time consent, while `GOOGLE_GTM_PUBLICATION_ENABLED=true` alone makes
+the fingerprint-guarded client method reachable. `npm run preflight:publication`
+requires both exact flags. The ordinary CI gate requires neither.
 
 ## Approval and publication
 

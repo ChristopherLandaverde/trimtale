@@ -1,5 +1,15 @@
 import { randomBytes } from "node:crypto";
 import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname } from "node:path";
+import {
   assertTrackingOperation,
   createTrackingChangePlan,
   fingerprintTrackingChangeActions,
@@ -195,6 +205,12 @@ export function googleGtmPublicationEnabled(environment: NodeJS.ProcessEnv = pro
   return environment.GOOGLE_GTM_PUBLICATION_ENABLED === "true";
 }
 
+export function googleGtmPublicationScopeRequested(
+  environment: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return environment.GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED === "true";
+}
+
 export class GoogleIntegrationError extends Error {
   constructor(
     message: string,
@@ -205,12 +221,74 @@ export class GoogleIntegrationError extends Error {
 }
 
 async function responseJson<T>(response: Response): Promise<T> {
-  const value = (await response.json()) as T & { error?: string; error_description?: string };
+  const value = (await response.json()) as T & {
+    error?: string | { message?: string; status?: string };
+    error_description?: string;
+  };
   if (!response.ok) {
-    const detail = value.error_description ?? value.error ?? `HTTP ${response.status}`;
+    const detail = value.error_description
+      ?? (typeof value.error === "string" ? value.error : value.error?.message)
+      ?? `HTTP ${response.status}`;
     throw new GoogleIntegrationError(`Google API request failed: ${detail}`, response.status);
   }
   return value;
+}
+
+export interface GoogleOAuthTokenStore {
+  load(): string | undefined;
+  save(refreshToken: string): void;
+  clear(): void;
+}
+
+interface StoredRefreshTokenV1 {
+  schemaVersion: 1;
+  clientId: string;
+  refreshToken: string;
+}
+
+export class FileGoogleOAuthTokenStore implements GoogleOAuthTokenStore {
+  constructor(
+    readonly filePath: string,
+    private readonly clientId: string,
+  ) {}
+
+  load(): string | undefined {
+    if (!existsSync(this.filePath)) return undefined;
+    if ((statSync(this.filePath).mode & 0o077) !== 0) {
+      throw new Error("Google OAuth token store must not be readable by group or other users.");
+    }
+    let value: unknown;
+    try {
+      value = JSON.parse(readFileSync(this.filePath, "utf8"));
+    } catch {
+      throw new Error("Google OAuth token store is corrupted.");
+    }
+    if (!isJsonRecord(value) || value.schemaVersion !== 1
+      || value.clientId !== this.clientId
+      || typeof value.refreshToken !== "string" || !value.refreshToken.trim()) {
+      throw new Error("Google OAuth token store is invalid for this OAuth client.");
+    }
+    return value.refreshToken;
+  }
+
+  save(refreshToken: string): void {
+    const value: StoredRefreshTokenV1 = {
+      schemaVersion: 1,
+      clientId: this.clientId,
+      refreshToken,
+    };
+    mkdirSync(dirname(this.filePath), { recursive: true });
+    const temporaryPath = `${this.filePath}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
+    writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+    renameSync(temporaryPath, this.filePath);
+  }
+
+  clear(): void {
+    if (existsSync(this.filePath)) unlinkSync(this.filePath);
+  }
 }
 
 export class GoogleOAuthSession {
@@ -222,8 +300,14 @@ export class GoogleOAuthSession {
     private readonly fetcher: Fetch = fetch,
     private readonly now: () => number = Date.now,
     private readonly containerWritesEnabled = false,
-    private readonly publicationEnabled = false,
-  ) {}
+    private readonly publicationScopeRequested = false,
+    private readonly tokenStore?: GoogleOAuthTokenStore,
+  ) {
+    const refreshToken = tokenStore?.load();
+    if (refreshToken) {
+      this.tokens = { accessToken: "", expiresAt: 0, refreshToken };
+    }
+  }
 
   isConnected(): boolean {
     return this.tokens !== undefined;
@@ -239,7 +323,7 @@ export class GoogleOAuthSession {
       redirect_uri: this.config.redirectUri,
       response_type: "code",
       scope: this.containerWritesEnabled
-        ? `${GTM_READONLY_SCOPE} ${GTM_EDIT_CONTAINERS_SCOPE} ${GTM_EDIT_CONTAINER_VERSIONS_SCOPE}${this.publicationEnabled ? ` ${GTM_PUBLISH_SCOPE}` : ""}`
+        ? `${GTM_READONLY_SCOPE} ${GTM_EDIT_CONTAINERS_SCOPE} ${GTM_EDIT_CONTAINER_VERSIONS_SCOPE}${this.publicationScopeRequested ? ` ${GTM_PUBLISH_SCOPE}` : ""}`
         : GTM_READONLY_SCOPE,
       access_type: "offline",
       include_granted_scopes: "true",
@@ -267,7 +351,7 @@ export class GoogleOAuthSession {
       }),
     });
     const result = await responseJson<GoogleTokenResponse>(response);
-    this.tokens = this.store(result);
+    this.tokens = this.store(result, this.tokens?.refreshToken);
   }
 
   async accessToken(): Promise<string> {
@@ -277,19 +361,27 @@ export class GoogleOAuthSession {
       this.tokens = undefined;
       throw new GoogleIntegrationError("Google authorization expired. Connect again.", 401);
     }
-    const response = await this.fetcher(tokenEndpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        refresh_token: this.tokens.refreshToken,
-        client_id: this.config.clientId,
-        client_secret: this.config.clientSecret,
-        grant_type: "refresh_token",
-      }),
-    });
-    const result = await responseJson<GoogleTokenResponse>(response);
-    this.tokens = this.store(result, this.tokens.refreshToken);
-    return this.tokens.accessToken;
+    try {
+      const response = await this.fetcher(tokenEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          refresh_token: this.tokens.refreshToken,
+          client_id: this.config.clientId,
+          client_secret: this.config.clientSecret,
+          grant_type: "refresh_token",
+        }),
+      });
+      const result = await responseJson<GoogleTokenResponse>(response);
+      this.tokens = this.store(result, this.tokens.refreshToken);
+      return this.tokens.accessToken;
+    } catch (error) {
+      if (error instanceof GoogleIntegrationError && (error.status === 400 || error.status === 401)) {
+        this.tokens = undefined;
+        this.tokenStore?.clear();
+      }
+      throw error;
+    }
   }
 
   private store(result: GoogleTokenResponse, existingRefreshToken?: string): StoredTokens {
@@ -297,6 +389,10 @@ export class GoogleOAuthSession {
       throw new GoogleIntegrationError("Google returned an invalid OAuth token response.", 502);
     }
     const refreshToken = result.refresh_token ?? existingRefreshToken;
+    if (this.tokenStore && !refreshToken) {
+      throw new GoogleIntegrationError("Google did not return the required offline refresh token.", 502);
+    }
+    if (refreshToken) this.tokenStore?.save(refreshToken);
     return {
       accessToken: result.access_token,
       expiresAt: this.now() + result.expires_in * 1_000,
@@ -402,6 +498,8 @@ export class GtmDiscoveryClient {
     private readonly containerWritesEnabled = false,
     private readonly publicationEnabled = false,
     private readonly now: () => number = Date.now,
+    private readonly wait: (milliseconds: number) => Promise<void> = (milliseconds) =>
+      new Promise((resolve) => setTimeout(resolve, milliseconds)),
   ) {}
 
   async discover(): Promise<GtmAccountDiscovery[]> {
@@ -564,19 +662,15 @@ export class GtmDiscoveryClient {
       return blocked("stale_workspace");
     }
 
-    const preparation = await this.prepareManagedWorkspace(operation.container.publicId);
-    if (preparation.status === "not_accessible") return blocked("not_accessible");
-    if (preparation.status === "ambiguous") return blocked("ambiguous");
-    if (preparation.workspace.status === "sync_conflict") return blocked("sync_conflict");
-    if (preparation.workspace.status !== "reused") {
-      return blocked(preparation.workspace.status === "ownership_conflict"
-        ? "ownership_conflict"
-        : "workspace_unavailable");
+    const sync = await this.post<WorkspaceSyncResponse>(`/${operation.workspace.path}:sync`);
+    const status = await this.get<WorkspaceStatusResponse>(`/${operation.workspace.path}/status`);
+    if (sync.syncStatus?.mergeConflict || sync.syncStatus?.syncError
+      || (sync.mergeConflict?.length ?? 0) > 0 || (status.mergeConflict?.length ?? 0) > 0) {
+      return blocked("sync_conflict");
     }
-    if (preparation.workspace.workspace.path !== operation.workspace.path) return blocked("stale_workspace");
 
     for (const expected of operation.plan.actions) {
-      const fresh = await this.planManagedWorkspace(operation.container.publicId, operation.generatedSetup);
+      const fresh = await this.planBoundManagedWorkspace(operation);
       if (fresh.status !== "planned" || fresh.workspace.path !== operation.workspace.path) {
         return blocked(fresh.status === "workspace_unavailable" ? "ownership_conflict" : "stale_workspace");
       }
@@ -613,7 +707,7 @@ export class GtmDiscoveryClient {
       }
     }
 
-    const finalPlan = await this.planManagedWorkspace(operation.container.publicId, operation.generatedSetup);
+    const finalPlan = await this.planBoundManagedWorkspace(operation);
     if (finalPlan.status !== "planned"
       || finalPlan.plan.actions.some(({ action }) => action !== "reuse" && action !== "no_op")) {
       return blocked("stale_plan");
@@ -678,6 +772,50 @@ export class GtmDiscoveryClient {
       errors: [],
       workspaceChanges: changes,
       previewVersionFingerprint: preview.containerVersion.fingerprint,
+    };
+  }
+
+  private async planBoundManagedWorkspace(
+    operation: TrackingSetupOperationV1,
+  ): Promise<GtmManagedWorkspacePlanning> {
+    const container = await this.get<GtmContainer>(`/${operation.container.path}`);
+    if (container.path !== operation.container.path
+      || normalizePublicContainerId(container.publicId)
+        !== normalizePublicContainerId(operation.container.publicId)) {
+      return { status: "not_accessible", publicId: operation.container.publicId };
+    }
+    const workspaces = await this.listAll<GtmWorkspace, WorkspaceListResponse>(
+      `/${container.path}/workspaces`,
+      "workspace",
+    );
+    const decision = inspectManagedWorkspace(workspaces);
+    if (decision.status !== "available" || decision.action !== "reuse") {
+      return {
+        status: "workspace_unavailable",
+        publicId: operation.container.publicId,
+        container,
+        workspace: decision,
+      };
+    }
+    this.assertWorkspacePath(decision.workspace, container);
+    if (decision.workspace.path !== operation.workspace.path) {
+      return {
+        status: "workspace_unavailable",
+        publicId: operation.container.publicId,
+        container,
+        workspace: decision,
+      };
+    }
+    const entities = await this.workspaceEntitySet(decision.workspace);
+    return {
+      status: "planned",
+      publicId: operation.container.publicId,
+      container,
+      workspace: decision.workspace,
+      ...(decision.workspace.fingerprint
+        ? { workspaceFingerprint: decision.workspace.fingerprint }
+        : {}),
+      plan: createTrackingChangePlan(operation.generatedSetup, entities),
     };
   }
 
@@ -863,8 +1001,8 @@ export class GtmDiscoveryClient {
         throw new GoogleIntegrationError("Built-in variables can only be enabled by type.", 409);
       }
       const url = new URL(`${tagManagerEndpoint}/${fresh.workspace.path}/built_in_variables`);
-      url.searchParams.append("type", generated.type);
-      const response = await this.fetcher(url, {
+      url.searchParams.append("type", googleRestString(generated.type));
+      const response = await this.fetchGoogle(url, {
         method: "POST",
         headers: { Authorization: `Bearer ${await this.getAccessToken()}` },
       });
@@ -899,14 +1037,14 @@ export class GtmDiscoveryClient {
   }
 
   private async get<Result>(path: string): Promise<Result> {
-    const response = await this.fetcher(`${tagManagerEndpoint}${path}`, {
+    const response = await this.fetchGoogle(`${tagManagerEndpoint}${path}`, {
       headers: { Authorization: `Bearer ${await this.getAccessToken()}` },
     });
     return responseJson<Result>(response);
   }
 
   private async post<Result>(path: string, body?: unknown): Promise<Result> {
-    const response = await this.fetcher(`${tagManagerEndpoint}${path}`, {
+    const response = await this.fetchGoogle(`${tagManagerEndpoint}${path}`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${await this.getAccessToken()}`,
@@ -918,7 +1056,7 @@ export class GtmDiscoveryClient {
   }
 
   private async put<Result>(path: string, body: unknown): Promise<Result> {
-    const response = await this.fetcher(`${tagManagerEndpoint}${path}`, {
+    const response = await this.fetchGoogle(`${tagManagerEndpoint}${path}`, {
       method: "PUT",
       headers: {
         Authorization: `Bearer ${await this.getAccessToken()}`,
@@ -938,7 +1076,7 @@ export class GtmDiscoveryClient {
     do {
       const url = new URL(`${tagManagerEndpoint}${path}`);
       if (pageToken) url.searchParams.set("pageToken", pageToken);
-      const response = await this.fetcher(url, {
+      const response = await this.fetchGoogle(url, {
         headers: { Authorization: `Bearer ${await this.getAccessToken()}` },
       });
       const result = await responseJson<Result>(response);
@@ -947,6 +1085,27 @@ export class GtmDiscoveryClient {
       pageToken = result.nextPageToken;
     } while (pageToken);
     return items;
+  }
+
+  private async fetchGoogle(input: string | URL, init?: RequestInit): Promise<Response> {
+    let response: Response | undefined;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      response = await this.fetcher(input, init);
+      if (response.status !== 429 || attempt === 2) return response;
+      await this.wait(this.quotaRetryDelay(response.headers.get("Retry-After")));
+    }
+    if (!response) throw new Error("Google request did not produce a response.");
+    return response;
+  }
+
+  private quotaRetryDelay(retryAfter: string | null): number {
+    if (retryAfter) {
+      const seconds = Number(retryAfter);
+      if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1_000;
+      const timestamp = Date.parse(retryAfter);
+      if (Number.isFinite(timestamp)) return Math.max(0, timestamp - this.now());
+    }
+    return 65_000;
   }
 }
 
@@ -989,7 +1148,7 @@ function applicationEntityBody(
   fresh: Extract<GtmManagedWorkspacePlanning, { status: "planned" }>,
   setup: GtmContainerExport,
 ): JsonRecord {
-  const body = structuredClone(generated);
+  const body = googleRestValue(structuredClone(generated)) as JsonRecord;
   for (const key of [
     "accountId", "containerId", "workspaceId", "path", "fingerprint", "tagManagerUrl",
     "parentFolderId", "tagId", "triggerId", "variableId",
@@ -1010,6 +1169,50 @@ function applicationEntityBody(
   return body;
 }
 
+const googleRestPropertyAliases = new Map([
+  ["autoEventFilter", "filter"],
+]);
+const googleRestParameterKeyAliases = new Map([
+  ["measurementId", "measurementIdOverride"],
+  ["eventParameters", "eventSettingsTable"],
+  ["name", "parameter"],
+  ["value", "parameterValue"],
+]);
+const googleRestStringAliases = new Map([
+  ["BOOLEAN", "boolean"],
+  ["CLICK_TEXT", "clickText"],
+  ["CLICK_URL", "clickUrl"],
+  ["CSS_SELECTOR", "cssSelector"],
+  ["CUSTOM_EVENT", "customEvent"],
+  ["ELEMENT_VISIBILITY", "elementVisibility"],
+  ["EQUALS", "equals"],
+  ["JUST_LINKS", "linkClick"],
+  ["LIST", "list"],
+  ["MAP", "map"],
+  ["MATCH_REGEX", "matchRegex"],
+  ["NOT_SET", "notSet"],
+  ["ONCE_PER_EVENT", "oncePerEvent"],
+  ["ONCE_PER_PAGE", "oncePerPage"],
+  ["PAGE_URL", "pageUrl"],
+  ["PAGEVIEW", "pageview"],
+  ["TEMPLATE", "template"],
+]);
+
+function googleRestString(value: string, key?: string): string {
+  if (key === "key") return googleRestParameterKeyAliases.get(value) ?? value;
+  return googleRestStringAliases.get(value) ?? value;
+}
+
+function googleRestValue(value: unknown, key?: string): unknown {
+  if (Array.isArray(value)) return value.map((item) => googleRestValue(item));
+  if (!isJsonRecord(value)) return typeof value === "string" ? googleRestString(value, key) : value;
+  const result: JsonRecord = {};
+  for (const [childKey, childValue] of Object.entries(value)) {
+    result[googleRestPropertyAliases.get(childKey) ?? childKey] = googleRestValue(childValue, childKey);
+  }
+  return result;
+}
+
 function expectedWorkspaceChange(change: unknown, setup: GtmContainerExport): boolean {
   if (!isJsonRecord(change)) return false;
   const wrapper = isJsonRecord(change.entity) ? change.entity : change;
@@ -1019,8 +1222,10 @@ function expectedWorkspaceChange(change: unknown, setup: GtmContainerExport): bo
   }
   const builtIn = wrapper.builtInVariable;
   if (isJsonRecord(builtIn) && typeof builtIn.type === "string") {
+    const builtInType = builtIn.type;
     return setup.containerVersion.builtInVariable.some((candidate) =>
-      isJsonRecord(candidate) && candidate.type === builtIn.type);
+      isJsonRecord(candidate) && typeof candidate.type === "string"
+        && googleRestString(candidate.type) === googleRestString(builtInType));
   }
   return false;
 }

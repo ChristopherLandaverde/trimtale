@@ -49,6 +49,7 @@ describe("workflow preflight", () => {
       GOOGLE_OAUTH_REDIRECT_URI: "http://127.0.0.1:8787/api/google/oauth/callback",
       EXTENSION_ORIGIN: `chrome-extension://${"a".repeat(32)}`,
       GOOGLE_GTM_CONTAINER_WRITES_ENABLED: "true",
+      GOOGLE_OAUTH_TOKEN_STORE: "/var/lib/gtm-observability/google-oauth.json",
     };
     const checks = evaluateGoogleReadiness(environment);
     const report = formatPreflightReport("Google integration preflight", checks);
@@ -72,6 +73,7 @@ describe("workflow preflight", () => {
       "OAuth callback",
       "extension origin",
       "container writes",
+      "OAuth token persistence",
     ]);
   });
 
@@ -82,13 +84,15 @@ describe("workflow preflight", () => {
       GOOGLE_OAUTH_REDIRECT_URI: "http://127.0.0.1:8787/api/google/oauth/callback",
       EXTENSION_ORIGIN: `chrome-extension://${"a".repeat(32)}`,
       GOOGLE_GTM_CONTAINER_WRITES_ENABLED: "true",
+      GOOGLE_OAUTH_TOKEN_STORE: "/var/lib/gtm-observability/google-oauth.json",
     };
-    expect(evaluatePublicationReadiness(base).at(-1)).toMatchObject({
-      name: "production publication",
-      ok: false,
-    });
+    expect(evaluatePublicationReadiness(base).filter(({ ok }) => !ok).map(({ name }) => name)).toEqual([
+      "publication OAuth scope",
+      "production publication",
+    ]);
     expect(evaluatePublicationReadiness({
       ...base,
+      GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED: "true",
       GOOGLE_GTM_PUBLICATION_ENABLED: "true",
     }).every(({ ok }) => ok)).toBe(true);
   });

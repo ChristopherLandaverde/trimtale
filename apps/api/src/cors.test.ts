@@ -11,6 +11,8 @@ describe("API CORS boundary", () => {
       "/api/google/accounts/1/containers/2/context",
       "/api/google/containers/recognize",
       "/api/google/containers/prepare-workspace",
+      "/api/google/workflows/plan",
+      "/api/google/workflows/operation_spec_123/resume",
     ]) {
       expect(corsDecision(pathname, "https://attacker.example", undefined)).toEqual({
         allowed: false,
