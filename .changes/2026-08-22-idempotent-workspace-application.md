@@ -37,8 +37,10 @@ fake Google responses.
 
 ## Verification
 
-Focused planner, operation, and Google application tests pass. Full
-`npm run agent -- verify` evidence will be recorded before completion.
+`npm run agent -- verify` passed local preflight, change-documentation and strict
+TypeScript checks, all 167 deterministic tests, every workspace build, and all 25
+Chromium workflows. The focused application contract contains five end-to-end fake
+Google tests plus the managed-update planner regression.
 
 ## Exploratory review
 

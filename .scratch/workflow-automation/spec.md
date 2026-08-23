@@ -57,7 +57,7 @@ local readiness
 - [x] Pull requests run one current verification job; merged `main` is verified again.
 - [x] Tracking change plans classify create, reuse, no-op, and conflict behavior.
 - [x] A durable operation record can resume after interruption from freshly read state.
-- [ ] Managed-workspace application is idempotent and ownership constrained.
+- [x] Managed-workspace application is idempotent and ownership constrained.
 - [ ] Workspace validation produces reviewable compiler and change evidence.
 - [ ] Version creation records an immutable fingerprint and prior live version.
 - [ ] Publication requires approval bound to that fingerprint.
