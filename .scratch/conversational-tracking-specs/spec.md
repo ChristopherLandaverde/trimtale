@@ -169,6 +169,24 @@ No server route invokes the runner. A later credentialed backend command must ex
 configure real adapters and the report path without making paid model execution
 publicly triggerable.
 
+## Owner-operated model comparison
+
+The backend includes one OpenAI Responses API adapter behind the existing
+provider-neutral interface and an offline owner command. Its strict preflight requires
+two or three unique provider and model IDs, explicit per-model token rates, bounded
+timeout and output-token values, an in-workspace report path, and a backend environment
+credential before any provider call or report write.
+
+Requests use the fixed official HTTPS endpoint, `store: false`, no tools, the validated
+privacy-filtered input, and strict structured output. Completed output is runtime
+validated again; provider response bodies, keys, headers, exception detail, prompts,
+messages, labels, and interpretations are never logged or persisted. Reported cost is
+an estimate from returned token counts and explicitly configured rates.
+
+The command has no schedule or HTTP trigger and is excluded from ordinary verification.
+It remains dormant until an owner separately selects compatible models and current
+rates, supplies a credential, reviews the 28- or 42-request spend, and invokes it.
+
 ## Tracking specification contract
 
 ```ts
@@ -334,6 +352,8 @@ A verified resolution records normalized symptoms, relevant environment attribut
   safety, latency, cost, and missing-usage evidence.
 - [x] The backend can run two or three injected providers and atomically persist a
   privacy-safe, runtime-validated comparison report.
+- [x] An owner-operated backend command can connect two or three explicitly configured
+  OpenAI models without exposing credentials or paid execution through HTTP.
 - [x] `npm run verify` passes without real Google credentials or external services.
 
 ## Success measures

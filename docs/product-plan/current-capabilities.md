@@ -149,8 +149,7 @@ abort signal, validates structured provider output, and pairs accepted interpret
 with the deterministic baseline. Its privacy-safe records exclude messages, labels,
 raw responses, prompts, credentials, and exception text.
 
-No real model provider, backend endpoint, persistence layer, or visible assistant
-behavior is connected to the harness yet.
+No model output influences the visible assistant or deterministic workflow.
 
 Each shadow record can now be evaluated against its corpus expectation as `pass`,
 `fail`, `hard_failure`, or `inconclusive`. A pass requires all five weighted dimensions
@@ -169,8 +168,12 @@ permissions. It preflights provider and report configuration before execution, r
 degraded provider cases without aborting the comparison, and persists no messages,
 labels, interpretations, raw responses, prompts, credentials, or exception text.
 
-The runner is not connected to an HTTP route. Real adapters and an owner-operated
-credentialed command are still absent.
+The runner is not connected to an HTTP route. A dormant OpenAI Responses API adapter
+and owner-operated command can now run two or three explicitly configured models with
+strict structured output, `store: false`, generic failure handling, returned-token cost
+estimates, and backend-only credentials. The command is excluded from ordinary
+verification and does nothing until an owner supplies compatible model IDs, current
+rates, a key, and explicitly invokes its 28- or 42-request comparison.
 
 ## Regression and delivery harness
 
@@ -225,7 +228,7 @@ The following product actions remain deliberately unimplemented or unexposed:
   assistant actions or public workflow routes.
 - Confirming receipt inside GA4 or Google Ads.
 - Scheduled monitoring and incident alerts.
-- Real model adapters, an owner-operated credentialed comparison command, or production
+- A read-only model-comparison report API, visible comparison UI, or production
   LLM-based intake.
 - Retrieval from similar verified resolutions or model training.
 
