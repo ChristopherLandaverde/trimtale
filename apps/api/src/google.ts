@@ -19,6 +19,7 @@ import {
 
 export const GTM_READONLY_SCOPE = "https://www.googleapis.com/auth/tagmanager.readonly";
 export const GTM_EDIT_CONTAINERS_SCOPE = "https://www.googleapis.com/auth/tagmanager.edit.containers";
+export const GTM_EDIT_CONTAINER_VERSIONS_SCOPE = "https://www.googleapis.com/auth/tagmanager.edit.containerversions";
 
 const authorizationEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
 const tokenEndpoint = "https://oauth2.googleapis.com/token";
@@ -231,7 +232,7 @@ export class GoogleOAuthSession {
       redirect_uri: this.config.redirectUri,
       response_type: "code",
       scope: this.containerWritesEnabled
-        ? `${GTM_READONLY_SCOPE} ${GTM_EDIT_CONTAINERS_SCOPE}`
+        ? `${GTM_READONLY_SCOPE} ${GTM_EDIT_CONTAINERS_SCOPE} ${GTM_EDIT_CONTAINER_VERSIONS_SCOPE}`
         : GTM_READONLY_SCOPE,
       access_type: "offline",
       include_granted_scopes: "true",
@@ -327,6 +328,38 @@ interface WorkspaceStatusResponse {
   workspaceChange?: unknown[];
   mergeConflict?: unknown[];
 }
+
+interface WorkspacePreviewResponse {
+  containerVersion?: GtmContainerVersion;
+  syncStatus?: { mergeConflict?: boolean; syncError?: boolean };
+  compilerError?: boolean;
+}
+
+interface WorkspaceCreateVersionResponse extends WorkspacePreviewResponse {
+  newWorkspacePath?: string;
+}
+
+export interface GtmWorkspaceValidationEvidence {
+  status: "passed" | "failed";
+  checkedAt: string;
+  workspaceFingerprint: string;
+  errors: string[];
+  workspaceChanges: unknown[];
+  previewVersionFingerprint?: string;
+}
+
+export type GtmValidatedVersionResult =
+  | {
+    status: "versioned";
+    validation: GtmWorkspaceValidationEvidence;
+    version: {
+      path: string;
+      fingerprint: string;
+      priorLiveVersionPath: string;
+      priorLiveVersionFingerprint: string;
+    };
+  }
+  | { status: "blocked"; validation: GtmWorkspaceValidationEvidence };
 
 interface TagListResponse {
   tag?: unknown[];
@@ -579,6 +612,107 @@ export class GtmDiscoveryClient {
     };
   }
 
+  async validateManagedWorkspace(
+    operation: TrackingSetupOperationV1,
+  ): Promise<GtmWorkspaceValidationEvidence> {
+    if (!this.containerWritesEnabled) {
+      throw new GoogleIntegrationError("GTM container-version writes are disabled on this backend.", 403);
+    }
+    assertTrackingOperation(operation);
+    if (!["applied", "validation_failed", "validated"].includes(operation.status)) {
+      throw new GoogleIntegrationError("Only applied tracking operations can be validated.", 409);
+    }
+    const checkedAt = new Date().toISOString();
+    const failed = (workspaceFingerprint: string, workspaceChanges: unknown[], errors: string[]): GtmWorkspaceValidationEvidence => ({
+      status: "failed", checkedAt, workspaceFingerprint, errors, workspaceChanges,
+    });
+    const inspection = await this.inspectObservedContainer(operation.container.publicId);
+    if (inspection.status !== "recognized" || inspection.workspace.status !== "available"
+      || inspection.workspace.action !== "reuse") {
+      return failed(operation.workspace.fingerprint, [], ["The recognized managed workspace is unavailable."]);
+    }
+    const currentWorkspace = inspection.workspace.workspace;
+    if (currentWorkspace.path !== operation.workspace.path
+      || currentWorkspace.fingerprint !== operation.workspace.fingerprint) {
+      return failed(currentWorkspace.fingerprint ?? "unknown", [], ["The managed workspace fingerprint changed."]);
+    }
+    const status = await this.get<WorkspaceStatusResponse>(`/${currentWorkspace.path}/status`);
+    const changes = status.workspaceChange ?? [];
+    if ((status.mergeConflict?.length ?? 0) > 0) {
+      return failed(currentWorkspace.fingerprint ?? "unknown", changes, ["The managed workspace has merge conflicts."]);
+    }
+    const unexpected = changes.filter((change) => !expectedWorkspaceChange(change, operation.generatedSetup));
+    if (unexpected.length > 0) {
+      return failed(currentWorkspace.fingerprint ?? "unknown", changes, ["The managed workspace contains unexpected changes."]);
+    }
+    const freshPlan = await this.planManagedWorkspace(operation.container.publicId, operation.generatedSetup);
+    if (freshPlan.status !== "planned" || freshPlan.workspace.path !== operation.workspace.path
+      || freshPlan.plan.actions.some(({ action }) => action !== "reuse" && action !== "no_op")) {
+      return failed(currentWorkspace.fingerprint ?? "unknown", changes, ["Workspace entities do not match the approved tracking change plan."]);
+    }
+    const preview = await this.post<WorkspacePreviewResponse>(`/${currentWorkspace.path}:quick_preview`);
+    if (preview.syncStatus?.mergeConflict || preview.syncStatus?.syncError) {
+      return failed(currentWorkspace.fingerprint ?? "unknown", changes, ["GTM could not synchronize the validation preview."]);
+    }
+    if (preview.compilerError || !preview.containerVersion?.fingerprint) {
+      return failed(currentWorkspace.fingerprint ?? "unknown", changes, ["GTM reported compiler errors for the workspace preview."]);
+    }
+    return {
+      status: "passed",
+      checkedAt,
+      workspaceFingerprint: currentWorkspace.fingerprint ?? "unknown",
+      errors: [],
+      workspaceChanges: changes,
+      previewVersionFingerprint: preview.containerVersion.fingerprint,
+    };
+  }
+
+  async createValidatedVersion(
+    operation: TrackingSetupOperationV1,
+  ): Promise<GtmValidatedVersionResult> {
+    if (!this.containerWritesEnabled) {
+      throw new GoogleIntegrationError("GTM container-version writes are disabled on this backend.", 403);
+    }
+    assertTrackingOperation(operation);
+    if (operation.status !== "validated") {
+      throw new GoogleIntegrationError("Only validated tracking operations can create a version.", 409);
+    }
+    const validation = await this.validateManagedWorkspace(operation);
+    if (validation.status !== "passed") return { status: "blocked", validation };
+    const inspection = await this.inspectObservedContainer(operation.container.publicId);
+    if (inspection.status !== "recognized" || !inspection.liveVersion.path
+      || !inspection.liveVersion.fingerprint) {
+      return {
+        status: "blocked",
+        validation: { ...validation, status: "failed", errors: ["The prior live version is missing immutable evidence."] },
+      };
+    }
+    const created = await this.post<WorkspaceCreateVersionResponse>(
+      `/${operation.workspace.path}:create_version`,
+      {
+        name: `GTM Observability - ${operation.specification.id}`,
+        notes: `Tracking setup operation ${operation.id}`,
+      },
+    );
+    if (created.compilerError || created.syncStatus?.mergeConflict || created.syncStatus?.syncError
+      || !created.containerVersion?.path || !created.containerVersion.fingerprint) {
+      return {
+        status: "blocked",
+        validation: { ...validation, status: "failed", errors: ["GTM did not create a clean immutable container version."] },
+      };
+    }
+    return {
+      status: "versioned",
+      validation,
+      version: {
+        path: created.containerVersion.path,
+        fingerprint: created.containerVersion.fingerprint,
+        priorLiveVersionPath: inspection.liveVersion.path,
+        priorLiveVersionFingerprint: inspection.liveVersion.fingerprint,
+      },
+    };
+  }
+
   private async prepareManagedWorkspaceOnce(
     publicId: string,
   ): Promise<GtmManagedWorkspacePreparation> {
@@ -797,4 +931,19 @@ function applicationEntityBody(
     body.firingTriggerId = body.firingTriggerId.map((id) => byGeneratedId.get(String(id)) ?? id);
   }
   return body;
+}
+
+function expectedWorkspaceChange(change: unknown, setup: GtmContainerExport): boolean {
+  if (!isJsonRecord(change)) return false;
+  const wrapper = isJsonRecord(change.entity) ? change.entity : change;
+  for (const kind of ["tag", "trigger", "variable"] as const) {
+    const entity = wrapper[kind];
+    if (isJsonRecord(entity)) return entity.notes === GTM_MANAGED_ENTITY_NOTE;
+  }
+  const builtIn = wrapper.builtInVariable;
+  if (isJsonRecord(builtIn) && typeof builtIn.type === "string") {
+    return setup.containerVersion.builtInVariable.some((candidate) =>
+      isJsonRecord(candidate) && candidate.type === builtIn.type);
+  }
+  return false;
 }
