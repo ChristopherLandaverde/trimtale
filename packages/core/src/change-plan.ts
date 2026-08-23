@@ -2,6 +2,8 @@ import type { GtmContainerExport } from "./types.js";
 
 export type GtmEntityKind = "tag" | "trigger" | "variable" | "builtInVariable";
 
+export const GTM_MANAGED_ENTITY_NOTE = "Managed by GTM Observability";
+
 export interface GtmEntitySet {
   tag?: unknown[];
   trigger?: unknown[];
@@ -16,6 +18,7 @@ export type TrackingChangeAction = {
   existingId?: string;
 } & (
   | { action: "create" | "reuse" | "no_op" }
+  | { action: "update"; existingId: string }
   | { action: "conflict"; reason: "ambiguous_equivalent" | "name_collision" | "malformed_generated_entity" }
 );
 
@@ -60,6 +63,11 @@ function shortHash(value: string): string {
     second = Math.imul(second ^ code, 3266489917);
   }
   return `${(first >>> 0).toString(16)}${(second >>> 0).toString(16)}`.slice(0, 12);
+}
+
+export function fingerprintTrackingChangeActions(actions: TrackingChangeAction[]): string {
+  const input = actions.map(({ existingId: _existingId, ...action }) => action);
+  return `plan_${shortHash(stableJson(input))}`;
 }
 
 function canonicalize(
@@ -156,7 +164,13 @@ function actionForEntity(
     const action = signature(equivalent, "exact", currentTriggers) === exact ? "no_op" : "reuse";
     return { ...common, action, ...(existingId ? { existingId } : {}) };
   }
-  if (current.some((candidate) => entityName(kind, candidate) === generatedName)) {
+  const sameName = current.filter((candidate) => entityName(kind, candidate) === generatedName);
+  if (sameName.length === 1 && kind !== "builtInVariable"
+    && sameName[0]?.notes === GTM_MANAGED_ENTITY_NOTE) {
+    const existingId = entityId(kind, sameName[0]);
+    if (existingId) return { ...common, action: "update", existingId };
+  }
+  if (sameName.length > 0) {
     return { ...common, action: "conflict", reason: "name_collision" };
   }
   return { ...common, action: "create" };
@@ -183,11 +197,10 @@ export function createTrackingChangePlan(
       || left.generatedName.localeCompare(right.generatedName)
       || left.entitySignature.localeCompare(right.entitySignature));
 
-  const fingerprintInput = actions.map(({ existingId: _existingId, ...action }) => action);
   return {
     schemaVersion: 1,
     status: actions.some(({ action }) => action === "conflict") ? "conflict" : "ready",
-    fingerprint: `plan_${shortHash(stableJson(fingerprintInput))}`,
+    fingerprint: fingerprintTrackingChangeActions(actions),
     actions,
   };
 }

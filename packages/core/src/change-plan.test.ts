@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { createTrackingChangePlan, type GtmEntitySet } from "./change-plan.js";
+import {
+  createTrackingChangePlan,
+  GTM_MANAGED_ENTITY_NOTE,
+  type GtmEntitySet,
+} from "./change-plan.js";
 import { createFormSetupProposal, createSetupProposal } from "./generator.js";
 import type { FormSetupRequest, SetupRequest } from "./types.js";
 
@@ -124,6 +128,21 @@ describe("tracking change plan", () => {
       action: "conflict",
       reason: "name_collision",
     }));
+  });
+
+  it("updates a same-name semantic conflict only when it is product-owned", () => {
+    const setup = navigationSetup();
+    const current = entities(setup);
+    const tag = current.tag?.[0] as Record<string, unknown> & {
+      parameter?: Array<{ key?: string; value?: string }>;
+    };
+    const measurement = tag.parameter?.find((item) => item.key === "measurementId");
+    if (measurement) measurement.value = "G-OLDVALUE1";
+    tag.notes = GTM_MANAGED_ENTITY_NOTE;
+
+    expect(createTrackingChangePlan(setup, current).actions).toContainEqual(
+      expect.objectContaining({ kind: "tag", action: "update", existingId: "900002" }),
+    );
   });
 
   it("fails closed when multiple existing entities are semantically equivalent", () => {
