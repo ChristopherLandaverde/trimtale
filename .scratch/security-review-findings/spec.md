@@ -1,6 +1,6 @@
 # Security review findings (external pass, 2026-08-22)
 
-Status: open
+Status: resolved
 
 ## Problem
 
@@ -19,7 +19,7 @@ Both findings are fixed with permanent regression coverage under the ordinary
 
 - [x] `.scratch/security-review-findings/issues/01-api-cors-wildcard-default.md` resolved.
 - [x] `.scratch/security-review-findings/issues/02-content-script-innerhtml-xss.md` resolved.
-- [ ] `.scratch/security-review-findings/issues/03-harness-missing-boundary-and-adversarial-tiers.md` resolved.
+- [x] `.scratch/security-review-findings/issues/03-harness-missing-boundary-and-adversarial-tiers.md` resolved.
 
 ## Out of scope
 

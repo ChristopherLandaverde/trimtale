@@ -63,7 +63,9 @@ The agent must:
 
 1. Build the current branch and launch Chromium with the unpacked extension against the deterministic fixture site.
 2. Exercise the primary workflow from the visible UI without bypassing steps through direct APIs.
-3. Exercise at least one ambiguous, negative, unsupported, or insufficient-evidence path.
+3. Exercise at least one ambiguous, negative, unsupported, or insufficient-evidence
+   path and at least one adversarial page that supplies attacker-shaped input such as
+   markup-bearing text, oversized payloads, malformed selectors, or hostile URLs.
 4. Compare visible behavior with the user outcome, domain language, evidence boundaries, and existing UX baselines.
 5. Inspect both the overlay and the affected page—for example target highlights, focus, evidence labels, and persistence after collapse or reload.
 6. Record the environment, scenarios, observations, screenshots when useful, and findings under `docs/reviews/YYYY-MM-DD-description.md`.
@@ -96,6 +98,14 @@ Use structured transcript/state fixtures to protect classification, clarificatio
 
 Use sentinel values to prove that form values, cookies, storage, credentials, and arbitrary page text do not enter messages, evidence, logs, generated files, or persistence. Add adversarial selectors, URLs, extension messages, OAuth state, and malformed contracts.
 
+### Boundary and configuration regressions
+
+Every server or extension boundary controlled by an environment variable, origin
+check, host binding, permission, or feature switch must have a regression proving
+that its absent, malformed, or default configuration fails closed. Cover the exact
+allowed case and at least one attacker-shaped mismatch; never rely on a production
+deployment setting to make an unsafe code default secure.
+
 ### Browser and site regressions
 
 Use local fixtures and Playwright for native, redirect, AJAX, SPA, dynamic, multi-target, consent, delay, duplication, and insufficient-evidence cases. Real Google tests stay separately credential-gated.
@@ -124,6 +134,7 @@ Repeat critical journeys to detect races, duplicate listeners, late requests, re
 |---|---|---|
 | Shared contracts and verdict rules | `packages/core/src/*.test.ts` | `npm test` |
 | API, OAuth, persistence, and privacy | `apps/api/src/*.test.ts` | `npm test` |
+| Server and extension boundary configuration | `apps/api/src/*.test.ts` and `apps/extension/src/*.test.ts` | `npm test` |
 | Extension units and conversation state | `apps/extension/src/*.test.ts` | `npm test` |
 | Deterministic site variants | `apps/fixture-site/` plus scenario fixtures | `npm test` and E2E |
 | Complete browser workflows and visual states | `tests/e2e/` | `npm run test:e2e` |
