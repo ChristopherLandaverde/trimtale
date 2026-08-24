@@ -9,6 +9,7 @@ import {
   selectConversationSuccess,
   selectConversationTarget,
   type BrowserEvidence,
+  type AgentTurnContext,
   type AgentTaskStatus,
   type AgentTurnV1,
   type ConversationIntakeResult,
@@ -1350,18 +1351,29 @@ function addMessage(copy: string, role: "assistant" | "user", id?: string): HTML
   return message;
 }
 
-function agentContextForRequest(requestId: string): {
-  formCount: number;
-  navigationCount: number;
-  connection?: { publicId: string; measurementId?: string };
-} {
+function automaticCoverage(): AgentTurnContext["automaticCoverage"] {
+  const settings = recognizedGtmContext?.enhancedMeasurement?.settings;
+  if (!settings) {
+    return undefined;
+  }
+
+  return {
+    enabled: settings.stream,
+    outboundClicks: settings.outboundClicks,
+    formInteractions: settings.formInteractions,
+  };
+}
+
+function agentContextForRequest(requestId: string): AgentTurnContext {
   const connected = recognizedGtmContext;
   const measurementId = connected?.measurementIds.length === 1
     ? connected.measurementIds[0]
     : undefined;
+  const coverage = automaticCoverage();
   return {
     formCount: formsByRequest.get(requestId)?.length ?? 0,
     navigationCount: navigationByRequest.get(requestId)?.length ?? 0,
+    ...(coverage ? { automaticCoverage: coverage } : {}),
     ...(connected
       ? { connection: { publicId: connected.publicId, ...(measurementId ? { measurementId } : {}) } }
       : {}),
@@ -1674,7 +1686,9 @@ function renderNavigationSetupDownload(proposal: SetupProposal): void {
 }
 
 function renderNavigationPicker(navigation: NavigationElement[]): void {
-  highlightTargets(navigationTargets(navigation), "candidate");
+  const coverage = automaticCoverage();
+  const automaticOutbound = coverage?.enabled && coverage.outboundClicks;
+  highlightTargets(automaticOutbound ? [] : navigationTargets(navigation), "candidate");
   const picker = document.createElement("div");
   picker.className = "picker";
   for (const item of navigation) {
@@ -1682,7 +1696,7 @@ function renderNavigationPicker(navigation: NavigationElement[]): void {
     label.className = "pick";
     const input = document.createElement("input");
     input.type = "checkbox";
-    input.checked = true;
+    input.checked = !automaticOutbound;
     input.dataset.navigationId = item.id;
     input.addEventListener("change", () => {
       const selectedIds = new Set([...picker.querySelectorAll<HTMLInputElement>("input:checked")].map((node) => node.dataset.navigationId));
@@ -2197,6 +2211,7 @@ function submitPrompt(): void {
   }, 8_000));
   const scan = scanNavigation();
   const forms = scanForms();
+  const coverage = automaticCoverage();
   connectAssistant().postMessage({
     type: "ASSISTANT_REQUEST",
     requestId,
@@ -2215,6 +2230,7 @@ function submitPrompt(): void {
               ? { measurementId: recognizedGtmContext.measurementIds[0] }
               : {}),
           },
+          ...(coverage ? { automaticCoverage: coverage } : {}),
         }
       : {}),
   });

@@ -76,6 +76,13 @@ and form interactions. Disabled settings are gaps, not instructions to create du
 GTM tags. Automatic form interactions remain distinct from a confirmed
 `generate_lead` outcome. The workbench never changes these settings.
 
+The same readiness result must affect the main tracking task. Navigation is
+`Partially covered` when automatic outbound clicks are active. Confirmed lead tracking
+still `Needs custom setup` because automatic form interactions measure starts and
+submits, not the confirmed business outcome. Missing or disabled automatic coverage is
+stated before generation. The agent does not guess cross-domain configuration or
+silently remove an explicitly chosen custom event.
+
 ## Supported first slice
 
 ### Interaction and event

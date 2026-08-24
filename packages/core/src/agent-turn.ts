@@ -41,9 +41,37 @@ export interface AgentTurnV1 {
 export interface AgentTurnContext {
   formCount: number;
   navigationCount: number;
+  automaticCoverage?: {
+    enabled: boolean;
+    outboundClicks: boolean;
+    formInteractions: boolean;
+  };
   connection?: {
     publicId: string;
     measurementId?: string;
+  };
+}
+
+function leadTask(
+  context: AgentTurnContext,
+  status: AgentTaskStatus,
+  summary: string,
+): AgentTurnV1["task"] {
+  const coverage = context.automaticCoverage;
+  const detail = !coverage
+    ? summary
+    : !coverage.enabled
+      ? `GA4 automatic measurement is off. ${summary}`
+      : coverage.formInteractions
+        ? `GA4 measures form starts and submits, not confirmed leads. ${summary}`
+        : `GA4 automatic form interactions are off. ${summary}`;
+
+  return {
+    goal: coverage
+      ? "Needs custom setup · Confirmed lead tracking"
+      : "Set up lead-form tracking",
+    status,
+    summary: detail,
   };
 }
 
@@ -104,18 +132,39 @@ export function agentTurnForIntake(
 
   if (intake.interaction === "navigation_click") {
     const count = boundedCount(context.navigationCount);
+    const coverage = context.automaticCoverage;
+    const automaticOutbound = coverage?.enabled && coverage.outboundClicks;
+    const found = `I found ${count} navigation link${count === 1 ? "" : "s"}`;
+    let goal = "Set up navigation click tracking";
+    let summary = count > 0
+      ? `${found}. Use all of them or narrow the scope.`
+      : "I could not find an observable navigation link on this page.";
+    let question = count > 0
+      ? "Should I track every navigation link or only selected links?"
+      : undefined;
+    let navigationActions = actions;
+
+    if (count > 0 && coverage) {
+      goal = "Needs setup · Navigation tracking";
+      summary = `${coverage.enabled ? "GA4 outbound-click measurement is off." : "GA4 automatic measurement is off."} ${found}; choose all of them or narrow the scope.`;
+    }
+    if (count > 0 && automaticOutbound) {
+      goal = "Partially covered · Navigation tracking";
+      summary = `GA4 already measures outbound clicks. ${found}; choose whether any still need a custom navigation_click event.`;
+      question = "Which links still need a custom event?";
+      navigationActions = actions.filter(({ id }) => id !== "track-all-navigation");
+    }
+
     return {
       schemaVersion: 1,
       task: {
-        goal: "Set up navigation click tracking",
+        goal,
         status: count > 0 ? "needs_input" : "blocked",
-        summary: count > 0
-          ? `I found ${count} navigation link${count === 1 ? "" : "s"}. Use all of them or narrow the scope.`
-          : "I could not find an observable navigation link on this page.",
+        summary,
       },
       plan: plan(count > 0 ? "active" : "blocked"),
-      ...(count > 0 ? { question: "Should I track every navigation link or only selected links?" } : {}),
-      actions,
+      ...(question ? { question } : {}),
+      actions: navigationActions,
       receipts,
     };
   }
@@ -125,13 +174,13 @@ export function agentTurnForIntake(
     if (intake.state === "insufficient_evidence") {
       return {
         schemaVersion: 1,
-        task: {
-          goal: "Set up lead-form tracking",
-          status: "blocked",
-          summary: count === 0
+        task: leadTask(
+          context,
+          "blocked",
+          count === 0
             ? "I could not find an observable form on this page."
             : "I found the form but not a safe observable signal that proves it succeeded.",
-        },
+        ),
         plan: plan("blocked"),
         actions,
         receipts,
@@ -140,11 +189,11 @@ export function agentTurnForIntake(
     if (intake.state === "awaiting_target") {
       return {
         schemaVersion: 1,
-        task: {
-          goal: "Set up lead-form tracking",
-          status: "needs_input",
-          summary: `I found ${countWord(count)} forms and need you to choose which one represents a qualified inquiry.`,
-        },
+        task: leadTask(
+          context,
+          "needs_input",
+          `I found ${countWord(count)} forms and need you to choose which one represents a qualified inquiry.`,
+        ),
         plan: plan("active"),
         question: "Which form should count as a lead?",
         actions,
@@ -154,11 +203,11 @@ export function agentTurnForIntake(
     if (intake.state === "awaiting_success_evidence") {
       return {
         schemaVersion: 1,
-        task: {
-          goal: "Set up lead-form tracking",
-          status: "needs_input",
-          summary: `I found ${intake.target?.label ?? "the selected form"}. Now I need the signal that proves a successful outcome.`,
-        },
+        task: leadTask(
+          context,
+          "needs_input",
+          `I found ${intake.target?.label ?? "the selected form"}. Now I need the signal that proves a successful outcome.`,
+        ),
         plan: plan("active"),
         question: "What should prove that this form succeeded?",
         actions,
@@ -168,11 +217,11 @@ export function agentTurnForIntake(
     if (intake.state === "draft_ready") {
       return {
         schemaVersion: 1,
-        task: {
-          goal: "Set up lead-form tracking",
-          status: "ready_for_review",
-          summary: `I can track successful ${intake.target?.label ?? "form"} submissions as generate_lead without counting submit attempts or validation errors.`,
-        },
+        task: leadTask(
+          context,
+          "ready_for_review",
+          `I can track successful ${intake.target?.label ?? "form"} submissions as generate_lead without counting submit attempts or validation errors.`,
+        ),
         plan: plan("completed", "active"),
         question: "Review the grounded setup before I generate anything.",
         actions,

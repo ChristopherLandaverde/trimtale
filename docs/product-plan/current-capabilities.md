@@ -149,6 +149,11 @@ measurement switch and its seven automatic feature settings. It names disabled
 features as coverage gaps without changing GA4 or creating duplicate GTM tags.
 `npm run google -- api` enables these read-only checks from the saved local grant.
 
+The main agent task uses that result before generation. Automatic outbound clicks make
+navigation `Partially covered` and require intentional link selection. Confirmed leads
+still `Need custom setup` because form starts and submits do not prove the business
+outcome. No audit leaves the existing workflow unchanged.
+
 Starting a guided run records the expected event's Realtime `eventCount` and retains an
 opaque verification handle for ten minutes in bounded process memory. Confirmation is
 eligible only after browser verification passes and succeeds only when a later read of

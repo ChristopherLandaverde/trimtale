@@ -85,6 +85,9 @@ const enhancedMeasurementScenarios = [
     },
     summary: "7 of 7 automatic features on",
     detail: "No automatic coverage gaps",
+    taskGoal: "Partially covered · Navigation tracking",
+    taskSummary: /GA4 already measures outbound clicks/i,
+    taskSnapshot: "automatic-coverage-task.png",
     snapshot: undefined,
   },
   {
@@ -101,6 +104,9 @@ const enhancedMeasurementScenarios = [
     },
     summary: "5 of 7 automatic features on",
     detail: "Site search · Form interactions",
+    taskGoal: "Partially covered · Navigation tracking",
+    taskSummary: /GA4 already measures outbound clicks/i,
+    taskSnapshot: undefined,
     snapshot: undefined,
   },
   {
@@ -117,6 +123,9 @@ const enhancedMeasurementScenarios = [
     },
     summary: "Master switch off · 0 of 7 active",
     detail: "SPA page views · Scrolls · Outbound clicks · Site search · Video engagement · File downloads · Form interactions",
+    taskGoal: "Needs setup · Navigation tracking",
+    taskSummary: /GA4 automatic measurement is off/i,
+    taskSnapshot: undefined,
     snapshot: "enhanced-measurement-master-off.png",
   },
 ];
@@ -161,6 +170,19 @@ for (const scenario of enhancedMeasurementScenarios) {
     await expect(card.getByText(scenario.summary, { exact: true })).toBeVisible();
     await expect(card.getByText(scenario.detail, { exact: true })).toBeVisible();
     await expect(card.getByText(/confirmed lead outcomes remain separate/i)).toBeVisible();
+    await root.getByLabel("Tracking request").fill("Track navigation clicks");
+    await root.getByRole("button", { name: "Send request" }).click();
+    const task = root.getByRole("region", { name: "Agent task" });
+    await expect(task.getByText(scenario.taskGoal, { exact: true })).toBeVisible();
+    await expect(task.getByText(scenario.taskSummary)).toBeVisible();
+    if (scenario.taskSnapshot) {
+      await expect(task).toHaveScreenshot(scenario.taskSnapshot, screenshotOptions);
+    }
+    if (scenario.settings.stream && scenario.settings.outboundClicks) {
+      await expect(task.getByRole("button", { name: "Track all" })).toHaveCount(0);
+      await task.getByRole("button", { name: "Choose links" }).click();
+      await expect(root.locator(".pick input:checked")).toHaveCount(0);
+    }
     if (scenario.snapshot) {
       await expect(card).toHaveScreenshot(scenario.snapshot, screenshotOptions);
     }

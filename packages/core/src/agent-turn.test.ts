@@ -83,6 +83,47 @@ describe("provider-neutral agent turns", () => {
     expect(isAgentTurnV1(turn)).toBe(true);
   });
 
+  it("puts automatic GA4 coverage in the task decision", () => {
+    const coverage = { enabled: true, outboundClicks: true, formInteractions: true };
+    const navigation = agentTurnForIntake(
+      interpretConversationIntent("Track navigation clicks", { navigationCount: 5, forms: [] }),
+      { formCount: 0, navigationCount: 5, automaticCoverage: coverage },
+    );
+    const lead = agentTurnForIntake(
+      interpretConversationIntent("Track leads", {
+        navigationCount: 0,
+        forms: [form("contact", "Contact sales"), form("newsletter", "Newsletter")],
+      }),
+      { formCount: 2, navigationCount: 0, automaticCoverage: coverage },
+    );
+    const disabled = agentTurnForIntake(
+      interpretConversationIntent("Track navigation clicks", { navigationCount: 5, forms: [] }),
+      {
+        formCount: 0,
+        navigationCount: 5,
+        automaticCoverage: { ...coverage, enabled: false },
+      },
+    );
+
+    expect(navigation.task).toEqual({
+      goal: "Partially covered · Navigation tracking",
+      status: "needs_input",
+      summary: "GA4 already measures outbound clicks. I found 5 navigation links; choose whether any still need a custom navigation_click event.",
+    });
+    expect(navigation.question).toBe("Which links still need a custom event?");
+    expect(navigation.actions.map(({ id }) => id)).toEqual(["choose-navigation", "cancel"]);
+    expect(lead.task).toEqual({
+      goal: "Needs custom setup · Confirmed lead tracking",
+      status: "needs_input",
+      summary: "GA4 measures form starts and submits, not confirmed leads. I found two forms and need you to choose which one represents a qualified inquiry.",
+    });
+    expect(disabled.task).toEqual({
+      goal: "Needs setup · Navigation tracking",
+      status: "needs_input",
+      summary: "GA4 automatic measurement is off. I found 5 navigation links; choose all of them or narrow the scope.",
+    });
+  });
+
   it("represents unsupported and insufficient work as honest blockers", () => {
     const unsupported = agentTurnForIntake(
       interpretConversationIntent("Track phone calls", { navigationCount: 0, forms: [] }),

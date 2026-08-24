@@ -115,6 +115,9 @@ test("carries exact GTM context through generation, browser evidence, and GA4 co
 
   await root.getByLabel("Tracking request").fill("Track leads from the contact form");
   await root.getByRole("button", { name: "Send request" }).click();
+  const task = root.getByRole("region", { name: "Agent task" });
+  await expect(task.getByText("Needs custom setup · Confirmed lead tracking", { exact: true })).toBeVisible();
+  await expect(task.getByText(/GA4 measures form starts and submits, not confirmed leads/i)).toBeVisible();
   await root.getByRole("button", { name: "Contact sales" }).click();
   await root.getByRole("button", { name: "Review setup" }).click();
   await root.getByRole("button", { name: "Approve setup" }).click();

@@ -2,11 +2,24 @@ import {
   agentTurnForIntake,
   interpretConversationIntent,
   validateFormSetupRequest,
+  type AgentTurnContext,
   type BrowserEvidence,
   type FormSetupRequest,
   type FormCandidate,
   type NavigationElement,
 } from "@gtm-observability/core";
+
+function validAutomaticCoverage(
+  value: unknown,
+): value is NonNullable<AgentTurnContext["automaticCoverage"]> {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return typeof value.enabled === "boolean"
+    && typeof value.outboundClicks === "boolean"
+    && typeof value.formInteractions === "boolean";
+}
 
 async function toggleAssistant(tab: chrome.tabs.Tab): Promise<void> {
   if (!tab.id || !tab.url?.startsWith("http")) return;
@@ -39,6 +52,7 @@ chrome.runtime.onConnect.addListener((port) => {
       forms: FormCandidate[];
     };
     connection?: { publicId: string; measurementId?: string };
+    automaticCoverage?: unknown;
   }) => {
     if (message.type !== "ASSISTANT_REQUEST" || !message.requestId || !message.prompt || !message.page) return;
     const page = message.page;
@@ -49,6 +63,9 @@ chrome.runtime.onConnect.addListener((port) => {
     const turn = agentTurnForIntake(intake, {
       formCount: page.forms.length,
       navigationCount: page.navigation.length,
+      ...(validAutomaticCoverage(message.automaticCoverage)
+        ? { automaticCoverage: message.automaticCoverage }
+        : {}),
       ...(message.connection ? { connection: message.connection } : {}),
     });
     port.postMessage({
