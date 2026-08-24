@@ -64,9 +64,11 @@ chrome.runtime.onConnect.addListener((port) => {
 
 type GtmContainerOperation = "inspect" | "prepare";
 
-const workflowPlanUrl = "http://127.0.0.1:8787/api/google/workflows/plan";
+const workflowBaseUrl = "http://127.0.0.1:8787/api/google/workflows";
+const workflowPlanUrl = `${workflowBaseUrl}/plan`;
 const maxPlanActions = 64;
 const maxGeneratedNameLength = 256;
+const maxFingerprintLength = 256;
 
 const gtmPublicIdPattern = /^GTM-[A-Z0-9]+$/;
 
@@ -251,6 +253,15 @@ interface WorkflowPlanSummary {
   actions: PlanActionSummary[];
 }
 
+interface WorkflowResumeSummary {
+  operationId: string;
+  status: "versioned" | "blocked" | "paused";
+  stage?: "planning" | "application" | "validation" | "version";
+  validationStatus?: "passed";
+  versionFingerprint?: string;
+  nextStep?: "await_approval";
+}
+
 function formWorkflowRequest(value: unknown): FormSetupRequest | undefined {
   if (!isRecord(value)
     || !isRecord(value.specification)
@@ -305,6 +316,51 @@ function planSummary(value: unknown): WorkflowPlanSummary | undefined {
   };
 }
 
+function validFingerprint(value: unknown): value is string {
+  return typeof value === "string"
+    && value.length > 0
+    && value.length <= maxFingerprintLength
+    && /^[A-Za-z0-9._-]+$/.test(value);
+}
+
+function resumeSummary(
+  value: unknown,
+  operationId: string,
+): WorkflowResumeSummary | undefined {
+  if (!isRecord(value)
+    || !["versioned", "blocked", "paused"].includes(String(value.status))
+    || !isRecord(value.operation)
+    || value.operation.id !== operationId) {
+    return undefined;
+  }
+  if (value.status === "versioned") {
+    if (value.nextStep !== "await_approval"
+      || value.operation.status !== "versioned"
+      || !isRecord(value.operation.validation)
+      || value.operation.validation.status !== "passed"
+      || !isRecord(value.operation.version)
+      || !validFingerprint(value.operation.version.fingerprint)
+      || !validFingerprint(value.operation.version.priorLiveVersionFingerprint)) {
+      return undefined;
+    }
+    return {
+      operationId,
+      status: "versioned",
+      validationStatus: "passed",
+      versionFingerprint: value.operation.version.fingerprint,
+      nextStep: "await_approval",
+    };
+  }
+  if (!["planning", "application", "validation", "version"].includes(String(value.stage))) {
+    return undefined;
+  }
+  return {
+    operationId,
+    status: value.status as "blocked" | "paused",
+    stage: value.stage as "planning" | "application" | "validation" | "version",
+  };
+}
+
 chrome.runtime.onMessage.addListener(
   (message: unknown, _sender, sendResponse) => {
     if (!isRecord(message) || message.type !== "GTM_WORKFLOW_PLAN_REQUEST") {
@@ -330,6 +386,35 @@ chrome.runtime.onMessage.addListener(
       }
       const body: unknown = await response.json();
       const summary = isRecord(body) ? planSummary(body.result) : undefined;
+      sendResponse(summary
+        ? { ok: true, result: summary }
+        : { ok: false, error: "invalid_response" });
+    }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
+    return true;
+  },
+);
+
+chrome.runtime.onMessage.addListener(
+  (message: unknown, _sender, sendResponse) => {
+    if (!isRecord(message) || message.type !== "GTM_WORKFLOW_RESUME_REQUEST") {
+      return undefined;
+    }
+    const operationId = message.operationId;
+    if (typeof operationId !== "string" || !/^operation_[A-Za-z0-9_-]+$/.test(operationId)) {
+      sendResponse({ ok: false, error: "invalid_request" });
+      return undefined;
+    }
+
+    void fetch(`${workflowBaseUrl}/${encodeURIComponent(operationId)}/resume`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    }).then(async (response) => {
+      if (!response.ok) {
+        sendResponse({ ok: false, error: "workflow_unavailable" });
+        return;
+      }
+      const body: unknown = await response.json();
+      const summary = isRecord(body) ? resumeSummary(body.result, operationId) : undefined;
       sendResponse(summary
         ? { ok: true, result: summary }
         : { ok: false, error: "invalid_response" });

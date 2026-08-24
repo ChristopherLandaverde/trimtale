@@ -68,10 +68,11 @@ semantically, and records create, reuse, no-op, or conflict actions. Resume pers
 `applying` before writes and can reconcile an interrupted create from freshly read GTM
 state without duplicating the entity.
 
-The workflow routes deliberately stop at version review. The current server exposes
-no public approval, publication, rollback, or post-publication-evidence route; those
-backend domain/client methods require a separate product slice before the extension can
-operate them.
+The workflow routes deliberately stop at version review. The extension exposes plan
+review and resume only after an exact pre-write confirmation. The current server
+exposes no public publication approval, publication, rollback, or post-publication-
+evidence route; those backend domain/client methods require a separate product slice
+before the extension can operate them.
 
 ## Approval, publication, and rollback
 

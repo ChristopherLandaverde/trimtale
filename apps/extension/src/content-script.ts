@@ -90,6 +90,21 @@ interface WorkflowPlanResponse {
   result?: WorkflowPlanSummary;
 }
 
+interface WorkflowResumeSummary {
+  operationId: string;
+  status: "versioned" | "blocked" | "paused";
+  stage?: "planning" | "application" | "validation" | "version";
+  validationStatus?: "passed";
+  versionFingerprint?: string;
+  nextStep?: "await_approval";
+}
+
+interface WorkflowResumeResponse {
+  ok: boolean;
+  error?: "invalid_request" | "workflow_unavailable" | "invalid_response" | "service_offline";
+  result?: WorkflowResumeSummary;
+}
+
 interface GtmConnectionStatus {
   configured: boolean;
   connected: boolean;
@@ -186,6 +201,7 @@ const evidencePaths = new Map<string, EvidencePathHandle>();
 const ga4VerificationByRequest = new Map<string, Ga4VerificationStarted>();
 const ga4ConfirmationAttempts = new Map<string, number>();
 const formVerdictMessages = new Map<string, HTMLElement>();
+const workflowPlansByRequest = new Map<string, WorkflowPlanSummary>();
 let recognizedGtmContext: Extract<GtmConnectionView, { kind: "recognized" }> | undefined;
 let gtmConnectionLoaded = false;
 let gtmConnectionRequestSequence = 0;
@@ -277,6 +293,15 @@ async function requestWorkflowPlan(
     type: "GTM_WORKFLOW_PLAN_REQUEST",
     request,
   }) as Promise<WorkflowPlanResponse>;
+}
+
+async function requestWorkflowResume(
+  operationId: string,
+): Promise<WorkflowResumeResponse> {
+  return chrome.runtime.sendMessage({
+    type: "GTM_WORKFLOW_RESUME_REQUEST",
+    operationId,
+  }) as Promise<WorkflowResumeResponse>;
 }
 
 function navigationSetupProposal(navigation: NavigationElement[]): SetupProposal | undefined {
@@ -1657,6 +1682,131 @@ function renderWorkflowPlan(task: HTMLElement, plan: WorkflowPlanSummary): void 
   task.append(view);
 }
 
+function renderWorkflowResult(task: HTMLElement, result: WorkflowResumeSummary): void {
+  const view = document.createElement("div");
+  view.className = "agent-specification operation-result";
+  view.setAttribute("role", "region");
+  view.setAttribute("aria-label", "GTM workflow result");
+  appendAgentText(view, "agent-receipt-heading", "GTM workflow result");
+  appendAgentText(view, "agent-specification-value", "Application completed");
+  appendAgentText(view, "agent-specification-value", "Validation passed");
+  appendAgentText(
+    view,
+    "agent-specification-value",
+    `Immutable version ${result.versionFingerprint} created`,
+  );
+  appendAgentText(view, "agent-specification-value", "Publication not started");
+  task.append(view);
+}
+
+function showWorkflowPlan(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  plan: WorkflowPlanSummary,
+): void {
+  workflowPlansByRequest.set(requestId, plan);
+  const ready = plan.planStatus === "ready";
+  const task = renderFormTaskState(requestId, intake, {
+    status: ready ? "ready_for_review" : "blocked",
+    summary: ready
+      ? "The durable change plan is ready. Nothing was applied or published."
+      : "The plan contains a conflict. Nothing was applied or published.",
+    verifyStatus: "pending",
+    question: ready
+      ? "Review the planned GTM changes before application."
+      : "Resolve the conflict before application.",
+    actions: [
+      ...(ready ? [{ id: "apply-form-workflow", label: "Apply, validate & create version" }] : []),
+      { id: "download-form-setup", label: "Download GTM setup" },
+      { id: "start-form-verification", label: "Start verification" },
+    ],
+  });
+  renderWorkflowPlan(task, plan);
+}
+
+function confirmWorkflowApply(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  plan: WorkflowPlanSummary,
+): void {
+  const task = renderFormTaskState(requestId, intake, {
+    status: "ready_for_review",
+    summary: "Review this exact GTM plan before authorizing container writes.",
+    verifyStatus: "pending",
+    question: "This writes the reviewed changes, validates the managed workspace, and creates an immutable version. It does not publish. Continue?",
+    actions: [
+      { id: "confirm-form-workflow-apply", label: "Confirm apply & create version" },
+      { id: "return-to-form-plan", label: "Return to plan" },
+    ],
+  });
+  renderWorkflowPlan(task, plan);
+}
+
+function blockedWorkflowCopy(result: WorkflowResumeSummary): string {
+  if (result.status === "paused") {
+    return "Application paused after a partial write. Nothing was published.";
+  }
+  if (result.stage === "validation") {
+    return "Validation stopped the workflow. No immutable version was created or published.";
+  }
+  if (result.stage === "version") {
+    return "Version creation stopped. Nothing was published.";
+  }
+  return "The reviewed plan could not be applied. Nothing was published.";
+}
+
+async function applyFormWorkflow(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  plan: WorkflowPlanSummary,
+): Promise<void> {
+  renderFormTaskState(requestId, intake, {
+    status: "working",
+    summary: "Applying the reviewed changes, validating the workspace, and creating an immutable version.",
+    verifyStatus: "pending",
+  });
+  let response: WorkflowResumeResponse;
+  try {
+    response = await requestWorkflowResume(plan.operationId);
+  } catch {
+    response = { ok: false, error: "service_offline" };
+  }
+  if (!response.ok || !response.result) {
+    renderFormTaskState(requestId, intake, {
+      status: "blocked",
+      summary: "The reviewed plan could not be applied. Nothing was published.",
+      verifyStatus: "pending",
+      question: "Return to the reviewed plan before retrying.",
+      actions: [{ id: "return-to-form-plan", label: "Return to plan" }],
+    });
+    return;
+  }
+  if (response.result.status !== "versioned"
+    || response.result.validationStatus !== "passed"
+    || !response.result.versionFingerprint
+    || response.result.nextStep !== "await_approval") {
+    renderFormTaskState(requestId, intake, {
+      status: "blocked",
+      summary: blockedWorkflowCopy(response.result),
+      verifyStatus: "pending",
+      question: "Review the plan and GTM workspace state before retrying.",
+      actions: [{ id: "return-to-form-plan", label: "Return to plan" }],
+    });
+    return;
+  }
+  const task = renderFormTaskState(requestId, intake, {
+    status: "completed",
+    summary: "The reviewed GTM changes were applied and validated, and an immutable version was created.",
+    verifyStatus: "active",
+    question: "Publication requires separate approval. Nothing was published.",
+    actions: [
+      { id: "start-form-verification", label: "Start verification" },
+      { id: "download-form-setup", label: "Download GTM setup" },
+    ],
+  });
+  renderWorkflowResult(task, response.result);
+}
+
 async function planFormWorkflow(
   requestId: string,
   intake: ConversationIntakeResult,
@@ -1668,6 +1818,7 @@ async function planFormWorkflow(
   });
   const response = await requestWorkflowPlan(intake);
   if (!response.ok || !response.result) {
+    workflowPlansByRequest.delete(requestId);
     renderFormTaskState(requestId, intake, {
       status: "blocked",
       summary: response.error === "planning_blocked"
@@ -1682,21 +1833,7 @@ async function planFormWorkflow(
     });
     return;
   }
-  const task = renderFormTaskState(requestId, intake, {
-    status: response.result.planStatus === "ready" ? "ready_for_review" : "blocked",
-    summary: response.result.planStatus === "ready"
-      ? "The durable change plan is ready. Nothing was applied or published."
-      : "The plan contains a conflict. Nothing was applied or published.",
-    verifyStatus: "pending",
-    question: response.result.planStatus === "ready"
-      ? "Review the planned GTM changes before application."
-      : "Resolve the conflict before application.",
-    actions: [
-      { id: "download-form-setup", label: "Download GTM setup" },
-      { id: "start-form-verification", label: "Start verification" },
-    ],
-  });
-  renderWorkflowPlan(task, response.result);
+  showWorkflowPlan(requestId, intake, response.result);
 }
 
 function handleAssistantAction(actionId: string, requestId: string): void {
@@ -1765,6 +1902,19 @@ function handleAssistantAction(actionId: string, requestId: string): void {
   }
   if (actionId === "plan-form-workflow" && intake?.canConfirm) {
     void planFormWorkflow(requestId, intake);
+    return;
+  }
+  const workflowPlan = workflowPlansByRequest.get(requestId);
+  if (actionId === "apply-form-workflow" && intake?.canConfirm && workflowPlan) {
+    confirmWorkflowApply(requestId, intake, workflowPlan);
+    return;
+  }
+  if (actionId === "confirm-form-workflow-apply" && intake?.canConfirm && workflowPlan) {
+    void applyFormWorkflow(requestId, intake, workflowPlan);
+    return;
+  }
+  if (actionId === "return-to-form-plan" && intake?.canConfirm && workflowPlan) {
+    showWorkflowPlan(requestId, intake, workflowPlan);
     return;
   }
   if (actionId === "download-form-setup" && intake?.canConfirm) {

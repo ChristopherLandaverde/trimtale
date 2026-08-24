@@ -83,11 +83,24 @@ preparation, and browser verification remain.
 - Adds `Prepare workspace & plan` after a connected `generate_lead` setup is approved.
 - Calls the existing durable workflow planner through the extension service worker.
 - Shows only bounded action names and states.
-- Makes no resume, application, version, or publication request.
+- Makes no resume request before the exact application confirmation.
 - Rejects invalid or authority-escalating responses.
 
 Primary code: `planFormWorkflow` in the content script, the
 `GTM_WORKFLOW_PLAN_REQUEST` bridge, and the two operation-plan browser regressions.
+
+### Lead-form application and version review
+
+- Adds `Apply, validate & create version` only for a ready reviewed plan.
+- Requires a second confirmation that names the writes, validation, immutable version,
+  and no-publication boundary before calling resume.
+- Sends one operation ID through the extension bridge and no request body to resume.
+- Renders only bounded application, validation, and version evidence.
+- Rejects blocked, malformed, or authority-escalating responses without exposing raw
+  operation or provider details.
+
+Primary code: `applyFormWorkflow`, the `GTM_WORKFLOW_RESUME_REQUEST` bridge, and the
+application/version browser regressions.
 
 ## Supported lead-form path
 
@@ -99,13 +112,14 @@ Recognize exact GTM + GA4 context
   -> approve generate_lead specification
   -> generate GTM setup
   -> optionally prepare workspace and review durable plan
+  -> explicitly confirm apply, validate, and create immutable version
   -> optionally run browser verification
   -> optionally correlate an aggregate GA4 Realtime increase
 ```
 
-The workbench stops before plan application.
+The workbench stops before publication approval.
 
-## Backend capability not yet exposed
+## Exposed workflow boundary
 
 The backend already supports:
 
@@ -118,8 +132,9 @@ plan
 ```
 
 `POST /api/google/workflows/:id/resume` performs all three steps—application,
-validation, and version creation. It is not an apply-only endpoint. Publication and
-rollback remain separate, guarded operations.
+validation, and version creation. The workbench now exposes that combined operation
+behind an exact confirmation. It is not an apply-only endpoint. Publication and
+rollback remain separate, guarded, and unavailable from the workbench.
 
 ## Safety boundaries
 
@@ -145,7 +160,6 @@ for the current setup workflow.
 
 ## Honest gaps
 
-- The workbench cannot yet apply its reviewed plan.
 - Existing `resume` semantics combine apply, validation, and version creation.
 - Ordinary verification mocks Google; a disposable credentialed GTM journey remains
   necessary before claiming production readiness.
@@ -153,23 +167,15 @@ for the current setup workflow.
   application integration.
 - Enhanced-measurement coverage beyond current form and navigation behavior is not
   complete.
-- A browser run before the new plan is applied can verify existing tracking, not prove
-  that the reviewed plan works.
+- A browser run before the immutable version is published can verify only existing live
+  tracking, not prove that the reviewed version works.
 
-## Next decision
+## Next checkpoint
 
-Choose one implementation slice:
-
-1. Expose the existing resume operation as `Apply, validate & create version`, with an
-   exact approval checkpoint and no publication.
-2. Split the backend so the workbench can apply only, then validate and version through
-   later approvals.
-
-For the fastest MVP, choose option 1. It reuses tested backend behavior and still stops
-before publication. Option 2 adds workflow states, API behavior, and regressions.
-
-Do not begin Enhanced Measurement expansion, reporting, MCP integration, or more model
-work before this decision is resolved.
+Run the credential-gated disposable GTM journey through plan, exact application
+confirmation, resume, and immutable version inspection. Confirm the generated entities,
+clean compiler evidence, version fingerprint, prior-live fingerprint, and absence of
+publication. Do not claim production readiness or expand scope until this passes.
 
 ## Verification checkpoint
 
@@ -177,9 +183,9 @@ After semantic-navigation removal and Playwright fixture consolidation, `npm run
 verify` passed:
 
 - 273 deterministic tests across 39 files.
-- 41 Chromium journeys.
+- 43 Chromium journeys.
 - Strict checks and all builds.
-- 41 valid change records, including the retained superseded history.
+- 43 valid change records, including the retained superseded history.
 
 No real Google mutation is part of the ordinary gate.
 

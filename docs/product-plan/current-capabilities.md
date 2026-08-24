@@ -9,8 +9,9 @@ correlate that run with an aggregate read-only GA4 Realtime count increase. A gu
 backend API can safely prepare one reusable managed workspace, durably plan and apply
 navigation and confirmed lead-form setups, validate the workspace, and create an
 immutable version. Separate backend clients can publish an exactly approved version
-and restore its recorded prior-live version. The website agent exposes planning for a
-confirmed lead form, but not application, approval, publication, or rollback.
+and restore its recorded prior-live version. For a confirmed lead form, the website
+agent exposes plan review and an exact application confirmation through immutable
+version creation. It does not expose publication approval, publication, or rollback.
 
 ## Current product workflow
 
@@ -22,16 +23,20 @@ Open the agent and inspect page GTM / authorized access
     -> confirm the tracking specification
     -> generate a reviewable GTM setup
     -> optionally prepare the managed workspace and review its change plan
+    -> explicitly approve application, validation, and immutable version creation
     -> optionally download the GTM JSON
     -> use the exact pre-chat GTM container and GA4 destination context
     -> record a read-only GA4 Realtime baseline
     -> submit the guided browser run once
     -> classify the browser request independently
     -> optionally confirm an aggregate GA4 Realtime count increase
-    -> stop before applying or publishing changes
+    -> stop before publication approval
 ```
 
-Each evidence stage is intentionally separate. A generated setup does not mean it was applied. A detected container does not mean the connected Google account can edit it. A prepared workspace does not mean the setup passed browser verification or was published.
+Each evidence stage is intentionally separate. A generated setup does not mean it was
+applied. A reviewed plan does not authorize writes. A created immutable version does
+not mean it was published. A detected container does not mean the connected Google
+account can edit it.
 
 ## What a practitioner can use
 
@@ -49,6 +54,8 @@ The agent currently supports:
 - Lead-form tracking requests.
 - Explicit managed-workspace preparation and safe change-plan review for a confirmed
   lead-form setup when connected GTM edit access is available.
+- Exact confirmation before applying the reviewed plan, validating the workspace, and
+  creating one immutable version. Publication remains separate and unavailable.
 - Page discovery and visible candidate highlights.
 - Explicit target and tracking-specification confirmation.
 - Clear unsupported handoffs for interaction types that are understood but not implemented.
@@ -91,6 +98,8 @@ The lead-generation flow can:
 - Confirm success through a visible element, thank-you URL, data-layer event, or same-page success signal.
 - Generate a `generate_lead` setup with `form_id`, `form_name`, and `page_location`.
 - Download `gtm-observability-generate-lead.json`.
+- Review, confirm, apply, validate, and create an immutable GTM version when connected
+  edit access is explicitly enabled.
 - Guide a browser submission and classify the observed result.
 
 The deterministic verdict engine covers successful browser verification, expected validation failures, missing events, tags that did not fire, missing requests, missing parameters, duplicate requests, consent limitations, server errors, and insufficient observable evidence.
@@ -175,8 +184,9 @@ an interrupted application resumes from freshly read Google state and completed 
 signatures.
 
 The runner stops at the `versioned` state and returns `await_approval`. The extension
-exposes only the preparation and planning boundary. Publication remains
-behind its separate backend flag, OAuth scope, and exact fingerprint approval.
+exposes preparation, bounded plan review, an exact pre-write confirmation, and the
+resume result through version review. Publication remains behind its separate backend
+flag, OAuth scope, and exact fingerprint approval.
 
 ## Evidence and diagnosis foundations
 

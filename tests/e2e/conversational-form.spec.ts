@@ -137,6 +137,34 @@ const connectedWriteStatus = {
   analyticsReadEnabled: false,
 };
 
+const readyPlanResponse = {
+  result: {
+    status: "planned",
+    operation: {
+      id: "operation_spec_form_contact",
+      status: "planned",
+      plan: {
+        status: "ready",
+        fingerprint: "plan_form_contact",
+        actions: [
+          {
+            kind: "trigger",
+            action: "create",
+            generatedName: "Trigger - successful Contact sales",
+            entitySignature: "trigger_contact",
+          },
+          {
+            kind: "tag",
+            action: "create",
+            generatedName: "GA4 Event - generate_lead",
+            entitySignature: "tag_generate_lead",
+          },
+        ],
+      },
+    },
+  },
+};
+
 async function routeWriteAccess(journey: ExtensionJourney): Promise<void> {
   await journey.context.route("http://127.0.0.1:8787/api/google/status", (route) => route.fulfill({
     status: 200,
@@ -165,6 +193,20 @@ async function routeWriteAccess(journey: ExtensionJourney): Promise<void> {
   }));
 }
 
+async function routeReadyPlan(
+  journey: ExtensionJourney,
+  inspectRequest: (body: unknown) => void = () => undefined,
+): Promise<void> {
+  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/plan", async (route) => {
+    inspectRequest(route.request().postDataJSON());
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify(readyPlanResponse),
+    });
+  });
+}
+
 async function approveLeadSetup(
   journey: ExtensionJourney,
   targetName = "Contact sales",
@@ -184,39 +226,8 @@ test("reviews a durable form plan without applying it", async ({ context, page }
   let planBody: unknown;
   let resumeRequests = 0;
   await routeWriteAccess(journey);
-  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/plan", async (route) => {
-    planBody = route.request().postDataJSON();
-    await route.fulfill({
-      status: 201,
-      contentType: "application/json",
-      body: JSON.stringify({
-        result: {
-          status: "planned",
-          operation: {
-            id: "operation_spec_form_contact",
-            status: "planned",
-            plan: {
-              status: "ready",
-              fingerprint: "plan_form_contact",
-              actions: [
-                {
-                  kind: "trigger",
-                  action: "create",
-                  generatedName: "Trigger - successful Contact sales",
-                  entitySignature: "trigger_contact",
-                },
-                {
-                  kind: "tag",
-                  action: "create",
-                  generatedName: "GA4 Event - generate_lead",
-                  entitySignature: "tag_generate_lead",
-                },
-              ],
-            },
-          },
-        },
-      }),
-    });
+  await routeReadyPlan(journey, (body) => {
+    planBody = body;
   });
   await journey.context.route("http://127.0.0.1:8787/api/google/workflows/*/resume", (route) => {
     resumeRequests += 1;
@@ -240,6 +251,114 @@ test("reviews a durable form plan without applying it", async ({ context, page }
   expect(resumeRequests).toBe(0);
   await journey.page.screenshot({
     path: test.info().outputPath("form-operation-plan.png"),
+    animations: "disabled",
+  });
+});
+
+test("applies, validates, and versions a reviewed plan only after confirmation", async ({ context, page }) => {
+  const journey = await openExtensionJourney(context, page, "confirmed_success", "GTM-TEST123");
+  let resumeRequests = 0;
+  let publicationRequests = 0;
+  let resumeRequest: { method: string; body: string | null; path: string } | undefined;
+  await routeWriteAccess(journey);
+  await routeReadyPlan(journey);
+  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/*/resume", async (route) => {
+    resumeRequests += 1;
+    resumeRequest = {
+      method: route.request().method(),
+      body: route.request().postData(),
+      path: new URL(route.request().url()).pathname,
+    };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        result: {
+          status: "versioned",
+          nextStep: "await_approval",
+          operation: {
+            id: "operation_spec_form_contact",
+            status: "versioned",
+            validation: { status: "passed", checkedAt: "2026-08-23T21:45:00.000Z" },
+            version: {
+              fingerprint: "version-8",
+              priorLiveVersionFingerprint: "live-7",
+              path: "accounts/1/containers/10/versions/8",
+            },
+            generatedSetup: { privateSentinel: "must not cross the extension boundary" },
+          },
+        },
+      }),
+    });
+  });
+  journey.context.on("request", (request) => {
+    if (/approval|publish|rollback/.test(new URL(request.url()).pathname)) {
+      publicationRequests += 1;
+    }
+  });
+
+  const { root } = journey;
+  await approveLeadSetup(journey);
+  await root.getByRole("button", { name: "Prepare workspace & plan" }).click();
+  await root.getByRole("button", { name: "Apply, validate & create version" }).click();
+
+  expect(resumeRequests).toBe(0);
+  await expect(root.getByText(/writes the reviewed changes.*creates an immutable version/i)).toBeVisible();
+  await expect(root.getByText(/does not publish/i)).toBeVisible();
+  await root.getByRole("region", { name: "Agent task" }).screenshot({
+    path: test.info().outputPath("form-operation-approval.png"),
+    animations: "disabled",
+  });
+  await root.getByRole("button", { name: "Confirm apply & create version" }).click();
+
+  await expect.poll(() => resumeRequests).toBe(1);
+  expect(resumeRequest).toEqual({
+    method: "POST",
+    body: null,
+    path: "/api/google/workflows/operation_spec_form_contact/resume",
+  });
+  await expect(root.getByText("Validation passed", { exact: true })).toBeVisible();
+  await expect(root.getByText("Immutable version version-8 created", { exact: true })).toBeVisible();
+  await expect(root.getByText(/Publication requires separate approval.*Nothing was published/i)).toBeVisible();
+  await expect(root.getByText(/privateSentinel/)).toHaveCount(0);
+  expect(publicationRequests).toBe(0);
+  await root.getByRole("region", { name: "Agent task" }).screenshot({
+    path: test.info().outputPath("form-operation-versioned.png"),
+    animations: "disabled",
+  });
+});
+
+test("rejects an authority-escalating workflow response", async ({ context, page }) => {
+  const journey = await openExtensionJourney(context, page, "confirmed_success", "GTM-TEST123");
+  await routeWriteAccess(journey);
+  await routeReadyPlan(journey);
+  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/*/resume", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      result: {
+        status: "published",
+        nextStep: "complete",
+        operation: {
+          id: "operation_spec_form_contact",
+          status: "published",
+          publication: { privateSentinel: "must not render" },
+        },
+      },
+    }),
+  }));
+
+  const { root } = journey;
+  await approveLeadSetup(journey);
+  await root.getByRole("button", { name: "Prepare workspace & plan" }).click();
+  await root.getByRole("button", { name: "Apply, validate & create version" }).click();
+  await root.getByRole("button", { name: "Confirm apply & create version" }).click();
+
+  await expect(root.getByText(/could not be applied.*Nothing was published/i)).toBeVisible();
+  await expect(root.getByText(/privateSentinel|published successfully/i)).toHaveCount(0);
+  await expect(root.getByText(/Immutable version/)).toHaveCount(0);
+  await root.getByRole("region", { name: "Agent task" }).screenshot({
+    path: test.info().outputPath("form-operation-invalid-response.png"),
     animations: "disabled",
   });
 });
