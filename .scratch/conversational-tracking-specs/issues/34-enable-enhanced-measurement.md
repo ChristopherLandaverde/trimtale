@@ -45,3 +45,6 @@ with live execution requiring separate approval.
 - 2026-08-23: After separate approval and Analytics edit consent, enabled only the
   master switch for ConsentFlow property `550074997`, stream `15443100029`. Independent
   read-back showed the switch and all seven features on. The edit session was closed.
+- 2026-08-23: Live Playwright observed accepted `page_view`, `scroll`, outbound
+  `click`, `file_download`, SPA page-view, and search-result events. Intake still treats
+  `track downloads` as unknown; recorded separately as issue 35.
