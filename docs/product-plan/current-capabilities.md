@@ -1,6 +1,6 @@
 # What GTM Observability has today
 
-Status date: 2026-08-23
+Status date: 2026-08-24
 
 GTM Observability currently maintains one site-aware agent task from supported tracking
 intent through reviewable setup and verification. It observes the website's GTM
@@ -52,6 +52,8 @@ The agent currently supports:
   account/container match, and effective read-only, edit, or publication capability.
 - Navigation-click tracking requests.
 - Lead-form tracking requests.
+- File-download requests that reuse one exact GA4 stream's automatic coverage or name
+  its exact gap without generating duplicate GTM.
 - Explicit managed-workspace preparation and safe change-plan review for a confirmed
   lead-form setup when connected GTM edit access is available.
 - Exact confirmation before applying the reviewed plan, validating the workspace, and
@@ -149,10 +151,17 @@ measurement switch and its seven automatic feature settings. It names disabled
 features as coverage gaps without changing GA4 or creating duplicate GTM tags.
 `npm run google -- api` enables these read-only checks from the saved local grant.
 
+The GA4 stream settings are authoritative for Enhanced Measurement. Pausing, removing,
+or changing a GTM tag does not imply a GA4 setting change, and a GA4 feature setting
+does not imply a GTM edit. Any future GA4 setting change requires an explicit request,
+an exact reviewed stream and setting, and separate approval.
+
 The main agent task uses that result before generation. Automatic outbound clicks make
 navigation `Partially covered` and require intentional link selection. Confirmed leads
 still `Need custom setup` because form starts and submits do not prove the business
-outcome. No audit leaves the existing workflow unchanged.
+outcome. `Track downloads` reports `Already covered` only when the exact stream's
+master and file-download settings are on; otherwise it names the bounded gap. Without
+an audit or exact stream, the task makes no coverage claim or GTM setup.
 
 Starting a guided run records the expected event's Realtime `eventCount` and retains an
 opaque verification handle for ten minutes in bounded process memory. Confirmation is
@@ -293,8 +302,8 @@ Current completion gate:
 npm run verify
 ```
 
-The most recent full completion run passed 278 deterministic tests across 40 files and
-all 45 Chromium workflows.
+The most recent full completion run passed 290 deterministic tests across 40 files and
+all 51 Chromium workflows.
 
 ## Credentialed disposable-container evidence
 

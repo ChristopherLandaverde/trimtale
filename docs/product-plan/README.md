@@ -45,8 +45,10 @@ These are product capabilities, not three separate interfaces. Internally, the b
 
 ## Documents
 
+- [August 24 Pause Handoff](./2026-08-24-pause-handoff.md) - Current checkpoint,
+  source-of-truth decision, and the next unresolved product choice. Read this first.
 - [MVP Build Handoff](./2026-08-23-mvp-handoff.md) - Current code map, scope audit,
-  honest gaps, and the next implementation decision. Read this first next session.
+  honest gaps, and earlier implementation decisions.
 - [What Exists Today](./current-capabilities.md) - Plain-language inventory of working behavior, safety boundaries, verification coverage, and remaining work.
 - [August 24 Roadmap](./2026-08-24-roadmap.md) - Historical language and evidence plan; superseded for active MVP priorities by the handoff above.
 - [Build Stages](./build-stages.md) - MVP-to-full-product sequence.

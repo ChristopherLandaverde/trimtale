@@ -121,7 +121,9 @@ The ability of one supported tracking workflow to reach the same verified outcom
 _Avoid_: Flexibility, universal compatibility, supports every website
 
 **Enhanced-measurement coverage**:
-The product's verified coverage of the interaction classes Google Analytics groups as Enhanced Measurement across eligible websites, whether existing measurement is reused or a gap is filled safely.
+The verified Enhanced Measurement state of one exact GA4 web stream, read from that
+stream's master and feature settings. GTM tag state is separate and never instructs a
+GA4 setting change.
 _Avoid_: All website events, universal tracking, duplicate event generation
 
 **Navigation click**:
