@@ -20,7 +20,16 @@ Build: `feat/semantic-navigation-scopes` before commit.
   Chromium.
 - The focused journey passed cancellation, malformed response, retry, and success.
 - Backend tests proved a fresh exact-stream read and a `stream_enabled`-only PATCH.
-- ConsentFlow was not called and no live Google setting changed.
+- The initial exploratory pass used fixtures and changed no live Google setting.
+
+## Live execution
+
+After separate approval, the saved Google session requested Analytics edit consent.
+The guarded action re-read `G-YV879ECLRV`, property `550074997`, stream
+`15443100029`, with the master switch off and all seven feature toggles on. It then
+updated only `stream_enabled`. An independent read-back reported the master switch and
+all seven features on. GTM and publication remained unchanged. The temporary
+edit-enabled API session was stopped afterward.
 
 ## Findings
 
