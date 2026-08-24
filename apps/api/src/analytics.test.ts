@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { GoogleAnalyticsReadClient, googleAnalyticsReadsEnabled } from "./analytics.js";
+import {
+  ANALYTICS_EDIT_SCOPE,
+  AnalyticsAccess,
+  GoogleAnalyticsReadClient,
+  GoogleAnalyticsWriteClient,
+  googleAnalyticsReadsEnabled,
+  googleAnalyticsWritesEnabled,
+} from "./analytics.js";
 
 function analyticsFetch(eventCounts: number[]) {
   let countIndex = 0;
@@ -223,5 +230,111 @@ describe("read-only Google Analytics verification", () => {
 
     await expect(client.enhancedMeasurement("G-YV879ECLRV"))
       .rejects.toMatchObject({ status: 502, code: "malformed_provider_response" });
+  });
+});
+
+describe("guarded enhanced-measurement writes", () => {
+  it("requires an exact write flag", () => {
+    expect(googleAnalyticsWritesEnabled({})).toBe(false);
+    expect(googleAnalyticsWritesEnabled({ GOOGLE_ANALYTICS_WRITES_ENABLED: "TRUE" })).toBe(false);
+    expect(googleAnalyticsWritesEnabled({ GOOGLE_ANALYTICS_WRITES_ENABLED: "true" })).toBe(true);
+    expect(ANALYTICS_EDIT_SCOPE).toBe("https://www.googleapis.com/auth/analytics.edit");
+  });
+
+  it("fails before reading when writes are disabled", async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    const reader = new GoogleAnalyticsReadClient(async () => "token", fetcher, true);
+    const writer = new GoogleAnalyticsWriteClient(
+      reader,
+      async () => "token",
+      fetcher,
+      AnalyticsAccess.Read,
+    );
+
+    await expect(writer.enableMeasurement("G-YV879ECLRV"))
+      .rejects.toMatchObject({ status: 403, code: "writes_disabled" });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("fresh-reads the exact stream and updates only the master switch", async () => {
+    const fetcher = analyticsFetch([0]);
+    fetcher.mockImplementationOnce(async () => Response.json({
+      accountSummaries: [{
+        propertySummaries: [{ property: "properties/550074997", displayName: "ConsentFlow Verification" }],
+      }],
+    })).mockImplementationOnce(async () => Response.json({
+      dataStreams: [{
+        name: "properties/550074997/dataStreams/15443100029",
+        displayName: "ConsentFlow web",
+        webStreamData: { measurementId: "G-YV879ECLRV" },
+      }],
+    })).mockImplementationOnce(async () => Response.json({
+      streamEnabled: false,
+      pageChangesEnabled: true,
+      scrollsEnabled: true,
+      outboundClicksEnabled: true,
+      siteSearchEnabled: true,
+      videoEngagementEnabled: true,
+      fileDownloadsEnabled: true,
+      formInteractionsEnabled: true,
+    })).mockImplementationOnce(async (input, init) => {
+      const url = new URL(input.toString());
+      expect(url.toString()).toBe(
+        "https://analyticsadmin.googleapis.com/v1alpha/properties/550074997/dataStreams/15443100029/enhancedMeasurementSettings?updateMask=stream_enabled",
+      );
+      expect(init?.method).toBe("PATCH");
+      expect(init?.headers).toEqual({
+        Authorization: "Bearer write-token",
+        "Content-Type": "application/json",
+      });
+      expect(JSON.parse(String(init?.body))).toEqual({
+        name: "properties/550074997/dataStreams/15443100029/enhancedMeasurementSettings",
+        streamEnabled: true,
+      });
+
+      return Response.json({ streamEnabled: true });
+    });
+    const reader = new GoogleAnalyticsReadClient(async () => "read-token", fetcher, true);
+    const writer = new GoogleAnalyticsWriteClient(
+      reader,
+      async () => "write-token",
+      fetcher,
+      AnalyticsAccess.Edit,
+    );
+
+    await expect(writer.enableMeasurement("g-yv879eclrv")).resolves.toMatchObject({
+      status: "enabled",
+      audit: {
+        measurementId: "G-YV879ECLRV",
+        property: { propertyId: "550074997" },
+        stream: { streamId: "15443100029" },
+        settings: { stream: true, outboundClicks: true, formInteractions: true },
+      },
+    });
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  });
+
+  it("does not patch an already-enabled stream", async () => {
+    const fetcher = analyticsFetch([0]);
+    fetcher.mockImplementationOnce(async () => Response.json({
+      accountSummaries: [{ propertySummaries: [{ property: "properties/1", displayName: "Property" }] }],
+    })).mockImplementationOnce(async () => Response.json({
+      dataStreams: [{
+        name: "properties/1/dataStreams/2",
+        displayName: "Stream",
+        webStreamData: { measurementId: "G-YV879ECLRV" },
+      }],
+    })).mockImplementationOnce(async () => Response.json({ streamEnabled: true }));
+    const reader = new GoogleAnalyticsReadClient(async () => "token", fetcher, true);
+    const writer = new GoogleAnalyticsWriteClient(
+      reader,
+      async () => "token",
+      fetcher,
+      AnalyticsAccess.Edit,
+    );
+
+    await expect(writer.enableMeasurement("G-YV879ECLRV"))
+      .resolves.toMatchObject({ status: "already_enabled", audit: { settings: { stream: true } } });
+    expect(fetcher).toHaveBeenCalledTimes(3);
   });
 });

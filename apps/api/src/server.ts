@@ -17,8 +17,11 @@ import { TrackingOperationRepository } from "./tracking-operations.js";
 import { TrackingWorkflowRunner, type TrackingWorkflowRequest } from "./workflow-runner.js";
 import {
   AnalyticsIntegrationError,
+  AnalyticsAccess,
   GoogleAnalyticsReadClient,
+  GoogleAnalyticsWriteClient,
   googleAnalyticsReadsEnabled,
+  googleAnalyticsWritesEnabled,
 } from "./analytics.js";
 
 const port = Number.parseInt(process.env.PORT ?? "8787", 10);
@@ -28,7 +31,11 @@ const oauthConfig = googleOAuthConfig();
 const containerWritesEnabled = googleGtmWritesEnabled();
 const publicationEnabled = googleGtmPublicationEnabled();
 const publicationScopeRequested = googleGtmPublicationScopeRequested();
-const analyticsReadEnabled = googleAnalyticsReadsEnabled();
+const analyticsWriteEnabled = googleAnalyticsWritesEnabled();
+const analyticsReadEnabled = googleAnalyticsReadsEnabled() || analyticsWriteEnabled;
+const analyticsAccess = analyticsWriteEnabled
+  ? AnalyticsAccess.Edit
+  : analyticsReadEnabled ? AnalyticsAccess.Read : AnalyticsAccess.None;
 const oauthTokenStorePath = process.env.GOOGLE_OAUTH_TOKEN_STORE?.trim();
 const oauthTokenStore = oauthConfig && oauthTokenStorePath
   ? new FileGoogleOAuthTokenStore(resolve(oauthTokenStorePath), oauthConfig.clientId)
@@ -41,7 +48,7 @@ const oauthSession = oauthConfig
       containerWritesEnabled,
       publicationScopeRequested,
       oauthTokenStore,
-      analyticsReadEnabled,
+      analyticsAccess,
     )
   : undefined;
 const discoveryClient = oauthSession
@@ -49,6 +56,14 @@ const discoveryClient = oauthSession
   : undefined;
 const analyticsClient = oauthSession
   ? new GoogleAnalyticsReadClient(() => oauthSession.accessToken(), fetch, analyticsReadEnabled)
+  : undefined;
+const analyticsWriter = oauthSession && analyticsClient
+  ? new GoogleAnalyticsWriteClient(
+      analyticsClient,
+      () => oauthSession.accessToken(),
+      fetch,
+      analyticsAccess,
+    )
   : undefined;
 const workflowRunner = discoveryClient
   ? new TrackingWorkflowRunner(
@@ -132,6 +147,7 @@ const server = createServer(async (request, response) => {
       publicationEnabled,
       tokenPersistenceEnabled: oauthTokenStore !== undefined,
       analyticsReadEnabled,
+      analyticsWriteEnabled,
     });
     return;
   }
@@ -147,12 +163,43 @@ const server = createServer(async (request, response) => {
       return;
     }
     try {
-      sendJson(response, 200, await analyticsClient.enhancedMeasurement(measurementId));
+      sendJson(response, 200, {
+        ...await analyticsClient.enhancedMeasurement(measurementId),
+        canEnable: analyticsWriteEnabled,
+      });
     } catch (integrationError) {
       const status = integrationError instanceof AnalyticsIntegrationError ? integrationError.status : 502;
       const message = integrationError instanceof AnalyticsIntegrationError
         ? integrationError.message
         : "Unable to read enhanced-measurement settings.";
+      const code = integrationError instanceof AnalyticsIntegrationError
+        ? integrationError.code
+        : "provider_unavailable";
+      sendJson(response, status, { error: message, code });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && requestUrl.pathname === "/api/google/analytics/enhanced-measurement/enable") {
+    if (!analyticsWriter) {
+      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
+      return;
+    }
+    try {
+      const body = await readJson(request);
+      const measurementId = typeof body === "object" && body !== null && !Array.isArray(body)
+        ? (body as Record<string, unknown>).measurementId
+        : undefined;
+      if (typeof measurementId !== "string") {
+        sendJson(response, 400, { error: "Measurement ID is required." });
+        return;
+      }
+      sendJson(response, 200, await analyticsWriter.enableMeasurement(measurementId));
+    } catch (integrationError) {
+      const status = integrationError instanceof AnalyticsIntegrationError ? integrationError.status : 502;
+      const message = integrationError instanceof AnalyticsIntegrationError
+        ? integrationError.message
+        : "Unable to enable enhanced measurement.";
       const code = integrationError instanceof AnalyticsIntegrationError
         ? integrationError.code
         : "provider_unavailable";

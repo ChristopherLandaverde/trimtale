@@ -11,10 +11,18 @@ const eventNamePattern = /^[a-z][a-z0-9_]{0,39}$/;
 type Fetch = typeof fetch;
 
 export const ANALYTICS_READONLY_SCOPE = "https://www.googleapis.com/auth/analytics.readonly";
+export const ANALYTICS_EDIT_SCOPE = "https://www.googleapis.com/auth/analytics.edit";
+
+export enum AnalyticsAccess {
+  None = "none",
+  Read = "read",
+  Edit = "edit",
+}
 
 export type AnalyticsIntegrationErrorCode =
   | "invalid_request"
   | "reads_disabled"
+  | "writes_disabled"
   | "too_many_pending"
   | "verification_not_found"
   | "verification_expired"
@@ -28,6 +36,12 @@ export function googleAnalyticsReadsEnabled(
   environment: NodeJS.ProcessEnv = process.env,
 ): boolean {
   return environment.GOOGLE_ANALYTICS_READS_ENABLED === "true";
+}
+
+export function googleAnalyticsWritesEnabled(
+  environment: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return environment.GOOGLE_ANALYTICS_WRITES_ENABLED === "true";
 }
 
 export class AnalyticsIntegrationError extends Error {
@@ -362,4 +376,80 @@ export class GoogleAnalyticsReadClient {
       throw new AnalyticsIntegrationError("Google Analytics returned malformed JSON.", 502, "malformed_provider_response");
     }
   }
+}
+
+export class GoogleAnalyticsWriteClient {
+  constructor(
+    private readonly reader: GoogleAnalyticsReadClient,
+    private readonly getAccessToken: () => Promise<string>,
+    private readonly fetcher: Fetch = fetch,
+    private readonly access = AnalyticsAccess.None,
+  ) {}
+
+  async enableMeasurement(rawMeasurementId: string) {
+    if (this.access !== AnalyticsAccess.Edit) {
+      throw new AnalyticsIntegrationError(
+        "Google Analytics writes are disabled on this backend.",
+        403,
+        "writes_disabled",
+      );
+    }
+
+    // Re-resolve immediately before mutation so a stale UI cannot select the stream.
+    const audit = await this.reader.enhancedMeasurement(rawMeasurementId);
+    if (audit.settings.stream) {
+      return { status: "already_enabled" as const, audit };
+    }
+
+    const name = `properties/${audit.property.propertyId}/dataStreams/${audit.stream.streamId}/enhancedMeasurementSettings`;
+    const url = new URL(`${analyticsAdminAlphaEndpoint}/${name}`);
+    url.searchParams.set("updateMask", "stream_enabled");
+    const response = await this.fetcher(url, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${await this.getAccessToken()}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ name, streamEnabled: true }),
+    });
+    const result = await this.responseJson(response);
+    if (!isRecord(result) || result.streamEnabled !== true) {
+      throw new AnalyticsIntegrationError(
+        "Google Analytics returned malformed enhanced-measurement settings.",
+        502,
+        "malformed_provider_response",
+      );
+    }
+
+    return {
+      status: "enabled" as const,
+      audit: { ...audit, settings: { ...audit.settings, stream: true } },
+    };
+  }
+
+  private async responseJson(response: Response): Promise<unknown> {
+    if (!response.ok) {
+      const forbidden = response.status === 401 || response.status === 403;
+      throw new AnalyticsIntegrationError(
+        forbidden
+          ? "Google Analytics denied the write. Reconnect with Analytics edit access."
+          : `Google Analytics write failed with HTTP ${response.status}.`,
+        forbidden ? 502 : response.status,
+        forbidden ? "provider_forbidden" : "provider_unavailable",
+      );
+    }
+    try {
+      return await response.json() as unknown;
+    } catch {
+      throw new AnalyticsIntegrationError(
+        "Google Analytics returned malformed JSON.",
+        502,
+        "malformed_provider_response",
+      );
+    }
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

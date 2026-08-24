@@ -11,7 +11,7 @@ import {
   googleGtmWritesEnabled,
   googleOAuthConfig,
 } from "./google.js";
-import { ANALYTICS_READONLY_SCOPE } from "./analytics.js";
+import { ANALYTICS_EDIT_SCOPE, ANALYTICS_READONLY_SCOPE, AnalyticsAccess } from "./analytics.js";
 import {
   createSetupProposal,
   GTM_MANAGED_WORKSPACE_DESCRIPTION,
@@ -92,10 +92,26 @@ describe("Google OAuth configuration", () => {
       false,
       false,
       undefined,
-      true,
+      AnalyticsAccess.Read,
     );
     expect(new URL(withAnalytics.authorizationUrl()).searchParams.get("scope")?.split(" "))
       .toContain(ANALYTICS_READONLY_SCOPE);
+  });
+
+  it("requests Analytics edit access only when separately enabled", () => {
+    const session = new GoogleOAuthSession(
+      config,
+      vi.fn<typeof fetch>(),
+      Date.now,
+      false,
+      false,
+      undefined,
+      AnalyticsAccess.Edit,
+    );
+    const scopes = new URL(session.authorizationUrl()).searchParams.get("scope")?.split(" ");
+
+    expect(scopes).toContain(ANALYTICS_EDIT_SCOPE);
+    expect(scopes).not.toContain(ANALYTICS_READONLY_SCOPE);
   });
 });
 

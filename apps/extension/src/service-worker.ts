@@ -137,6 +137,30 @@ function exactMeasurementId(value: unknown): string | undefined {
 
 chrome.runtime.onMessage.addListener(
   (message: unknown, _sender, sendResponse) => {
+    if (!isRecord(message)
+      || message.type !== "GA4_ENHANCED_MEASUREMENT_REQUEST"
+      || typeof message.measurementId !== "string"
+      || !/^G-[A-Z0-9]+$/.test(message.measurementId)) {
+      return undefined;
+    }
+    void fetch("http://127.0.0.1:8787/api/google/analytics/enhanced-measurement/enable", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ measurementId: message.measurementId }),
+    }).then(async (response) => {
+      if (!response.ok) {
+        sendResponse({ ok: false, error: "analytics_unavailable" });
+        return;
+      }
+      const result: unknown = await response.json();
+      sendResponse({ ok: true, result });
+    }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
+    return true;
+  },
+);
+
+chrome.runtime.onMessage.addListener(
+  (message: unknown, _sender, sendResponse) => {
     if (!isRecord(message) || message.type !== "GTM_CONNECTION_CONTEXT_REQUEST") return undefined;
     if (!validObservedContainerIds(message.containerIds)) {
       sendResponse({ ok: false, error: "invalid_request" });

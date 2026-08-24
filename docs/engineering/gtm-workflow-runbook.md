@@ -37,11 +37,17 @@ Use these controls deliberately:
 | `GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED=true` | Includes publish scope during one-time consent without enabling publication. |
 | `GOOGLE_GTM_PUBLICATION_ENABLED=true` | Makes guarded publish and rollback methods reachable for one approved session. |
 | `GOOGLE_ANALYTICS_READS_ENABLED=true` | Enables read-only Analytics Admin and Realtime verification; it does not enable GTM or GA4 writes. |
+| `GOOGLE_ANALYTICS_WRITES_ENABLED=true` | Requests Analytics edit consent and permits only the reviewed enhanced-measurement master switch. |
 
 Run `npm run preflight:google` before credentialed planning and
 `npm run preflight:publication` before an approved publication session. Keep
 publication disabled during ordinary planning, application, validation, and version
 review.
+
+Keep Analytics writes off for ordinary sessions. For an approved session, start the
+saved launcher with `GOOGLE_ANALYTICS_WRITES_ENABLED=true npm run google -- api`, then
+open `/api/google/oauth/start` to grant the added scope. The launcher reuses the saved
+client configuration; the visible review remains required before any PATCH.
 
 The token store persists only the refresh token, binds it to the configured OAuth
 client, writes atomically with mode `0600`, and deletes itself if Google rejects the

@@ -134,6 +134,7 @@ interface EnhancedMeasurementAudit {
   property: { propertyId: string; name: string };
   stream: { streamId: string; name: string };
   settings: EnhancedMeasurementSettings;
+  canEnable: boolean;
 }
 
 interface GtmConnectionContext {
@@ -925,7 +926,20 @@ function parseEnhancedMeasurement(
     property: { propertyId: property.id, name: property.name },
     stream: { streamId: stream.id, name: stream.name },
     settings,
+    canEnable: value.canEnable === true,
   };
+}
+
+function parseEnhancedEnable(value: unknown, measurementId: string): EnhancedMeasurementAudit | undefined {
+  if (!isRecord(value) || (value.status !== "enabled" && value.status !== "already_enabled")) {
+    return undefined;
+  }
+  const audit = parseEnhancedMeasurement(value.audit, measurementId);
+  if (!audit || !audit.settings.stream) {
+    return undefined;
+  }
+
+  return { ...audit, canEnable: false };
 }
 
 function parseGa4Started(value: unknown): Ga4VerificationStarted | undefined {
@@ -996,6 +1010,27 @@ async function requestGa4Verification(message: Record<string, unknown>): Promise
   }
 }
 
+async function requestEnhancedEnable(measurementId: string): Promise<{
+  ok: boolean;
+  error?: string;
+  result?: unknown;
+}> {
+  try {
+    const response: unknown = await chrome.runtime.sendMessage({
+      type: "GA4_ENHANCED_MEASUREMENT_REQUEST",
+      measurementId,
+    });
+    if (!isRecord(response) || typeof response.ok !== "boolean") {
+      return { ok: false, error: "invalid_response" };
+    }
+    return response.ok
+      ? { ok: true, result: response.result }
+      : { ok: false, error: "unavailable" };
+  } catch {
+    return { ok: false, error: "service_offline" };
+  }
+}
+
 function effectiveAccess(status: GtmConnectionStatus): string {
   if (status.publicationEnabled) return "Publish enabled";
   if (status.containerWritesEnabled) return "Edit access";
@@ -1060,6 +1095,64 @@ function appendEnhancedRows(
     "Coverage gaps",
     missing.length === 0 ? "No automatic coverage gaps" : missing.join(" · "),
   );
+}
+
+function renderEnhancedReview(parent: HTMLElement, audit: EnhancedMeasurementAudit): void {
+  parent.querySelector(".enhanced-review")?.remove();
+  const review = document.createElement("div");
+  review.className = "enhanced-review";
+  review.setAttribute("role", "region");
+  review.setAttribute("aria-label", "Enhanced measurement review");
+  const heading = document.createElement("strong");
+  heading.textContent = "Review enhanced measurement";
+  appendConnectionRow(review, "GA4", audit.measurementId);
+  appendConnectionRow(review, "Property", audit.property.name);
+  appendConnectionRow(review, "Stream", audit.stream.name);
+  const boundary = document.createElement("p");
+  boundary.textContent = "This enables only the master switch. Individual feature toggles stay unchanged. GTM will not change.";
+  const actions = document.createElement("div");
+  actions.className = "quick-actions";
+  const enable = document.createElement("button");
+  enable.className = "quick primary-quick";
+  enable.textContent = "Enable enhanced measurement";
+  const cancel = document.createElement("button");
+  cancel.className = "quick";
+  cancel.textContent = "Cancel";
+  cancel.addEventListener("click", () => {
+    if (recognizedGtmContext) {
+      renderGtmConnection(recognizedGtmContext);
+    }
+  });
+  enable.addEventListener("click", async () => {
+    enable.disabled = true;
+    enable.textContent = "Enabling…";
+    const response = await requestEnhancedEnable(audit.measurementId);
+    const result = response.ok ? parseEnhancedEnable(response.result, audit.measurementId) : undefined;
+    if (!result || !recognizedGtmContext) {
+      enable.disabled = false;
+      enable.textContent = "Retry enablement";
+      boundary.textContent = "The change could not be verified. The master switch remains off; no success was assumed.";
+      return;
+    }
+
+    recognizedGtmContext = { ...recognizedGtmContext, enhancedMeasurement: result };
+    renderGtmConnection(recognizedGtmContext);
+  });
+  actions.append(enable, cancel);
+  review.prepend(heading);
+  review.append(boundary, actions);
+  parent.replaceChildren(review);
+}
+
+function appendEnhancedAction(parent: HTMLElement, audit?: EnhancedMeasurementAudit): void {
+  if (!audit?.canEnable || audit.settings.stream) {
+    return;
+  }
+  const review = document.createElement("button");
+  review.className = "quick";
+  review.textContent = "Review enhanced measurement";
+  review.addEventListener("click", () => renderEnhancedReview(parent, audit));
+  parent.append(review);
 }
 
 function renderGtmConnection(view: GtmConnectionView): void {
@@ -1154,10 +1247,14 @@ function renderGtmConnection(view: GtmConnectionView): void {
       view.measurementIds.length > 0 ? view.measurementIds.join(" · ") : "No live destination found",
     );
     appendEnhancedRows(body, view.enhancedMeasurement, view.enhancedMeasurementError);
+    appendEnhancedAction(body, view.enhancedMeasurement);
     const leadBoundary = view.enhancedMeasurement
       ? " Confirmed lead outcomes remain separate."
       : "";
-    note.textContent = `${accessExplanation(view.status)} Analytics reads are ${view.status.analyticsReadEnabled ? "enabled" : "off"}.${leadBoundary}`;
+    const analyticsAccess = view.enhancedMeasurement?.canEnable
+      ? " Analytics edit is limited to the reviewed master switch."
+      : ` Analytics reads are ${view.status.analyticsReadEnabled ? "enabled" : "off"}.`;
+    note.textContent = `${accessExplanation(view.status)}${analyticsAccess}${leadBoundary}`;
   }
 
   body.prepend(summary);
@@ -2291,6 +2388,8 @@ async function mountOverlay(): Promise<void> {
       .gtm-context-row span { color: #7f8d94; font-size: 9px; text-transform: uppercase; }
       .gtm-context-row strong { min-width: 0; color: #e7eeeb; font-size: 11px; font-weight: 590; overflow-wrap: anywhere; }
       .gtm-context-body small { margin-top: 3px; color: #89969e; font-size: 9px; line-height: 1.4; }
+      .enhanced-review { display: grid; gap: 6px; }
+      .enhanced-review > strong { color: #f1f7f4; font-size: 12px; }
       .message { max-width: 88%; padding: 9px 11px; border-radius: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
       .message.bot { align-self: flex-start; color: #e5ebef; background: rgba(41,50,57,.72); border: 1px solid rgba(255,255,255,.06); border-radius: 4px 14px 14px 14px; }
       .message.user { align-self: flex-end; color: #f5fff9; background: #28483d; border-radius: 13px 13px 4px 13px; }

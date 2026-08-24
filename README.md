@@ -180,6 +180,11 @@ forces publication off. It never prints credentials. Set
 `GTM_OBSERVABILITY_CONFIG_DIR` only when an alternate owner-only config directory is
 required.
 
+Analytics edits remain off. For a separately approved enhanced-measurement change, run
+`GOOGLE_ANALYTICS_WRITES_ENABLED=true npm run google -- api` and reconnect through
+`/api/google/oauth/start`. This reuses the saved OAuth client and can change only the
+reviewed stream master switch; it does not change feature toggles or GTM.
+
 This Google preflight remains outside `npm run agent` and ordinary verification. It
 checks the OAuth client variables, exact local callback, exact extension origin, and
 explicit container-write switch; it does not contact Google or prove live access.

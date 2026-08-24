@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
-import { ANALYTICS_READONLY_SCOPE } from "./analytics.js";
+import { ANALYTICS_EDIT_SCOPE, ANALYTICS_READONLY_SCOPE, AnalyticsAccess } from "./analytics.js";
 import {
   assertTrackingOperation,
   createTrackingChangePlan,
@@ -305,7 +305,7 @@ export class GoogleOAuthSession {
     private readonly containerWritesEnabled = false,
     private readonly publicationScopeRequested = false,
     private readonly tokenStore?: GoogleOAuthTokenStore,
-    private readonly analyticsReadEnabled = false,
+    private readonly analyticsAccess = AnalyticsAccess.None,
   ) {
     const refreshToken = tokenStore?.load();
     if (refreshToken) {
@@ -330,7 +330,8 @@ export class GoogleOAuthSession {
         GTM_READONLY_SCOPE,
         ...(this.containerWritesEnabled ? [GTM_EDIT_CONTAINERS_SCOPE, GTM_EDIT_CONTAINER_VERSIONS_SCOPE] : []),
         ...(this.publicationScopeRequested ? [GTM_PUBLISH_SCOPE] : []),
-        ...(this.analyticsReadEnabled ? [ANALYTICS_READONLY_SCOPE] : []),
+        ...(this.analyticsAccess === AnalyticsAccess.Read ? [ANALYTICS_READONLY_SCOPE] : []),
+        ...(this.analyticsAccess === AnalyticsAccess.Edit ? [ANALYTICS_EDIT_SCOPE] : []),
       ].join(" "),
       access_type: "offline",
       include_granted_scopes: "true",

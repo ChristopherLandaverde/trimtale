@@ -74,7 +74,9 @@ readiness before proposing custom tracking. It covers the master switch, history
 page views, scrolls, outbound clicks, site search, video engagement, file downloads,
 and form interactions. Disabled settings are gaps, not instructions to create duplicate
 GTM tags. Automatic form interactions remain distinct from a confirmed
-`generate_lead` outcome. The workbench never changes these settings.
+`generate_lead` outcome. With separately authorized Analytics edit access, the
+practitioner may review and enable only the enhanced-measurement master switch for one
+exact stream. Individual feature toggles and GTM remain unchanged.
 
 The same readiness result must affect the main tracking task. Navigation is
 `Partially covered` when automatic outbound clicks are active. Confirmed lead tracking
