@@ -16,6 +16,10 @@ Build: `feat/semantic-navigation-scopes` before commit.
    `Needs setup` before any generation action.
 4. Adversarial: supplied malformed markup-bearing audit data. No provider text entered
    the task and the existing unaudited behavior remained usable.
+5. Live: opened `https://consentflow-psi.vercel.app/` with the saved grant. The main
+   task showed `Needs setup · Navigation tracking`, explained that automatic
+   measurement is off, found seven navigation links, and retained exact
+   `GTM-PCJ3Q5RK` / `G-YV879ECLRV` context.
 
 ## Evidence
 
@@ -24,6 +28,8 @@ Build: `feat/semantic-navigation-scopes` before commit.
   preselected links.
 - Focused core tests passed four task cases.
 - Focused Chromium tests passed 14 connection and confirmed-lead journeys.
+- A separate live Chromium review passed without selecting an action or calling a
+  Google write endpoint.
 - No Google API mutation or new scope was used.
 
 ## Findings
