@@ -1,6 +1,7 @@
 # Product Plan
 
-This folder describes how GTM Observability should grow from the current navigation-tracking MVP into a conversion setup, debugging, and observability product.
+This folder describes how GTM Observability should grow from the current event-setup
+MVP into a conversion setup, debugging, and observability product.
 
 The core thesis:
 
@@ -44,8 +45,10 @@ These are product capabilities, not three separate interfaces. Internally, the b
 
 ## Documents
 
+- [MVP Build Handoff](./2026-08-23-mvp-handoff.md) - Current code map, scope audit,
+  honest gaps, and the next implementation decision. Read this first next session.
 - [What Exists Today](./current-capabilities.md) - Plain-language inventory of working behavior, safety boundaries, verification coverage, and remaining work.
-- [August 24 Roadmap](./2026-08-24-roadmap.md) - Next-session plan for a real post-publication journey and weighted shadow-mode language evaluation.
+- [August 24 Roadmap](./2026-08-24-roadmap.md) - Historical language and evidence plan; superseded for active MVP priorities by the handoff above.
 - [Build Stages](./build-stages.md) - MVP-to-full-product sequence.
 - [Technical Architecture](./technical-architecture.md) - System components and agent/workflow design.
 - [Go-To-Market Timing](./go-to-market.md) - When to build the website, market, sell, and narrow positioning.

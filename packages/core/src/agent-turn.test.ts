@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   agentTurnForIntake,
-  agentTurnForNavigationScope,
-  discoverNavigationTargetGroups,
-  interpretNavigationScopeDeterministically,
   isAgentTurnV1,
   type FormCandidate,
 } from "./index.js";
@@ -25,36 +22,6 @@ function form(id: string, label: string): FormCandidate {
 }
 
 describe("provider-neutral agent turns", () => {
-  it("turns one navigation match into a reversible keyboard-ready preview", () => {
-    const navigation = [
-      { id: "header", text: "Pricing", href: "https://example.test/pricing", area: "header" as const, selector: "header a", groupId: "primary", groupLabel: "Primary navigation" },
-      { id: "footer", text: "Pricing", href: "https://example.test/pricing", area: "footer" as const, selector: "footer a", groupId: "footer", groupLabel: "Footer navigation" },
-    ];
-    const groups = discoverNavigationTargetGroups(navigation);
-    const intake = interpretConversationIntent("Track header navigation", { navigationCount: 2, forms: [] });
-    const interpretation = interpretNavigationScopeDeterministically(["Track header navigation"], groups);
-    const turn = agentTurnForNavigationScope(
-      intake,
-      { formCount: 0, navigationCount: 2 },
-      groups,
-      interpretation,
-      "local_model",
-      "qwen3:30b",
-    );
-    expect(turn.task.summary).toContain("Primary navigation");
-    expect(turn.actions).toEqual([
-      { id: "confirm-navigation-preview", label: "Confirm selection · Enter" },
-      { id: "remove-navigation-preview", label: "Remove · Esc" },
-      { id: "choose-navigation-groups", label: "Change selection" },
-    ]);
-    expect(turn.receipts.at(-1)).toMatchObject({
-      id: "scope-interpreted",
-      detail: "Local model qwen3:30b; reversible page preview",
-    });
-    expect(turn.question).toBe("Press Enter to confirm, Esc to remove, or change the selection.");
-    expect(isAgentTurnV1(turn)).toBe(true);
-  });
-
   it("turns ambiguous intake into one grounded task, plan, question, and receipt", () => {
     const forms = [form("contact", "Contact sales"), form("newsletter", "Newsletter signup")];
     const intake = interpretConversationIntent("Track leads", { navigationCount: 5, forms });

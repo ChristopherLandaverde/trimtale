@@ -424,6 +424,8 @@ A verified resolution records normalized symptoms, relevant environment attribut
 - [x] Browser verification remains distinct from platform confirmation.
 - [x] One exactly connected GTM/GA4 page can carry authenticated context through setup
   generation, browser verification, and optional aggregate Realtime confirmation.
+- [x] A confirmed connected lead-form setup can explicitly prepare its managed
+  workspace and show a bounded durable plan without applying or publishing it.
 - [x] Unsupported or unobservable forms produce a diagnostic handoff.
 - [x] The intake acceptance corpus runs through a provider-neutral shadow harness.
 - [x] Shadow records discard invalid output, raw responses, exception text, and private

@@ -1,8 +1,4 @@
 import type { ConversationIntakeResult } from "./conversation.js";
-import type {
-  NavigationScopeInterpretationV1,
-  NavigationTargetGroupV1,
-} from "./navigation-scope.js";
 
 export type AgentTaskStatus =
   | "working"
@@ -23,13 +19,11 @@ export interface AgentPlanStageV1 {
 }
 
 export interface AgentActionReceiptV1 {
-  id: "page-inspected" | "gtm-connected" | "scope-interpreted";
+  id: "page-inspected" | "gtm-connected";
   label: string;
   detail: string;
   status: "completed";
 }
-
-export type NavigationScopeInterpretationSource = "local_model" | "deterministic";
 
 export interface AgentTurnV1 {
   schemaVersion: 1;
@@ -116,11 +110,11 @@ export function agentTurnForIntake(
         goal: "Set up navigation click tracking",
         status: count > 0 ? "needs_input" : "blocked",
         summary: count > 0
-          ? `I found ${count} navigation candidate${count === 1 ? "" : "s"}. Confirm an observed navigation group before setup.`
+          ? `I found ${count} navigation link${count === 1 ? "" : "s"}. Use all of them or narrow the scope.`
           : "I could not find an observable navigation link on this page.",
       },
       plan: plan(count > 0 ? "active" : "blocked"),
-      ...(count > 0 ? { question: "Which observed navigation group should be measured?" } : {}),
+      ...(count > 0 ? { question: "Should I track every navigation link or only selected links?" } : {}),
       actions,
       receipts,
     };
@@ -221,56 +215,6 @@ export function agentTurnForIntake(
   };
 }
 
-export function agentTurnForNavigationScope(
-  intake: ConversationIntakeResult,
-  context: AgentTurnContext,
-  groups: readonly NavigationTargetGroupV1[],
-  interpretation: NavigationScopeInterpretationV1,
-  source: NavigationScopeInterpretationSource,
-  model?: string,
-): AgentTurnV1 {
-  const turn = agentTurnForIntake(intake, context);
-  if (intake.interaction !== "navigation_click") return turn;
-  const candidateIds = new Set(interpretation.candidateGroupIds);
-  const candidates = groups.filter(({ id }) => candidateIds.has(id));
-  const safeModel = model && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(model) ? model : "suggestion";
-  turn.receipts.push({
-    id: "scope-interpreted",
-    label: "Navigation scope interpreted",
-    detail: source === "local_model"
-      ? candidates.length === 1
-        ? `Local model ${safeModel}; reversible page preview`
-        : `Local model ${safeModel}; confirmation still required`
-      : candidates.length === 1
-        ? "Deterministic match; reversible page preview"
-      : "Deterministic fallback; confirmation still required",
-    status: "completed",
-  });
-  if (groups.length === 0) return turn;
-  turn.task.summary = candidates.length > 0
-    ? `I matched ${candidates.map(({ label }) => label).join(" and ")} from ${groups.length} observed navigation group${groups.length === 1 ? "" : "s"}.`
-    : `I found ${groups.length} navigation group${groups.length === 1 ? "" : "s"} and need the intended page region before creating setup.`;
-  turn.question = candidates.length === 1
-    ? "Press Enter to confirm, Esc to remove, or change the selection."
-    : interpretation.clarification ?? "Which navigation group should be measured?";
-  turn.actions = candidates.length === 1
-    ? [
-        { id: "confirm-navigation-preview", label: "Confirm selection · Enter" },
-        { id: "remove-navigation-preview", label: "Remove · Esc" },
-        { id: "choose-navigation-groups", label: "Change selection" },
-      ]
-    : candidates.length > 1
-      ? [{ id: "choose-navigation-groups", label: "Review matched groups" }]
-    : [
-        ...groups.slice(0, 8).map((group) => ({
-          id: `scope:${group.id}`,
-          label: `${group.label} (${group.targetCount})`,
-        })),
-        ...(groups.length > 1 ? [{ id: "choose-navigation-groups", label: "Choose multiple groups" }] : []),
-      ];
-  return turn;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -305,7 +249,7 @@ export function isAgentTurnV1(value: unknown): value is AgentTurnV1 {
     && /^[-:a-zA-Z0-9_]+$/.test(action.id)
     && boundedText(action.label, 120))) return false;
   return value.receipts.every((receipt) => isRecord(receipt)
-    && (receipt.id === "page-inspected" || receipt.id === "gtm-connected" || receipt.id === "scope-interpreted")
+    && (receipt.id === "page-inspected" || receipt.id === "gtm-connected")
     && boundedText(receipt.label, 120)
     && boundedText(receipt.detail, 240)
     && receipt.status === "completed");

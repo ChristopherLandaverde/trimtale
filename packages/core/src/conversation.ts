@@ -142,7 +142,13 @@ export function interpretConversationIntent(
       state: "awaiting_scope",
       eventName: "navigation_click",
       canConfirm: false,
-      options: [],
+      options: page.navigationCount > 0
+        ? [
+            { id: "track-all-navigation", label: "Track all" },
+            { id: "choose-navigation", label: "Choose links" },
+            { id: "cancel", label: "Cancel" },
+          ]
+        : [],
     };
   }
   if (interaction !== "unknown") {

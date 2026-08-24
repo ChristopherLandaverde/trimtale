@@ -20,8 +20,6 @@ import {
   GoogleAnalyticsReadClient,
   googleAnalyticsReadsEnabled,
 } from "./analytics.js";
-import { navigationScopeApiResponse } from "./navigation-scope-api.js";
-import { configuredOllamaNavigationScopeProvider } from "./ollama-navigation-scope-provider.js";
 
 const port = Number.parseInt(process.env.PORT ?? "8787", 10);
 const configuredExtensionOrigin = process.env.EXTENSION_ORIGIN;
@@ -31,7 +29,6 @@ const containerWritesEnabled = googleGtmWritesEnabled();
 const publicationEnabled = googleGtmPublicationEnabled();
 const publicationScopeRequested = googleGtmPublicationScopeRequested();
 const analyticsReadEnabled = googleAnalyticsReadsEnabled();
-const navigationScopeProvider = configuredOllamaNavigationScopeProvider();
 const oauthTokenStorePath = process.env.GOOGLE_OAUTH_TOKEN_STORE?.trim();
 const oauthTokenStore = oauthConfig && oauthTokenStorePath
   ? new FileGoogleOAuthTokenStore(resolve(oauthTokenStorePath), oauthConfig.clientId)
@@ -112,24 +109,6 @@ const server = createServer(async (request, response) => {
 
   if (request.method === "GET" && request.url === "/health") {
     sendJson(response, 200, { status: "ok", service: "gtm-observability-api" });
-    return;
-  }
-
-  if (requestUrl.pathname === "/api/agent/navigation-scope") {
-    let body: unknown;
-    try {
-      body = request.method === "POST" ? await readJson(request) : undefined;
-    } catch {
-      sendJson(response, 400, { error: "Navigation scope request is invalid." });
-      return;
-    }
-    const result = await navigationScopeApiResponse(
-      request.method ?? "",
-      requestUrl.pathname,
-      body,
-      navigationScopeProvider,
-    );
-    sendJson(response, result?.status ?? 404, result?.body ?? { error: "Not found." });
     return;
   }
 

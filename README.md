@@ -45,11 +45,14 @@ Connect GTM
 
 ## Initial MVP
 
-1. Browser-based Tracking Check without requiring GTM access.
-2. Read-only GTM connection and container audit.
-3. Scheduled Playwright journey monitoring.
-4. Evidence-backed incident diagnosis.
-5. Verified GTM workspace creation without automatic production publishing.
+1. One website workbench for lead-form and navigation tracking intent.
+2. Exact GTM container and GA4 destination recognition.
+3. Confirmed specifications compiled into reviewable managed-workspace changes.
+4. Browser verification with optional aggregate GA4 Realtime correlation.
+5. Human-controlled GTM publication outside the initial automated workflow.
+
+Scheduled monitoring, key events, custom definitions, weekly reports, broad diagnosis,
+and model training are later work.
 
 ## Mockups
 
@@ -57,16 +60,17 @@ The `mockups/` directory contains the observability overview, container audit, l
 
 ## Product plan
 
-The `docs/product-plan/` directory describes the staged path from the navigation-tracking MVP to a full GTM and GA4 observability product, including architecture, agent design, weekly scans, and go-to-market timing.
+The `docs/product-plan/` directory describes the current event-setup MVP and the later
+path to a full GTM and GA4 observability product. Start with the
+[MVP build handoff](docs/product-plan/2026-08-23-mvp-handoff.md).
 
-## Navigation tracking MVP
+## Implemented tracking foundation
 
 The first implemented vertical slice is a Chrome extension plus a small local backend:
 
 ```text
 Discover navigation
-    -> preview one unambiguous group on the page
-    -> press Enter to confirm, Esc to remove, or change the selection
+    -> confirm scope
     -> generate a partial GTM container file
     -> import with Merge into a new workspace
     -> connect GTM Preview
@@ -100,39 +104,6 @@ It runs automatically at the start of `npm run verify`.
 - Saves Playwright traces and failure evidence under `test-results/`.
 
 Humans do not need to launch the development services or load the extension to verify changes. Manual Chrome loading is reserved for exploratory product review.
-
-#### Local agent model
-
-Navigation-scope interpretation is local-first. When the API is running, it uses the
-fixed loopback Ollama endpoint at `http://127.0.0.1:11434` and defaults to the installed
-`qwen3:30b` model. Set `OLLAMA_MODEL` to another installed model, or set
-`OLLAMA_AGENT_ENABLED=false` to use only the deterministic fallback.
-
-The model receives bounded user messages and privacy-filtered navigation-group
-summaries containing only group ID, inert label, page region, and target count. It
-never receives selectors, URLs, HTML, form values, browser storage, Google credentials,
-or the GTM container inventory. Explicit phrases such as “header, not footer” resolve
-deterministically; fuzzy wording such as “the menu at the top” may use Ollama. Every
-single-group suggestion is highlighted immediately as a reversible page preview and
-still requires practitioner confirmation with `Enter` or the visible action. `Escape`
-or Remove clears the preview without changing GTM; zero or multiple matches remain a
-group-level clarification.
-
-One 32-case provider-neutral corpus automates navigation-scope acceptance without
-asserting exact model prose. The ordinary `npm test` gate validates and replays every
-case deterministically. Two explicit functional lanes exercise the production routing
-boundary against local Ollama:
-
-```bash
-npm run evaluate:navigation:smoke
-npm run evaluate:navigation:full
-```
-
-The smoke lane runs 15 representative cases; the full lane runs all 32. Explicit and
-generic cases stay deterministic, so Ollama receives only genuinely fuzzy cases. Both
-commands emit only counts, failed case IDs, supplied group IDs, ambiguity enums, and
-failure classes—never practitioner messages, model prose, prompts, or credentials.
-These are functional acceptance checks, not comparative model benchmarks.
 
 #### Agent command harness
 

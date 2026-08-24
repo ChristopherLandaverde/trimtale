@@ -12,16 +12,12 @@ function isIntakeEvaluationRoute(pathname: string): boolean {
     || pathname.startsWith("/api/intake-evaluations/");
 }
 
-function isAgentRoute(pathname: string): boolean {
-  return pathname === "/api/agent/navigation-scope";
-}
-
 export function corsDecision(
   pathname: string,
   requestOrigin: string | undefined,
   configuredExtensionOrigin: string | undefined,
 ): CorsDecision {
-  if (!isGoogleRoute(pathname) && !isIntakeEvaluationRoute(pathname) && !isAgentRoute(pathname)) {
+  if (!isGoogleRoute(pathname) && !isIntakeEvaluationRoute(pathname)) {
     return { allowed: true, allowOrigin: "*" };
   }
 

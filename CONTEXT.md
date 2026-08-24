@@ -33,12 +33,8 @@ A versioned, reviewable definition derived from a tracking intent that names the
 _Avoid_: Prompt, generated tag, test script
 
 **Conversation intake**:
-The site-aware exchange that lets a person describe a tracking intent in everyday language, grounds references such as “the quote form at the bottom” in observed website candidates, immediately previews one unambiguous target, and asks only questions or approvals that change the specification or external state.
+The site-aware exchange that lets a person describe a tracking intent in everyday language, grounds references such as “the quote form at the bottom” in observed website candidates, asks only questions that change the specification, and requires confirmation before setup begins.
 _Avoid_: Free-form chatbot, prompt box, agent guess
-
-**Target preview**:
-A reversible page-local highlight of one interpretation against observed website candidates. It does not confirm a tracking specification or authorize a GTM change.
-_Avoid_: Confirmed scope, applied tracking, model decision
 
 **Intake interpretation**:
 A non-authoritative, structured reading of a tracking intent against privacy-filtered observed candidates, identifying plausible interaction, outcome, target, success evidence, ambiguity, and the shortest useful clarification.
@@ -120,21 +116,21 @@ _Avoid_: Non-technical user, marketer, junior GTM user
 A website whose important measurable outcomes are prospect actions such as form submissions, phone calls, or appointment requests rather than purchases.
 _Avoid_: Simple website, brochure site
 
+**Website adaptability**:
+The ability of one supported tracking workflow to reach the same verified outcome across varied website structures and frameworks without bespoke site-by-site handling.
+_Avoid_: Flexibility, universal compatibility, supports every website
+
+**Enhanced-measurement coverage**:
+The product's verified coverage of the interaction classes Google Analytics groups as Enhanced Measurement across eligible websites, whether existing measurement is reused or a gap is filled safely.
+_Avoid_: All website events, universal tracking, duplicate event generation
+
 **Navigation click**:
 A click on a practitioner-confirmed navigation element, recorded through one consistent analytics event shape with details about the selected link and its navigation area.
 _Avoid_: Menu click, individual link event
 
 **Navigation scope**:
-A practitioner-confirmed set of observed navigation target groups, including explicit page regions and exclusions, that defines which navigation interactions belong to one tracking specification.
-_Avoid_: All links, automatic selection, URL list
-
-**Observed target group**:
-A privacy-filtered collection of browser-visible targets that share one semantic role and page region, such as primary header navigation or footer navigation.
-_Avoid_: Selector list, model-generated group, all matching elements
-
-**Container inventory**:
-A normalized, version-bound account of the tags, triggers, and variables in one GTM workspace, including their dependencies and managed ownership.
-_Avoid_: Raw container dump, model context, tag list
+The set of navigation elements discovered by the agent and confirmed by the tracking practitioner before a tracking setup is created.
+_Avoid_: All links, automatic selection
 
 **Generated container file**:
 A downloadable GTM-compatible JSON file containing the ordinary tags, triggers, and variables for a tracking setup, intended to be imported into a GTM workspace.

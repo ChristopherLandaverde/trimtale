@@ -1,15 +1,11 @@
 import {
-  agentTurnForNavigationScope,
   agentTurnForIntake,
-  createNavigationScopeInterpretationInput,
-  discoverNavigationTargetGroups,
   interpretConversationIntent,
-  navigationScopeInterpretationRoute,
-  isNavigationScopeInterpretationV1,
+  validateFormSetupRequest,
   type BrowserEvidence,
+  type FormSetupRequest,
   type FormCandidate,
   type NavigationElement,
-  type NavigationScopeInterpretationV1,
 } from "@gtm-observability/core";
 
 async function toggleAssistant(tab: chrome.tabs.Tab): Promise<void> {
@@ -50,59 +46,27 @@ chrome.runtime.onConnect.addListener((port) => {
       navigationCount: page.navigation.length,
       forms: page.forms ?? [],
     });
-    const context = {
+    const turn = agentTurnForIntake(intake, {
       formCount: page.forms.length,
       navigationCount: page.navigation.length,
       ...(message.connection ? { connection: message.connection } : {}),
-    };
-    const groups = discoverNavigationTargetGroups(page.navigation);
-    const send = (
-      interpretation?: NavigationScopeInterpretationV1,
-      source: "local_model" | "deterministic" = "deterministic",
-      model?: string,
-    ): void => {
-      const turn = intake.interaction === "navigation_click" && interpretation
-        ? agentTurnForNavigationScope(intake, context, groups, interpretation, source, model)
-        : agentTurnForIntake(intake, context);
-      port.postMessage({
-        type: "AGENT_TURN",
-        requestId: message.requestId,
-        turn,
-        navigation: page.navigation,
-        navigationGroups: groups,
-        ...(interpretation ? { navigationScopeInterpretation: interpretation } : {}),
-        forms: page.forms,
-        intake,
-      });
-    };
-    if (intake.interaction !== "navigation_click" || groups.length === 0) {
-      send();
-      return;
-    }
-    const route = navigationScopeInterpretationRoute([message.prompt], groups);
-    if (route.source === "deterministic") {
-      send(route.fallback, "deterministic");
-      return;
-    }
-    const input = createNavigationScopeInterpretationInput([message.prompt], groups);
-    void fetch("http://127.0.0.1:8787/api/agent/navigation-scope", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
-    }).then(async (response) => {
-      if (!response.ok) throw new Error("local_model_unavailable");
-      const body: unknown = await response.json();
-      if (!isRecord(body) || !isRecord(body.provider) || body.provider.id !== "ollama"
-        || typeof body.provider.model !== "string"
-        || !isNavigationScopeInterpretationV1(body.interpretation, groups)) {
-        throw new Error("local_model_invalid");
-      }
-      send(body.interpretation, "local_model", body.provider.model);
-    }).catch(() => send(route.fallback, "deterministic"));
+    });
+    port.postMessage({
+      type: "AGENT_TURN",
+      requestId: message.requestId,
+      turn,
+      navigation: page.navigation,
+      forms: page.forms,
+      intake,
+    });
   });
 });
 
 type GtmContainerOperation = "inspect" | "prepare";
+
+const workflowPlanUrl = "http://127.0.0.1:8787/api/google/workflows/plan";
+const maxPlanActions = 64;
+const maxGeneratedNameLength = 256;
 
 const gtmPublicIdPattern = /^GTM-[A-Z0-9]+$/;
 
@@ -269,6 +233,107 @@ chrome.runtime.onMessage.addListener(
           : "The local GTM integration could not be reached.",
       });
     });
+    return true;
+  },
+);
+
+interface PlanActionSummary {
+  kind: "tag" | "trigger" | "variable" | "builtInVariable";
+  action: "create" | "reuse" | "no_op" | "update" | "conflict";
+  generatedName: string;
+}
+
+interface WorkflowPlanSummary {
+  operationId: string;
+  status: "planned";
+  planStatus: "ready" | "conflict";
+  fingerprint: string;
+  actions: PlanActionSummary[];
+}
+
+function formWorkflowRequest(value: unknown): FormSetupRequest | undefined {
+  if (!isRecord(value)
+    || !isRecord(value.specification)
+    || typeof value.measurementId !== "string"
+    || !isRecord(value.container)) {
+    return undefined;
+  }
+  const request = value as unknown as FormSetupRequest;
+  return validateFormSetupRequest(request).length === 0 ? request : undefined;
+}
+
+function planSummary(value: unknown): WorkflowPlanSummary | undefined {
+  if (!isRecord(value)
+    || (value.status !== "planned" && value.status !== "reused")
+    || !isRecord(value.operation)
+    || typeof value.operation.id !== "string"
+    || !/^operation_[A-Za-z0-9_-]+$/.test(value.operation.id)
+    || value.operation.status !== "planned"
+    || !isRecord(value.operation.plan)) {
+    return undefined;
+  }
+  const plan = value.operation.plan;
+  if ((plan.status !== "ready" && plan.status !== "conflict")
+    || typeof plan.fingerprint !== "string"
+    || !/^plan_[A-Za-z0-9_-]+$/.test(plan.fingerprint)
+    || !Array.isArray(plan.actions)
+    || plan.actions.length > maxPlanActions) {
+    return undefined;
+  }
+  const actions: PlanActionSummary[] = [];
+  for (const action of plan.actions) {
+    if (!isRecord(action)
+      || !["tag", "trigger", "variable", "builtInVariable"].includes(String(action.kind))
+      || !["create", "reuse", "no_op", "update", "conflict"].includes(String(action.action))
+      || typeof action.generatedName !== "string"
+      || action.generatedName.trim().length === 0
+      || action.generatedName.length > maxGeneratedNameLength) {
+      return undefined;
+    }
+    actions.push({
+      kind: action.kind as PlanActionSummary["kind"],
+      action: action.action as PlanActionSummary["action"],
+      generatedName: action.generatedName,
+    });
+  }
+  return {
+    operationId: value.operation.id,
+    status: "planned",
+    planStatus: plan.status,
+    fingerprint: plan.fingerprint,
+    actions,
+  };
+}
+
+chrome.runtime.onMessage.addListener(
+  (message: unknown, _sender, sendResponse) => {
+    if (!isRecord(message) || message.type !== "GTM_WORKFLOW_PLAN_REQUEST") {
+      return undefined;
+    }
+    const request = formWorkflowRequest(message.request);
+    if (!request) {
+      sendResponse({ ok: false, error: "invalid_request" });
+      return undefined;
+    }
+
+    void fetch(workflowPlanUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    }).then(async (response) => {
+      if (!response.ok) {
+        sendResponse({
+          ok: false,
+          error: response.status === 409 ? "planning_blocked" : "planning_unavailable",
+        });
+        return;
+      }
+      const body: unknown = await response.json();
+      const summary = isRecord(body) ? planSummary(body.result) : undefined;
+      sendResponse(summary
+        ? { ok: true, result: summary }
+        : { ok: false, error: "invalid_response" });
+    }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
     return true;
   },
 );

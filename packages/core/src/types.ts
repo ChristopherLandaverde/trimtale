@@ -6,8 +6,6 @@ export interface NavigationElement {
   href: string;
   area: NavigationArea;
   selector: string;
-  groupId?: string;
-  groupLabel?: string;
 }
 
 export interface ContainerContext {
@@ -22,7 +20,6 @@ export interface SetupRequest {
   pageUrl: string;
   measurementId: string;
   navigation: NavigationElement[];
-  navigationScope?: import("./navigation-scope.js").NavigationScopeV1;
   container: ContainerContext;
 }
 
@@ -33,7 +30,6 @@ export interface SetupProposal {
   pageUrl: string;
   measurementId: string;
   navigation: NavigationElement[];
-  navigationScope: import("./navigation-scope.js").NavigationScopeV1;
   warnings: string[];
   preflight: {
     status: "passed" | "failed";

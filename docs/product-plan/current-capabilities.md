@@ -9,8 +9,8 @@ correlate that run with an aggregate read-only GA4 Realtime count increase. A gu
 backend API can safely prepare one reusable managed workspace, durably plan and apply
 navigation and confirmed lead-form setups, validate the workspace, and create an
 immutable version. Separate backend clients can publish an exactly approved version
-and restore its recorded prior-live version. The website agent does not yet expose
-those orchestration, approval, publication, or rollback actions.
+and restore its recorded prior-live version. The website agent exposes planning for a
+confirmed lead form, but not application, approval, publication, or rollback.
 
 ## Current product workflow
 
@@ -21,13 +21,13 @@ Open the agent and inspect page GTM / authorized access
     -> highlight and confirm the target
     -> confirm the tracking specification
     -> generate a reviewable GTM setup
+    -> optionally prepare the managed workspace and review its change plan
     -> optionally download the GTM JSON
     -> use the exact pre-chat GTM container and GA4 destination context
     -> record a read-only GA4 Realtime baseline
     -> submit the guided browser run once
     -> classify the browser request independently
     -> optionally confirm an aggregate GA4 Realtime count increase
-    -> create or reuse one managed workspace
     -> stop before applying or publishing changes
 ```
 
@@ -47,9 +47,9 @@ The agent currently supports:
   account/container match, and effective read-only, edit, or publication capability.
 - Navigation-click tracking requests.
 - Lead-form tracking requests.
+- Explicit managed-workspace preparation and safe change-plan review for a confirmed
+  lead-form setup when connected GTM edit access is available.
 - Page discovery and visible candidate highlights.
-- Immediate reversible preview when one navigation group matches, with `Enter` to
-  confirm and `Escape` or a visible action to remove it.
 - Explicit target and tracking-specification confirmation.
 - Clear unsupported handoffs for interaction types that are understood but not implemented.
 - An evidence path that separates intent, page inspection, target confirmation, setup generation, GTM runtime, GTM access, browser verification, and platform confirmation.
@@ -61,31 +61,19 @@ The agent currently supports:
   browser verification, and a structured final result rather than simulated streaming
   response bubbles.
 
-The agent-turn contract is provider-neutral and retains a deterministic fallback.
-Navigation scope now uses explicit deterministic wording first and can route genuinely
-fuzzy group references through a schema-validated local Ollama model. The model may
-propose only supplied group IDs and never confirms scope, outputs selectors, changes
-GTM, or decides whether evidence passed. General form-intake interpretation remains
-deterministic. One supplied match becomes a page-local candidate highlight immediately;
-it becomes a confirmed navigation scope only after the practitioner presses `Enter` or
-uses the visible control. Removal clears both the highlight and local draft while
-leaving GTM unchanged.
+The conversation classifier and state transitions are deterministic. The agent-turn
+contract remains provider-neutral, but no production model interprets visible
+navigation or form tasks.
 
 ### Navigation setup generation
 
-After an observed navigation target group is confirmed, the agent generates a
-`navigation_click` GTM container file containing:
+After navigation targets are confirmed, the agent generates a `navigation_click` GTM
+container file containing:
 
 - One GA4 event tag.
-- One link-click trigger constrained by both confirmed URLs and confirmed target selectors.
-- One reusable navigation-area variable.
-- Required click-text, click-URL, and click-element variables.
-- `link_text`, `link_url`, and `navigation_area` event parameters.
+- One link-click trigger limited to confirmed URLs.
+- Required click variables.
 - The configured GA4 measurement ID.
-
-Header, footer, and separately labeled navigation landmarks remain distinct even when
-they contain the same destination URL. Intake shows groups rather than defaulting to
-every link, and the generated setup records explicit included and excluded groups.
 
 The agent marks Setup generation as passed only when this artifact exists and offers `Download GTM setup`. The downloaded file is named `gtm-observability-navigation-click.json`.
 
@@ -187,7 +175,7 @@ an interrupted application resumes from freshly read Google state and completed 
 signatures.
 
 The runner stops at the `versioned` state and returns `await_approval`. The extension
-does not yet expose this orchestration in its visible conversation. Publication remains
+exposes only the preparation and planning boundary. Publication remains
 behind its separate backend flag, OAuth scope, and exact fingerprint approval.
 
 ## Evidence and diagnosis foundations
@@ -225,17 +213,8 @@ abort signal, validates structured provider output, and pairs accepted interpret
 with the deterministic baseline. Its privacy-safe records exclude messages, labels,
 raw responses, prompts, credentials, and exception text.
 
-The evaluation harness remains backend-only and is not a product feature. Separately,
-the visible navigation-scope workflow can use the bounded local Ollama adapter described
-above; invalid or unavailable local output falls back without changing authority.
-
-Navigation scope now has its own 32-case provider-neutral functional corpus. All cases
-run automatically in the deterministic unit gate, while explicit smoke and full
-commands exercise the same production routing policy against local Ollama. The current
-smoke split is 9 deterministic and 6 provider cases; the full split is 20 deterministic
-and 12 provider cases. Reports retain only functional outcomes and safe structural IDs,
-not messages, clarification prose, raw responses, prompts, or timing rankings. A future
-provider can reuse the corpus and evaluator unchanged.
+The evaluation harness remains backend-only and is not a product feature. No model
+output influences the visible workbench or deterministic workflow.
 
 Each shadow record can now be evaluated against its corpus expectation as `pass`,
 `fail`, `hard_failure`, or `inconclusive`. A pass requires all five weighted dimensions
@@ -320,7 +299,7 @@ platform correlation remain independent claims.
 The following product actions remain deliberately unimplemented or unexposed:
 
 - Connecting the prepared workspace to a live browser Preview session.
-- Exposing plan, application, validation, and version evidence in the extension UI.
+- Exposing application, validation, and version evidence in the extension UI.
 - Presenting an exact version fingerprint for approval in the practitioner UI.
 - Exposing approval, publication, rollback, and post-publication evidence as visible
   assistant actions or public workflow routes.

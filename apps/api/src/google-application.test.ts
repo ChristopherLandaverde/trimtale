@@ -182,7 +182,7 @@ describe("idempotent managed-workspace application", () => {
 
     const first = await client.applyManagedWorkspace(input);
     expect(first).toMatchObject({ status: "applied" });
-    expect(fake.entityWriteCount()).toBe(6);
+    expect(fake.entityWriteCount()).toBe(4);
     expect(fake.fetcher.mock.calls.filter(([input]) => new URL(input.toString()).pathname.endsWith("/accounts")))
       .toHaveLength(1);
     expect((fake.entities.tag[0] as Record<string, unknown>).firingTriggerId).toEqual(["100"]);
@@ -192,7 +192,6 @@ describe("idempotent managed-workspace application", () => {
     const triggerBody = JSON.parse(String(triggerCreate?.[1]?.body)) as Record<string, unknown>;
     expect(triggerBody).toMatchObject({ type: "linkClick", checkValidation: { type: "boolean" } });
     expect(triggerBody).toHaveProperty("filter.0.type", "matchRegex");
-    expect(triggerBody).toHaveProperty("filter.1.type", "cssSelector");
     const tagCreate = fake.fetcher.mock.calls.find(([input, init]) =>
       input.toString().endsWith("/tags") && init?.method === "POST");
     const tagBody = JSON.parse(String(tagCreate?.[1]?.body)) as { parameter: Array<{ key?: string }> };
@@ -205,7 +204,7 @@ describe("idempotent managed-workspace application", () => {
     input.completedActionSignatures = first.completedActionSignatures;
     const second = await client.applyManagedWorkspace(input);
     expect(second).toMatchObject({ status: "applied" });
-    expect(fake.entityWriteCount()).toBe(6);
+    expect(fake.entityWriteCount()).toBe(4);
   });
 
   it("resumes after a partial Google failure without recreating completed entities", async () => {

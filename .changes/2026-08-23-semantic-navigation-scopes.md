@@ -2,8 +2,9 @@
 
 Change record version: 2
 
-Issue: `.scratch/semantic-navigation-scopes/issues/01-observed-target-groups.md` and
-`.scratch/semantic-navigation-scopes/issues/05-reversible-navigation-preview.md`
+Status: superseded by `.changes/2026-08-23-trim-semantic-navigation.md`
+
+Original issues and supporting feature documents were removed with the subsystem.
 
 ## Summary
 
@@ -55,14 +56,11 @@ local-model exploratory path also passes.
 
 ## Exploratory review
 
-[The semantic navigation scope review](../docs/reviews/2026-08-23-semantic-navigation-scopes.md)
-also covers immediate preview, keyboard confirmation and removal, fuzzy local inference,
-generic ambiguity, duplicate destinations, an
-instruction-shaped landmark label, and attacker-shaped practitioner wording. Four
-medium findings were fixed during review; no
-unresolved findings remain.
+This record preserves the original verification history. The active product boundary
+and retained navigation review are recorded in
+[`2026-08-23-trim-semantic-navigation.md`](./2026-08-23-trim-semantic-navigation.md).
 
 ## Documentation
 
-Updated `CONTEXT.md`, ADR 0002, the local-model development guide, current
-capabilities, active roadmap, and the five semantic-navigation workflow issues.
+The original glossary terms, ADR, local-model guide, feature review, specification, and
+issues were removed when this change was superseded.
