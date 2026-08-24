@@ -173,7 +173,7 @@ describe("tracking change plan", () => {
     }));
   });
 
-  it("updates a same-name semantic conflict only when it is product-owned", () => {
+  it("blocks a same-name managed change until replacement is explicitly approved", () => {
     const setup = navigationSetup();
     const current = entities(setup);
     const tag = current.tag?.[0] as Record<string, unknown> & {
@@ -183,8 +183,36 @@ describe("tracking change plan", () => {
     if (measurement) measurement.value = "G-OLDVALUE1";
     tag.notes = GTM_MANAGED_ENTITY_NOTE;
 
+    const plan = createTrackingChangePlan(setup, current);
+
+    expect(plan.status).toBe("conflict");
+    expect(plan.actions).toContainEqual(expect.objectContaining({
+      kind: "tag",
+      action: "conflict",
+      reason: "managed_change_requires_approval",
+      existingId: "900002",
+    }));
+  });
+
+  it("blocks replacing a managed tag success trigger", () => {
+    const setup = formSetup();
+    const current = entities(setup);
+    const trigger = current.trigger?.[0] as Record<string, unknown>;
+    const tag = current.tag?.[0] as Record<string, unknown>;
+    trigger.triggerId = "6";
+    trigger.name = "Form success - data_layer_event";
+    trigger.type = "customEvent";
+    tag.tagId = "7";
+    tag.firingTriggerId = ["6"];
+    tag.notes = GTM_MANAGED_ENTITY_NOTE;
+
     expect(createTrackingChangePlan(setup, current).actions).toContainEqual(
-      expect.objectContaining({ kind: "tag", action: "update", existingId: "900002" }),
+      expect.objectContaining({
+        kind: "tag",
+        action: "conflict",
+        reason: "managed_change_requires_approval",
+        existingId: "7",
+      }),
     );
   });
 

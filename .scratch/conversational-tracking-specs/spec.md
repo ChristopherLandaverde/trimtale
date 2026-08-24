@@ -426,6 +426,8 @@ A verified resolution records normalized symptoms, relevant environment attribut
   generation, browser verification, and optional aggregate Realtime confirmation.
 - [x] A confirmed connected lead-form setup can explicitly prepare its managed
   workspace and show a bounded durable plan without applying or publishing it.
+- [x] A same-name managed semantic change blocks before application and requires a
+  separate explicit replacement workflow.
 - [x] Unsupported or unobservable forms produce a diagnostic handoff.
 - [x] The intake acceptance corpus runs through a provider-neutral shadow harness.
 - [x] Shadow records discard invalid output, raw responses, exception text, and private

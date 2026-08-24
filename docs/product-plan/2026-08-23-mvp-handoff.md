@@ -179,10 +179,14 @@ confirmation, and created immutable version 4 with fingerprint `1787537272032` a
 clean validation. The recorded prior-live fingerprint is `1787458659661`; an
 independent read confirmed version 3 remains live and no publication route was called.
 
-Next, review whether version 4's visible-success trigger is the intended durable signal.
-Publication requires a separate exact-fingerprint decision. If it is not approved,
-leave version 4 unpublished and continue with real React coverage and the remaining
-enhanced-measurement event types.
+Version 4 stays unpublished because it would replace the stronger published data-layer
+success trigger with a visible-element trigger. The planner now blocks any same-name
+managed semantic change before application and requires a separate explicit
+replacement workflow.
+
+Next, prove the supported form path against a real React target. After that, audit the
+remaining enhanced-measurement event types without expanding each example into a
+generalized subsystem.
 
 ## Verification checkpoint
 

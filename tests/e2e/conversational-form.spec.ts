@@ -255,6 +255,55 @@ test("reviews a durable form plan without applying it", async ({ context, page }
   });
 });
 
+test("blocks silent replacement of an existing managed setup", async ({ context, page }) => {
+  const journey = await openExtensionJourney(context, page, "confirmed_success", "GTM-TEST123");
+  let resumeRequests = 0;
+  await routeWriteAccess(journey);
+  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/plan", (route) => route.fulfill({
+    status: 201,
+    contentType: "application/json",
+    body: JSON.stringify({
+      result: {
+        status: "planned",
+        operation: {
+          id: "operation_spec_form_contact",
+          status: "planned",
+          plan: {
+            status: "conflict",
+            fingerprint: "plan_form_contact_conflict",
+            actions: [{
+              kind: "tag",
+              action: "conflict",
+              reason: "managed_change_requires_approval",
+              generatedName: "GA4 Event - generate_lead",
+            }],
+          },
+        },
+      },
+    }),
+  }));
+  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/*/resume", (route) => {
+    resumeRequests += 1;
+    return route.abort();
+  });
+
+  const { root } = journey;
+  await approveLeadSetup(journey);
+  await root.getByRole("button", { name: "Prepare workspace & plan" }).click();
+
+  await expect(root.getByText(/Existing managed setup differs.*explicit replacement approval/i)).toBeVisible();
+  await expect(root.getByText(
+    "Existing managed setup differs. Keep it or begin an explicit replacement review.",
+    { exact: true },
+  )).toBeVisible();
+  await expect(root.getByRole("button", { name: "Apply, validate & create version" })).toHaveCount(0);
+  expect(resumeRequests).toBe(0);
+  await root.getByRole("region", { name: "Agent task" }).screenshot({
+    path: test.info().outputPath("managed-replacement-blocked.png"),
+    animations: "disabled",
+  });
+});
+
 test("applies, validates, and versions a reviewed plan only after confirmation", async ({ context, page }) => {
   const journey = await openExtensionJourney(context, page, "confirmed_success", "GTM-TEST123");
   let resumeRequests = 0;

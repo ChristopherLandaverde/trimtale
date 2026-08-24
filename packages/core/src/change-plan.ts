@@ -19,7 +19,14 @@ export type TrackingChangeAction = {
 } & (
   | { action: "create" | "reuse" | "no_op" }
   | { action: "update"; existingId: string }
-  | { action: "conflict"; reason: "ambiguous_equivalent" | "name_collision" | "malformed_generated_entity" }
+  | {
+    action: "conflict";
+    reason:
+      | "ambiguous_equivalent"
+      | "name_collision"
+      | "malformed_generated_entity"
+      | "managed_change_requires_approval";
+  }
 );
 
 export interface TrackingChangePlan {
@@ -211,7 +218,14 @@ function actionForEntity(
   if (sameName.length === 1 && kind !== "builtInVariable"
     && sameName[0]?.notes === GTM_MANAGED_ENTITY_NOTE) {
     const existingId = entityId(kind, sameName[0]);
-    if (existingId) return { ...common, action: "update", existingId };
+    if (existingId) {
+      return {
+        ...common,
+        action: "conflict",
+        reason: "managed_change_requires_approval",
+        existingId,
+      };
+    }
   }
   if (sameName.length > 0) {
     return { ...common, action: "conflict", reason: "name_collision" };

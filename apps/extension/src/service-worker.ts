@@ -243,6 +243,7 @@ interface PlanActionSummary {
   kind: "tag" | "trigger" | "variable" | "builtInVariable";
   action: "create" | "reuse" | "no_op" | "update" | "conflict";
   generatedName: string;
+  reason?: "managed_change_requires_approval";
 }
 
 interface WorkflowPlanSummary {
@@ -305,6 +306,9 @@ function planSummary(value: unknown): WorkflowPlanSummary | undefined {
       kind: action.kind as PlanActionSummary["kind"],
       action: action.action as PlanActionSummary["action"],
       generatedName: action.generatedName,
+      ...(action.action === "conflict" && action.reason === "managed_change_requires_approval"
+        ? { reason: action.reason }
+        : {}),
     });
   }
   return {

@@ -74,6 +74,7 @@ interface PlanActionSummary {
   kind: "tag" | "trigger" | "variable" | "builtInVariable";
   action: "create" | "reuse" | "no_op" | "update" | "conflict";
   generatedName: string;
+  reason?: "managed_change_requires_approval";
 }
 
 interface WorkflowPlanSummary {
@@ -1706,15 +1707,22 @@ function showWorkflowPlan(
 ): void {
   workflowPlansByRequest.set(requestId, plan);
   const ready = plan.planStatus === "ready";
+  const managedChange = plan.actions.some(
+    ({ action, reason }) => action === "conflict" && reason === "managed_change_requires_approval",
+  );
   const task = renderFormTaskState(requestId, intake, {
     status: ready ? "ready_for_review" : "blocked",
     summary: ready
       ? "The durable change plan is ready. Nothing was applied or published."
-      : "The plan contains a conflict. Nothing was applied or published.",
+      : managedChange
+        ? "Existing managed setup differs. Explicit replacement approval is required. Nothing was applied or published."
+        : "The plan contains a conflict. Nothing was applied or published.",
     verifyStatus: "pending",
     question: ready
       ? "Review the planned GTM changes before application."
-      : "Resolve the conflict before application.",
+      : managedChange
+        ? "Existing managed setup differs. Keep it or begin an explicit replacement review."
+        : "Resolve the conflict before application.",
     actions: [
       ...(ready ? [{ id: "apply-form-workflow", label: "Apply, validate & create version" }] : []),
       { id: "download-form-setup", label: "Download GTM setup" },

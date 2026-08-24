@@ -224,7 +224,7 @@ describe("idempotent managed-workspace application", () => {
     expect(fake.entities.tag).toHaveLength(1);
   });
 
-  it("updates only product-owned entities with their current fingerprint", async () => {
+  it("blocks product-owned semantic changes without entity writes", async () => {
     const current = equivalentEntities();
     const tag = current.tag?.[0] as Record<string, unknown> & { parameter?: Array<{ key?: string; value?: string }> };
     const measurement = tag.parameter?.find(({ key }) => key === "measurementId");
@@ -232,17 +232,19 @@ describe("idempotent managed-workspace application", () => {
     tag.notes = GTM_MANAGED_ENTITY_NOTE;
     const fake = applicationFetch(current);
     const client = new GtmDiscoveryClient(async () => "token", fake.fetcher, true);
+    const input = operation(current);
 
-    expect(operation(current).plan.actions).toContainEqual(
-      expect.objectContaining({ kind: "tag", action: "update", existingId: "43" }),
-    );
-    const result = await client.applyManagedWorkspace(operation(current));
+    expect(input.plan.actions).toContainEqual(expect.objectContaining({
+      kind: "tag",
+      action: "conflict",
+      reason: "managed_change_requires_approval",
+      existingId: "43",
+    }));
+    const result = await client.applyManagedWorkspace(input);
 
-    expect(result).toMatchObject({ status: "applied" });
-    const update = fake.fetcher.mock.calls.find(([, init]) => init?.method === "PUT");
-    expect(update?.[0].toString()).toContain("/tags/43?fingerprint=tag-43");
-    expect((fake.entities.tag[0] as { parameter: Array<{ key?: string; value?: string }> }).parameter)
-      .toContainEqual(expect.objectContaining({ key: "measurementIdOverride", value: "G-TEST123456" }));
+    expect(result).toMatchObject({ status: "blocked", reason: "ownership_conflict" });
+    expect(fake.entityWriteCount()).toBe(0);
+    expect(fake.fetcher).not.toHaveBeenCalled();
   });
 
   it("blocks unowned collisions and stale plan or workspace state without entity writes", async () => {
