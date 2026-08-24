@@ -77,6 +77,7 @@ export async function loadGoogleEnvironment(
     EXTENSION_ORIGIN: extensionOrigin,
     GOOGLE_GTM_CONTAINER_WRITES_ENABLED: "true",
     GOOGLE_OAUTH_TOKEN_STORE: tokenPath,
+    GOOGLE_ANALYTICS_READS_ENABLED: "true",
     GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED: "false",
     GOOGLE_GTM_PUBLICATION_ENABLED: "false",
   };

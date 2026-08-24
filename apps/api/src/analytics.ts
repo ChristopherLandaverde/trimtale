@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 const analyticsAdminEndpoint = "https://analyticsadmin.googleapis.com/v1beta";
+const analyticsAdminAlphaEndpoint = "https://analyticsadmin.googleapis.com/v1alpha";
 const analyticsDataEndpoint = "https://analyticsdata.googleapis.com/v1beta";
 const verificationLifetimeMs = 10 * 60 * 1_000;
 const maximumPendingVerifications = 100;
@@ -80,6 +81,17 @@ interface RealtimeResponse {
   }>;
 }
 
+interface EnhancedMeasurementResponse {
+  streamEnabled?: unknown;
+  scrollsEnabled?: unknown;
+  outboundClicksEnabled?: unknown;
+  siteSearchEnabled?: unknown;
+  videoEngagementEnabled?: unknown;
+  fileDownloadsEnabled?: unknown;
+  pageChangesEnabled?: unknown;
+  formInteractionsEnabled?: unknown;
+}
+
 function boundedName(value: unknown): string {
   return typeof value === "string" && value.trim() && value.length <= 256
     ? value.trim()
@@ -102,6 +114,21 @@ function normalizeEventName(value: string): string {
   return normalized;
 }
 
+function protoBoolean(value: unknown): boolean {
+  if (value === undefined) {
+    return false;
+  }
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  throw new AnalyticsIntegrationError(
+    "Google Analytics returned malformed enhanced-measurement settings.",
+    502,
+    "malformed_provider_response",
+  );
+}
+
 export class GoogleAnalyticsReadClient {
   private readonly pending = new Map<string, PendingVerification>();
 
@@ -112,6 +139,33 @@ export class GoogleAnalyticsReadClient {
     private readonly now: () => number = Date.now,
     private readonly createId: () => string = randomUUID,
   ) {}
+
+  async enhancedMeasurement(rawMeasurementId: string) {
+    this.assertEnabled();
+    const measurementId = normalizeMeasurementId(rawMeasurementId);
+    const match = await this.resolveProperty(measurementId);
+    const url = new URL(
+      `${analyticsAdminAlphaEndpoint}/properties/${match.propertyId}/dataStreams/${match.streamId}/enhancedMeasurementSettings`,
+    );
+    const response = await this.getJson<EnhancedMeasurementResponse>(url);
+    const settings = {
+      stream: protoBoolean(response.streamEnabled),
+      pageViews: protoBoolean(response.pageChangesEnabled),
+      scrolls: protoBoolean(response.scrollsEnabled),
+      outboundClicks: protoBoolean(response.outboundClicksEnabled),
+      siteSearch: protoBoolean(response.siteSearchEnabled),
+      videoEngagement: protoBoolean(response.videoEngagementEnabled),
+      fileDownloads: protoBoolean(response.fileDownloadsEnabled),
+      formInteractions: protoBoolean(response.formInteractionsEnabled),
+    };
+
+    return {
+      measurementId,
+      property: { propertyId: match.propertyId, name: match.propertyName },
+      stream: { streamId: match.streamId, name: match.streamName },
+      settings,
+    };
+  }
 
   async start(input: { measurementId: string; eventName: string }) {
     this.assertEnabled();

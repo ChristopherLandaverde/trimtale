@@ -103,6 +103,21 @@ function validObservedContainerIds(value: unknown): value is string[] {
     && value.every((item) => typeof item === "string" && gtmPublicIdPattern.test(item));
 }
 
+function exactMeasurementId(value: unknown): string | undefined {
+  if (!isRecord(value) || !isRecord(value.result) || value.result.status !== "recognized") {
+    return undefined;
+  }
+  const measurementIds = value.result.measurementIds;
+  if (!Array.isArray(measurementIds)
+    || measurementIds.length !== 1
+    || typeof measurementIds[0] !== "string"
+    || !/^G-[A-Z0-9]+$/.test(measurementIds[0])) {
+    return undefined;
+  }
+
+  return measurementIds[0];
+}
+
 chrome.runtime.onMessage.addListener(
   (message: unknown, _sender, sendResponse) => {
     if (!isRecord(message) || message.type !== "GTM_CONNECTION_CONTEXT_REQUEST") return undefined;
@@ -138,7 +153,38 @@ chrome.runtime.onMessage.addListener(
           return;
         }
         const recognition: unknown = await recognitionResponse.json();
-        sendResponse({ ok: true, status: safeStatus, containerIds, recognition });
+        const measurementId = safeStatus.analyticsReadEnabled
+          ? exactMeasurementId(recognition)
+          : undefined;
+        if (!measurementId) {
+          sendResponse({ ok: true, status: safeStatus, containerIds, recognition });
+          return;
+        }
+        try {
+          const enhancedResponse = await fetch(
+            `http://127.0.0.1:8787/api/google/analytics/enhanced-measurement?measurementId=${encodeURIComponent(measurementId)}`,
+          );
+          if (!enhancedResponse.ok) {
+            sendResponse({
+              ok: true,
+              status: safeStatus,
+              containerIds,
+              recognition,
+              enhancedMeasurementError: "unavailable",
+            });
+            return;
+          }
+          const enhancedMeasurement: unknown = await enhancedResponse.json();
+          sendResponse({ ok: true, status: safeStatus, containerIds, recognition, enhancedMeasurement });
+        } catch {
+          sendResponse({
+            ok: true,
+            status: safeStatus,
+            containerIds,
+            recognition,
+            enhancedMeasurementError: "unavailable",
+          });
+        }
       })
       .catch(() => sendResponse({ ok: false, error: "service_offline" }));
     return true;

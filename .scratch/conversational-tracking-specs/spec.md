@@ -69,6 +69,13 @@ Zero or multiple destinations remain unresolved. The card shows whether the sepa
 gated Analytics read capability is enabled; GTM access and Analytics access remain
 different claims.
 
+For one exact GA4 web stream, the workbench reads and reports enhanced-measurement
+readiness before proposing custom tracking. It covers the master switch, history-based
+page views, scrolls, outbound clicks, site search, video engagement, file downloads,
+and form interactions. Disabled settings are gaps, not instructions to create duplicate
+GTM tags. Automatic form interactions remain distinct from a confirmed
+`generate_lead` outcome. The workbench never changes these settings.
+
 ## Supported first slice
 
 ### Interaction and event

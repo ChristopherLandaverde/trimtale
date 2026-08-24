@@ -136,6 +136,31 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "GET" && requestUrl.pathname === "/api/google/analytics/enhanced-measurement") {
+    if (!analyticsClient) {
+      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
+      return;
+    }
+    const measurementId = requestUrl.searchParams.get("measurementId");
+    if (!measurementId) {
+      sendJson(response, 400, { error: "Measurement ID is required." });
+      return;
+    }
+    try {
+      sendJson(response, 200, await analyticsClient.enhancedMeasurement(measurementId));
+    } catch (integrationError) {
+      const status = integrationError instanceof AnalyticsIntegrationError ? integrationError.status : 502;
+      const message = integrationError instanceof AnalyticsIntegrationError
+        ? integrationError.message
+        : "Unable to read enhanced-measurement settings.";
+      const code = integrationError instanceof AnalyticsIntegrationError
+        ? integrationError.code
+        : "provider_unavailable";
+      sendJson(response, status, { error: message, code });
+    }
+    return;
+  }
+
   if (request.method === "POST" && requestUrl.pathname === "/api/google/analytics/verifications/start") {
     if (!analyticsClient) {
       sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });

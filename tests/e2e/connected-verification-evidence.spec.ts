@@ -1,5 +1,28 @@
 import { resolve } from "node:path";
+import type { BrowserContext } from "@playwright/test";
 import { expect, test } from "./helpers/extension-test.js";
+
+async function routeEnhanced(context: BrowserContext): Promise<void> {
+  await context.route("http://127.0.0.1:8787/api/google/analytics/enhanced-measurement?*", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      measurementId: "G-EXACT123",
+      property: { propertyId: "550074997", name: "ConsentFlow Verification" },
+      stream: { streamId: "15443100029", name: "ConsentFlow web" },
+      settings: {
+        stream: true,
+        pageViews: true,
+        scrolls: true,
+        outboundClicks: true,
+        siteSearch: true,
+        videoEngagement: true,
+        fileDownloads: true,
+        formInteractions: true,
+      },
+    }),
+  }));
+}
 
 test("carries exact GTM context through generation, browser evidence, and GA4 confirmation", async ({ context, page }) => {
   let analyticsStarts = 0;
@@ -38,6 +61,7 @@ test("carries exact GTM context through generation, browser evidence, and GA4 co
       },
     }),
   }));
+  await routeEnhanced(context);
   await context.route("http://127.0.0.1:8787/api/google/analytics/verifications/start", async (route) => {
     analyticsStarts += 1;
     expect(route.request().postDataJSON()).toEqual({ measurementId: "G-EXACT123", eventName: "generate_lead" });
@@ -87,6 +111,7 @@ test("carries exact GTM context through generation, browser evidence, and GA4 co
   await root.getByRole("button", { name: "Open tracking agent" }).click();
   await expect(root.getByRole("region", { name: "GTM connection" }).getByText("G-EXACT123", { exact: true }))
     .toBeVisible();
+  await expect(root.getByText("7 of 7 automatic features on", { exact: true })).toBeVisible();
 
   await root.getByLabel("Tracking request").fill("Track leads from the contact form");
   await root.getByRole("button", { name: "Send request" }).click();
@@ -173,6 +198,7 @@ test("keeps browser verification usable when the Analytics provider denies the r
       },
     }),
   }));
+  await routeEnhanced(context);
   await context.route("http://127.0.0.1:8787/api/google/analytics/verifications/start", (route) => route.fulfill({
     status: 502,
     contentType: "application/json",

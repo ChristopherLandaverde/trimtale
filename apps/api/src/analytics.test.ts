@@ -132,4 +132,96 @@ describe("read-only Google Analytics verification", () => {
     await expect(client.start({ measurementId: "G-YV879ECLRV", eventName: "generate_lead" }))
       .rejects.toMatchObject({ status: 502, code: "provider_forbidden" });
   });
+
+  it("reports enhanced-measurement readiness for one exact web stream", async () => {
+    const fetcher = analyticsFetch([0]);
+    fetcher.mockImplementationOnce(async () => Response.json({
+      accountSummaries: [{
+        propertySummaries: [{ property: "properties/550074997", displayName: "ConsentFlow Verification" }],
+      }],
+    })).mockImplementationOnce(async () => Response.json({
+      dataStreams: [{
+        name: "properties/550074997/dataStreams/15443100029",
+        displayName: "ConsentFlow web",
+        webStreamData: { measurementId: "G-YV879ECLRV" },
+      }],
+    })).mockImplementationOnce(async (input, init) => {
+      expect(input.toString()).toBe(
+        "https://analyticsadmin.googleapis.com/v1alpha/properties/550074997/dataStreams/15443100029/enhancedMeasurementSettings",
+      );
+      expect(init?.method).toBeUndefined();
+
+      return Response.json({
+        streamEnabled: true,
+        scrollsEnabled: true,
+        outboundClicksEnabled: true,
+        siteSearchEnabled: false,
+        videoEngagementEnabled: true,
+        fileDownloadsEnabled: true,
+        pageChangesEnabled: true,
+        formInteractionsEnabled: false,
+      });
+    });
+    const client = new GoogleAnalyticsReadClient(async () => "token", fetcher, true);
+
+    await expect(client.enhancedMeasurement("g-yv879eclrv")).resolves.toEqual({
+      measurementId: "G-YV879ECLRV",
+      property: { propertyId: "550074997", name: "ConsentFlow Verification" },
+      stream: { streamId: "15443100029", name: "ConsentFlow web" },
+      settings: {
+        stream: true,
+        pageViews: true,
+        scrolls: true,
+        outboundClicks: true,
+        siteSearch: false,
+        videoEngagement: true,
+        fileDownloads: true,
+        formInteractions: false,
+      },
+    });
+  });
+
+  it("decodes omitted protobuf booleans as false", async () => {
+    const fetcher = analyticsFetch([0]);
+    fetcher.mockImplementationOnce(async () => Response.json({
+      accountSummaries: [{ propertySummaries: [{ property: "properties/1", displayName: "Property" }] }],
+    })).mockImplementationOnce(async () => Response.json({
+      dataStreams: [{
+        name: "properties/1/dataStreams/2",
+        displayName: "Stream",
+        webStreamData: { measurementId: "G-YV879ECLRV" },
+      }],
+    })).mockImplementationOnce(async () => Response.json({ streamEnabled: true }));
+    const client = new GoogleAnalyticsReadClient(async () => "token", fetcher, true);
+
+    await expect(client.enhancedMeasurement("G-YV879ECLRV")).resolves.toMatchObject({
+      settings: {
+        stream: true,
+        pageViews: false,
+        scrolls: false,
+        outboundClicks: false,
+        siteSearch: false,
+        videoEngagement: false,
+        fileDownloads: false,
+        formInteractions: false,
+      },
+    });
+  });
+
+  it("rejects non-boolean enhanced-measurement settings", async () => {
+    const fetcher = analyticsFetch([0]);
+    fetcher.mockImplementationOnce(async () => Response.json({
+      accountSummaries: [{ propertySummaries: [{ property: "properties/1", displayName: "Property" }] }],
+    })).mockImplementationOnce(async () => Response.json({
+      dataStreams: [{
+        name: "properties/1/dataStreams/2",
+        displayName: "Stream",
+        webStreamData: { measurementId: "G-YV879ECLRV" },
+      }],
+    })).mockImplementationOnce(async () => Response.json({ streamEnabled: "yes" }));
+    const client = new GoogleAnalyticsReadClient(async () => "token", fetcher, true);
+
+    await expect(client.enhancedMeasurement("G-YV879ECLRV"))
+      .rejects.toMatchObject({ status: 502, code: "malformed_provider_response" });
+  });
 });

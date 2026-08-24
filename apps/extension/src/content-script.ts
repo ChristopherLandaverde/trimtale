@@ -117,11 +117,31 @@ interface GtmConnectionStatus {
   analyticsReadEnabled: boolean;
 }
 
+interface EnhancedMeasurementSettings {
+  stream: boolean;
+  pageViews: boolean;
+  scrolls: boolean;
+  outboundClicks: boolean;
+  siteSearch: boolean;
+  videoEngagement: boolean;
+  fileDownloads: boolean;
+  formInteractions: boolean;
+}
+
+interface EnhancedMeasurementAudit {
+  measurementId: string;
+  property: { propertyId: string; name: string };
+  stream: { streamId: string; name: string };
+  settings: EnhancedMeasurementSettings;
+}
+
 interface GtmConnectionContext {
   status: GtmConnectionStatus;
   containerIds: string[];
   recognitionError?: "recognition_unavailable";
   result?: GtmContainerResult;
+  enhancedMeasurement?: EnhancedMeasurementAudit;
+  enhancedMeasurementError?: "unavailable";
 }
 
 type GtmConnectionView =
@@ -142,6 +162,8 @@ type GtmConnectionView =
     account: { accountId: string; name: string };
     container: { accountId: string; containerId: string; name: string; publicId: string };
     measurementIds: string[];
+    enhancedMeasurement?: EnhancedMeasurementAudit;
+    enhancedMeasurementError?: "unavailable";
   };
 
 interface EvidencePathHandle {
@@ -818,7 +840,35 @@ function parseConnectionContext(value: unknown, observedContainerIds: string[]):
   const result = parseConnectionResult(value.recognition.result, containerIds[0]!);
   if (!result || typeof value.recognition.containerWritesEnabled !== "boolean"
     || value.recognition.containerWritesEnabled !== status.containerWritesEnabled) return undefined;
-  return { status, containerIds, result };
+  if (value.enhancedMeasurementError !== undefined
+    && value.enhancedMeasurementError !== "unavailable") {
+    return undefined;
+  }
+  if (value.enhancedMeasurement !== undefined && value.enhancedMeasurementError !== undefined) {
+    return undefined;
+  }
+  const measurementId = result.status === "recognized" && result.measurementIds?.length === 1
+    ? result.measurementIds[0]
+    : undefined;
+  if ((value.enhancedMeasurement !== undefined || value.enhancedMeasurementError !== undefined)
+    && (!status.analyticsReadEnabled || !measurementId)) {
+    return undefined;
+  }
+  const enhancedMeasurement = value.enhancedMeasurement === undefined
+    ? undefined
+    : parseEnhancedMeasurement(value.enhancedMeasurement, measurementId!);
+  const enhancedMeasurementError = value.enhancedMeasurementError === "unavailable"
+    || (value.enhancedMeasurement !== undefined && !enhancedMeasurement)
+    ? "unavailable" as const
+    : undefined;
+
+  return {
+    status,
+    containerIds,
+    result,
+    ...(enhancedMeasurement ? { enhancedMeasurement } : {}),
+    ...(enhancedMeasurementError ? { enhancedMeasurementError } : {}),
+  };
 }
 
 function parseAnalyticsResource(
@@ -828,6 +878,53 @@ function parseAnalyticsResource(
   if (!isRecord(value) || !isBoundedText(value[idKey], 64) || !/^\d+$/.test(value[idKey])
     || !isBoundedText(value.name)) return undefined;
   return { id: value[idKey], name: value.name };
+}
+
+function parseEnhancedSettings(value: unknown): EnhancedMeasurementSettings | undefined {
+  if (!isRecord(value)
+    || typeof value.stream !== "boolean"
+    || typeof value.pageViews !== "boolean"
+    || typeof value.scrolls !== "boolean"
+    || typeof value.outboundClicks !== "boolean"
+    || typeof value.siteSearch !== "boolean"
+    || typeof value.videoEngagement !== "boolean"
+    || typeof value.fileDownloads !== "boolean"
+    || typeof value.formInteractions !== "boolean") {
+    return undefined;
+  }
+
+  return {
+    stream: value.stream,
+    pageViews: value.pageViews,
+    scrolls: value.scrolls,
+    outboundClicks: value.outboundClicks,
+    siteSearch: value.siteSearch,
+    videoEngagement: value.videoEngagement,
+    fileDownloads: value.fileDownloads,
+    formInteractions: value.formInteractions,
+  };
+}
+
+function parseEnhancedMeasurement(
+  value: unknown,
+  measurementId: string,
+): EnhancedMeasurementAudit | undefined {
+  if (!isRecord(value) || value.measurementId !== measurementId) {
+    return undefined;
+  }
+  const property = parseAnalyticsResource(value.property, "propertyId");
+  const stream = parseAnalyticsResource(value.stream, "streamId");
+  const settings = parseEnhancedSettings(value.settings);
+  if (!property || !stream || !settings) {
+    return undefined;
+  }
+
+  return {
+    measurementId,
+    property: { propertyId: property.id, name: property.name },
+    stream: { streamId: stream.id, name: stream.name },
+    settings,
+  };
 }
 
 function parseGa4Started(value: unknown): Ga4VerificationStarted | undefined {
@@ -921,6 +1018,49 @@ function appendConnectionRow(parent: HTMLElement, label: string, value: string):
   parent.append(row);
 }
 
+const enhancedFeatures: Array<{
+  key: Exclude<keyof EnhancedMeasurementSettings, "stream">;
+  label: string;
+}> = [
+  { key: "pageViews", label: "SPA page views" },
+  { key: "scrolls", label: "Scrolls" },
+  { key: "outboundClicks", label: "Outbound clicks" },
+  { key: "siteSearch", label: "Site search" },
+  { key: "videoEngagement", label: "Video engagement" },
+  { key: "fileDownloads", label: "File downloads" },
+  { key: "formInteractions", label: "Form interactions" },
+];
+
+function appendEnhancedRows(
+  parent: HTMLElement,
+  audit?: EnhancedMeasurementAudit,
+  error?: "unavailable",
+): void {
+  if (error === "unavailable") {
+    appendConnectionRow(parent, "Enhanced measurement", "Enhanced measurement check unavailable");
+    return;
+  }
+  if (!audit) {
+    return;
+  }
+  const enabled = audit.settings.stream
+    ? enhancedFeatures.filter(({ key }) => audit.settings[key]).length
+    : 0;
+  const missing = enhancedFeatures
+    .filter(({ key }) => !audit.settings.stream || !audit.settings[key])
+    .map(({ label }) => label);
+  const summary = audit.settings.stream
+    ? `${enabled} of ${enhancedFeatures.length} automatic features on`
+    : `Master switch off · 0 of ${enhancedFeatures.length} active`;
+
+  appendConnectionRow(parent, "Enhanced measurement", summary);
+  appendConnectionRow(
+    parent,
+    "Coverage gaps",
+    missing.length === 0 ? "No automatic coverage gaps" : missing.join(" · "),
+  );
+}
+
 function renderGtmConnection(view: GtmConnectionView): void {
   if (!gtmConnectionCard) return;
   gtmConnectionCard.replaceChildren();
@@ -1012,7 +1152,11 @@ function renderGtmConnection(view: GtmConnectionView): void {
       "GA4",
       view.measurementIds.length > 0 ? view.measurementIds.join(" · ") : "No live destination found",
     );
-    note.textContent = `${accessExplanation(view.status)} Analytics reads are ${view.status.analyticsReadEnabled ? "enabled" : "off"}.`;
+    appendEnhancedRows(body, view.enhancedMeasurement, view.enhancedMeasurementError);
+    const leadBoundary = view.enhancedMeasurement
+      ? " Confirmed lead outcomes remain separate."
+      : "";
+    note.textContent = `${accessExplanation(view.status)} Analytics reads are ${view.status.analyticsReadEnabled ? "enabled" : "off"}.${leadBoundary}`;
   }
 
   body.prepend(summary);
@@ -1088,6 +1232,10 @@ async function loadGtmConnectionContext(force = false): Promise<void> {
       account: context.result.account,
       container: context.result.container,
       measurementIds: context.result.measurementIds ?? [],
+      ...(context.enhancedMeasurement ? { enhancedMeasurement: context.enhancedMeasurement } : {}),
+      ...(context.enhancedMeasurementError
+        ? { enhancedMeasurementError: context.enhancedMeasurementError }
+        : {}),
     };
     recognizedGtmContext = view;
     renderGtmConnection(view);

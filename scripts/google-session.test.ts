@@ -55,6 +55,7 @@ describe("persistent Google session", () => {
       EXTENSION_ORIGIN: `chrome-extension://${"a".repeat(32)}`,
       GOOGLE_GTM_CONTAINER_WRITES_ENABLED: "true",
       GOOGLE_OAUTH_TOKEN_STORE: join(directory, "google-token.json"),
+      GOOGLE_ANALYTICS_READS_ENABLED: "true",
       GOOGLE_GTM_PUBLICATION_ENABLED: "false",
       GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED: "false",
     });

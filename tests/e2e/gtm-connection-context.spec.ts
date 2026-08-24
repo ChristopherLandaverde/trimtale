@@ -70,6 +70,144 @@ test("shows authenticated account, container, and read-only access before chat",
   });
 });
 
+const enhancedMeasurementScenarios = [
+  {
+    name: "complete automatic coverage",
+    settings: {
+      stream: true,
+      pageViews: true,
+      scrolls: true,
+      outboundClicks: true,
+      siteSearch: true,
+      videoEngagement: true,
+      fileDownloads: true,
+      formInteractions: true,
+    },
+    summary: "7 of 7 automatic features on",
+    detail: "No automatic coverage gaps",
+    snapshot: undefined,
+  },
+  {
+    name: "automatic coverage gaps",
+    settings: {
+      stream: true,
+      pageViews: true,
+      scrolls: true,
+      outboundClicks: true,
+      siteSearch: false,
+      videoEngagement: true,
+      fileDownloads: true,
+      formInteractions: false,
+    },
+    summary: "5 of 7 automatic features on",
+    detail: "Site search · Form interactions",
+    snapshot: undefined,
+  },
+  {
+    name: "a disabled master switch",
+    settings: {
+      stream: false,
+      pageViews: true,
+      scrolls: true,
+      outboundClicks: true,
+      siteSearch: true,
+      videoEngagement: true,
+      fileDownloads: true,
+      formInteractions: true,
+    },
+    summary: "Master switch off · 0 of 7 active",
+    detail: "SPA page views · Scrolls · Outbound clicks · Site search · Video engagement · File downloads · Form interactions",
+    snapshot: "enhanced-measurement-master-off.png",
+  },
+];
+
+for (const scenario of enhancedMeasurementScenarios) {
+  test(`shows ${scenario.name} for one exact GA4 stream`, async ({ context, page }) => {
+    await context.route("http://127.0.0.1:8787/api/google/status", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ ...connectedReadOnlyStatus, analyticsReadEnabled: true }),
+    }));
+    await context.route("http://127.0.0.1:8787/api/google/containers/recognize?*", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        containerWritesEnabled: false,
+        result: {
+          status: "recognized",
+          publicId: "GTM-TEST123",
+          account: { accountId: "1", name: "Agency" },
+          container: { accountId: "1", containerId: "10", name: "Lead site", publicId: "GTM-TEST123" },
+          measurementIds: ["G-TEST123456"],
+        },
+      }),
+    }));
+    await context.route("http://127.0.0.1:8787/api/google/analytics/enhanced-measurement?*", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        measurementId: "G-TEST123456",
+        property: { propertyId: "2", name: "GA4 property" },
+        stream: { streamId: "20", name: "Web stream" },
+        settings: scenario.settings,
+      }),
+    }));
+
+    await page.goto("http://127.0.0.1:4173/?gtm=GTM-TEST123");
+    const root = page.locator("#gtm-observability-root");
+    await root.getByRole("button", { name: "Open tracking agent" }).click();
+    const card = root.getByRole("region", { name: "GTM connection" });
+
+    await expect(card.getByText(scenario.summary, { exact: true })).toBeVisible();
+    await expect(card.getByText(scenario.detail, { exact: true })).toBeVisible();
+    await expect(card.getByText(/confirmed lead outcomes remain separate/i)).toBeVisible();
+    if (scenario.snapshot) {
+      await expect(card).toHaveScreenshot(scenario.snapshot, screenshotOptions);
+    }
+  });
+}
+
+test("bounds a malformed enhanced-measurement response", async ({ context, page }) => {
+  await context.route("http://127.0.0.1:8787/api/google/status", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ ...connectedReadOnlyStatus, analyticsReadEnabled: true }),
+  }));
+  await context.route("http://127.0.0.1:8787/api/google/containers/recognize?*", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      containerWritesEnabled: false,
+      result: {
+        status: "recognized",
+        publicId: "GTM-TEST123",
+        account: { accountId: "1", name: "Agency" },
+        container: { accountId: "1", containerId: "10", name: "Lead site", publicId: "GTM-TEST123" },
+        measurementIds: ["G-TEST123456"],
+      },
+    }),
+  }));
+  await context.route("http://127.0.0.1:8787/api/google/analytics/enhanced-measurement?*", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      measurementId: "G-TEST123456",
+      property: { propertyId: "2", name: "<script>provider secret</script>" },
+      stream: { streamId: "20", name: "Web stream" },
+      settings: { stream: "yes" },
+    }),
+  }));
+
+  await page.goto("http://127.0.0.1:4173/?gtm=GTM-TEST123");
+  const root = page.locator("#gtm-observability-root");
+  await root.getByRole("button", { name: "Open tracking agent" }).click();
+  const card = root.getByRole("region", { name: "GTM connection" });
+
+  await expect(card.getByText("Lead site", { exact: true })).toBeVisible();
+  await expect(card.getByText("Enhanced measurement check unavailable", { exact: true })).toBeVisible();
+  await expect(card.getByText(/provider secret/i)).toHaveCount(0);
+});
+
 test("shows a local-service diagnostic without disabling chat", async ({ context, page }) => {
   await context.route("http://127.0.0.1:8787/api/google/status", (route) => route.abort("connectionrefused"));
   await page.goto("http://127.0.0.1:4173/?gtm=GTM-TEST123");

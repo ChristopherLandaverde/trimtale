@@ -175,9 +175,10 @@ npm run google -- api
 ```
 
 The launcher validates the client/token binding, supplies the fixed callback and
-extension origin, enables guarded container writes, and forces publication off. It
-never prints credentials. Set `GTM_OBSERVABILITY_CONFIG_DIR` only when an alternate
-owner-only config directory is required.
+extension origin, enables read-only Analytics checks and guarded container writes, and
+forces publication off. It never prints credentials. Set
+`GTM_OBSERVABILITY_CONFIG_DIR` only when an alternate owner-only config directory is
+required.
 
 This Google preflight remains outside `npm run agent` and ordinary verification. It
 checks the OAuth client variables, exact local callback, exact extension origin, and
