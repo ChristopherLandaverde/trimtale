@@ -165,6 +165,20 @@ presence and shape of its configuration without printing values:
 npm run preflight:google
 ```
 
+For repeat local sessions, store `google-client.json`, the bound
+`google-token.json`, and `extension-origin` under
+`~/.config/gtm-observability/`, each with mode `0600`. Then use:
+
+```bash
+npm run google -- preflight
+npm run google -- api
+```
+
+The launcher validates the client/token binding, supplies the fixed callback and
+extension origin, enables guarded container writes, and forces publication off. It
+never prints credentials. Set `GTM_OBSERVABILITY_CONFIG_DIR` only when an alternate
+owner-only config directory is required.
+
 This Google preflight remains outside `npm run agent` and ordinary verification. It
 checks the OAuth client variables, exact local callback, exact extension origin, and
 explicit container-write switch; it does not contact Google or prove live access.
