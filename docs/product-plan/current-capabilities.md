@@ -196,7 +196,8 @@ The shared domain package includes:
 - Normalized, privacy-filtered run evidence.
 - Deterministic evidence-to-verdict rules.
 - Explicit browser-verification and platform-confirmation boundaries.
-- A scenario corpus for known successful, failing, ambiguous, consent-limited, dynamic, and cross-origin cases.
+- A scenario corpus for known successful, failing, ambiguous, consent-limited, dynamic,
+  real React SPA, and cross-origin cases.
 - A verified-resolution format requiring failing-before evidence, passing-after evidence, a controlled cause and corrective action, and human confirmation.
 - A read-only tracking change planner that classifies supported generated entities as
   create, reuse, no-op, or conflict against freshly read managed-workspace entities.
@@ -282,8 +283,8 @@ Current completion gate:
 npm run verify
 ```
 
-The most recent full completion run passed 264 deterministic tests across 37 files and
-all 33 Chromium workflows.
+The most recent full completion run passed 278 deterministic tests across 40 files and
+all 45 Chromium workflows.
 
 ## Credentialed disposable-container evidence
 

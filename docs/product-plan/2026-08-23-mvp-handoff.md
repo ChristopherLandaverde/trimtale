@@ -164,8 +164,8 @@ for the current setup workflow.
 - Ordinary verification mocks Google. The disposable credentialed GTM application
   journey passed, but live browser behavior still represents published version 3, not
   unpublished version 4.
-- The fixture corpus simulates dynamic and SPA behavior but does not prove a real React
-  application integration.
+- The real React fixture proves one client-rendered form and SPA success transition; it
+  does not claim coverage for every React framework or form library.
 - Enhanced-measurement coverage beyond current form and navigation behavior is not
   complete.
 - A browser run before the immutable version is published can verify only existing live
@@ -184,9 +184,9 @@ success trigger with a visible-element trigger. The planner now blocks any same-
 managed semantic change before application and requires a separate explicit
 replacement workflow.
 
-Next, prove the supported form path against a real React target. After that, audit the
-remaining enhanced-measurement event types without expanding each example into a
-generalized subsystem.
+The supported form path now passes against a real React 19.2.8 target without
+framework-specific product code. Next, audit the remaining enhanced-measurement event
+types without expanding each example into a generalized subsystem.
 
 ## Verification checkpoint
 
