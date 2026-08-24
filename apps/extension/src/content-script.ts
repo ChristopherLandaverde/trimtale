@@ -1457,6 +1457,7 @@ function automaticCoverage(): AgentTurnContext["automaticCoverage"] {
   return {
     enabled: settings.stream,
     outboundClicks: settings.outboundClicks,
+    fileDownloads: settings.fileDownloads,
     formInteractions: settings.formInteractions,
   };
 }

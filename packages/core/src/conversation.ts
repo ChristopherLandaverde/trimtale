@@ -1,6 +1,7 @@
 export type ConversationInteraction =
   | "navigation_click"
   | "form_submission"
+  | "file_download"
   | "cta_click"
   | "phone_click"
   | "email_click"
@@ -52,6 +53,7 @@ function normalized(value: string): string {
 export function classifyConversationInteraction(message: string): ConversationInteraction {
   const value = normalized(message);
   if (/\b(form|forms|submit|submission|lead|leads|inquiry|inquiries)\b/.test(value)) return "form_submission";
+  if (/\b(download|downloads)\b/.test(value)) return "file_download";
   if (/\b(phone|call|telephone|tel)\b/.test(value)) return "phone_click";
   if (/\b(email|mailto)\b/.test(value)) return "email_click";
   if (/\b(cta|call to action|button)\b/.test(value)) return "cta_click";
@@ -136,6 +138,14 @@ export function interpretConversationIntent(
 ): ConversationIntakeResult {
   const interaction = classifyConversationInteraction(message);
   if (interaction === "form_submission") return formResult(message, page);
+  if (interaction === "file_download") {
+    return {
+      interaction,
+      state: "awaiting_scope",
+      canConfirm: false,
+      options: [],
+    };
+  }
   if (interaction === "navigation_click") {
     return {
       interaction,

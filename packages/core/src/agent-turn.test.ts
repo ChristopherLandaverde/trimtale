@@ -84,7 +84,12 @@ describe("provider-neutral agent turns", () => {
   });
 
   it("puts automatic GA4 coverage in the task decision", () => {
-    const coverage = { enabled: true, outboundClicks: true, formInteractions: true };
+    const coverage = {
+      enabled: true,
+      outboundClicks: true,
+      fileDownloads: true,
+      formInteractions: true,
+    };
     const navigation = agentTurnForIntake(
       interpretConversationIntent("Track navigation clicks", { navigationCount: 5, forms: [] }),
       { formCount: 0, navigationCount: 5, automaticCoverage: coverage },
@@ -121,6 +126,83 @@ describe("provider-neutral agent turns", () => {
       goal: "Needs setup · Navigation tracking",
       status: "needs_input",
       summary: "GA4 automatic measurement is off. I found 5 navigation links; choose all of them or narrow the scope.",
+    });
+  });
+
+  it("decides automatic file-download coverage without generating GTM", () => {
+    const intake = interpretConversationIntent("Track downloads", {
+      navigationCount: 0,
+      forms: [],
+    });
+    const connection = {
+      publicId: "GTM-TEST123",
+      measurementId: "G-TEST123456",
+    };
+    const covered = agentTurnForIntake(intake, {
+      formCount: 0,
+      navigationCount: 0,
+      connection,
+      automaticCoverage: {
+        enabled: true,
+        outboundClicks: true,
+        fileDownloads: true,
+        formInteractions: true,
+      },
+    });
+    const masterOff = agentTurnForIntake(intake, {
+      formCount: 0,
+      navigationCount: 0,
+      connection,
+      automaticCoverage: {
+        enabled: false,
+        outboundClicks: true,
+        fileDownloads: true,
+        formInteractions: true,
+      },
+    });
+    const downloadsOff = agentTurnForIntake(intake, {
+      formCount: 0,
+      navigationCount: 0,
+      connection,
+      automaticCoverage: {
+        enabled: true,
+        outboundClicks: true,
+        fileDownloads: false,
+        formInteractions: true,
+      },
+    });
+    const missingStream = agentTurnForIntake(intake, {
+      formCount: 0,
+      navigationCount: 0,
+      connection: { publicId: "GTM-TEST123" },
+      automaticCoverage: {
+        enabled: true,
+        outboundClicks: true,
+        fileDownloads: true,
+        formInteractions: true,
+      },
+    });
+
+    expect(covered.task).toEqual({
+      goal: "Already covered · File downloads",
+      status: "completed",
+      summary: "GA4 G-TEST123456 automatically measures supported file links. No GTM setup is needed. Next: verify a real file link in the browser.",
+    });
+    expect(covered.actions).toEqual([]);
+    expect(masterOff.task).toEqual({
+      goal: "Coverage gap · File downloads",
+      status: "blocked",
+      summary: "GA4 automatic measurement is off for G-TEST123456. File downloads are not automatically covered. No GTM setup was generated.",
+    });
+    expect(downloadsOff.task).toEqual({
+      goal: "Coverage gap · File downloads",
+      status: "blocked",
+      summary: "GA4 automatic file downloads are off for G-TEST123456. No GTM setup was generated.",
+    });
+    expect(missingStream.task).toEqual({
+      goal: "Coverage unknown · File downloads",
+      status: "blocked",
+      summary: "Connect one exact GA4 stream before deciding download coverage. No GTM setup was generated.",
     });
   });
 

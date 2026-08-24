@@ -447,6 +447,8 @@ A verified resolution records normalized symptoms, relevant environment attribut
 - [x] The unchanged extension completes the supported form path on a real
   React-rendered SPA form.
 - [x] Unsupported or unobservable forms produce a diagnostic handoff.
+- [x] A download-tracking request reports exact automatic GA4 coverage and never
+  generates duplicate GTM setup.
 - [x] The intake acceptance corpus runs through a provider-neutral shadow harness.
 - [x] Shadow records discard invalid output, raw responses, exception text, and private
   model-facing values while preserving the deterministic baseline.

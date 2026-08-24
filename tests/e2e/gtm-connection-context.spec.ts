@@ -189,6 +189,50 @@ for (const scenario of enhancedMeasurementScenarios) {
   });
 }
 
+test("reports automatic download coverage without GTM generation", async ({ context, page }) => {
+  await context.route("http://127.0.0.1:8787/api/google/status", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ ...connectedReadOnlyStatus, analyticsReadEnabled: true }),
+  }));
+  await context.route("http://127.0.0.1:8787/api/google/containers/recognize?*", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      containerWritesEnabled: false,
+      result: {
+        status: "recognized",
+        publicId: "GTM-TEST123",
+        account: { accountId: "1", name: "Agency" },
+        container: { accountId: "1", containerId: "10", name: "Lead site", publicId: "GTM-TEST123" },
+        measurementIds: ["G-TEST123456"],
+      },
+    }),
+  }));
+  await context.route("http://127.0.0.1:8787/api/google/analytics/enhanced-measurement?*", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      measurementId: "G-TEST123456",
+      property: { propertyId: "2", name: "GA4 property" },
+      stream: { streamId: "20", name: "Web stream" },
+      settings: enhancedMeasurementScenarios[0]!.settings,
+    }),
+  }));
+
+  await page.goto("http://127.0.0.1:4173/?gtm=GTM-TEST123");
+  const root = page.locator("#gtm-observability-root");
+  await root.getByRole("button", { name: "Open tracking agent" }).click();
+  await root.getByLabel("Tracking request").fill("Track downloads");
+  await root.getByRole("button", { name: "Send request" }).click();
+
+  const task = root.getByRole("region", { name: "Agent task" });
+  await expect(task.getByText("Already covered · File downloads", { exact: true })).toBeVisible();
+  await expect(task.getByText(/G-TEST123456 automatically measures supported file links/i)).toBeVisible();
+  await expect(task.getByText(/No GTM setup is needed/i)).toBeVisible();
+  await expect(task.getByRole("button", { name: /setup|track all|choose links/i })).toHaveCount(0);
+});
+
 test("reviews and confirms one exact enhanced-measurement switch", async ({ context, page }) => {
   let enableRequests = 0;
   let enabled = false;

@@ -18,6 +18,7 @@ function validAutomaticCoverage(
 
   return typeof value.enabled === "boolean"
     && typeof value.outboundClicks === "boolean"
+    && typeof value.fileDownloads === "boolean"
     && typeof value.formInteractions === "boolean";
 }
 

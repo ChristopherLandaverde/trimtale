@@ -44,6 +44,7 @@ export interface AgentTurnContext {
   automaticCoverage?: {
     enabled: boolean;
     outboundClicks: boolean;
+    fileDownloads: boolean;
     formInteractions: boolean;
   };
   connection?: {
@@ -51,6 +52,9 @@ export interface AgentTurnContext {
     measurementId?: string;
   };
 }
+
+const gtmPublicIdPattern = /^GTM-[A-Z0-9]+$/;
+const ga4MeasurementIdPattern = /^G-[A-Z0-9]+$/;
 
 function leadTask(
   context: AgentTurnContext,
@@ -109,11 +113,76 @@ function plan(
 function safeConnection(context: AgentTurnContext): AgentActionReceiptV1 | undefined {
   const publicId = context.connection?.publicId.trim().toUpperCase();
   const measurementId = context.connection?.measurementId?.trim().toUpperCase();
-  if (!publicId || !/^GTM-[A-Z0-9]+$/.test(publicId)) return undefined;
-  const detail = measurementId && /^G-[A-Z0-9]+$/.test(measurementId)
+  if (!publicId || !gtmPublicIdPattern.test(publicId)) return undefined;
+  const detail = measurementId && ga4MeasurementIdPattern.test(measurementId)
     ? `${publicId} · ${measurementId}`
     : publicId;
   return { id: "gtm-connected", label: "Connected measurement context", detail, status: "completed" };
+}
+
+function exactMeasurementId(context: AgentTurnContext): string | undefined {
+  const publicId = context.connection?.publicId.trim().toUpperCase();
+  const measurementId = context.connection?.measurementId?.trim().toUpperCase();
+  if (!publicId || !gtmPublicIdPattern.test(publicId)) return undefined;
+  if (!measurementId || !ga4MeasurementIdPattern.test(measurementId)) return undefined;
+
+  return measurementId;
+}
+
+function downloadTask(context: AgentTurnContext): AgentTurnV1["task"] {
+  const measurementId = exactMeasurementId(context);
+  if (!measurementId) {
+    return {
+      goal: "Coverage unknown · File downloads",
+      status: "blocked",
+      summary: "Connect one exact GA4 stream before deciding download coverage. No GTM setup was generated.",
+    };
+  }
+
+  const coverage = context.automaticCoverage;
+  if (!coverage) {
+    return {
+      goal: "Coverage unknown · File downloads",
+      status: "blocked",
+      summary: `Enhanced-measurement coverage could not be read for ${measurementId}. No GTM setup was generated.`,
+    };
+  }
+  if (!coverage.enabled) {
+    return {
+      goal: "Coverage gap · File downloads",
+      status: "blocked",
+      summary: `GA4 automatic measurement is off for ${measurementId}. File downloads are not automatically covered. No GTM setup was generated.`,
+    };
+  }
+  if (!coverage.fileDownloads) {
+    return {
+      goal: "Coverage gap · File downloads",
+      status: "blocked",
+      summary: `GA4 automatic file downloads are off for ${measurementId}. No GTM setup was generated.`,
+    };
+  }
+
+  return {
+    goal: "Already covered · File downloads",
+    status: "completed",
+    summary: `GA4 ${measurementId} automatically measures supported file links. No GTM setup is needed. Next: verify a real file link in the browser.`,
+  };
+}
+
+function downloadTurn(
+  context: AgentTurnContext,
+  receipts: AgentActionReceiptV1[],
+): AgentTurnV1 {
+  const task = downloadTask(context);
+  const planStatus = task.status === "completed" ? "completed" : "blocked";
+
+  return {
+    schemaVersion: 1,
+    task,
+    plan: plan(planStatus, planStatus, task.status === "completed" ? "pending" : "blocked"),
+    actions: [],
+    receipts,
+  };
 }
 
 export function agentTurnForIntake(
@@ -129,6 +198,10 @@ export function agentTurnForIntake(
   const connection = safeConnection(context);
   if (connection) receipts.push(connection);
   const actions = intake.options.map((action) => ({ id: action.id, label: action.label }));
+
+  if (intake.interaction === "file_download") {
+    return downloadTurn(context, receipts);
+  }
 
   if (intake.interaction === "navigation_click") {
     const count = boundedCount(context.navigationCount);

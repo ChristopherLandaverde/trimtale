@@ -78,4 +78,27 @@ describe("deterministic conversation intake", () => {
     const current = interpretConversationIntent("Track Contact sales", { navigationCount: 0, forms: [contact, newsletter] });
     expect(() => selectConversationSuccess(current, contact, newsletter.successSignals[0]!)).toThrow(/must belong/);
   });
+
+  it("recognizes a file-download tracking request", () => {
+    const result = interpretConversationIntent("Track downloads", {
+      navigationCount: 0,
+      forms: [],
+    });
+
+    expect(result).toEqual({
+      interaction: "file_download",
+      state: "awaiting_scope",
+      canConfirm: false,
+      options: [],
+    });
+  });
+
+  it("does not infer downloads from unrelated document language", () => {
+    const result = interpretConversationIntent("Track document views", {
+      navigationCount: 0,
+      forms: [],
+    });
+
+    expect(result.interaction).toBe("unknown");
+  });
 });
