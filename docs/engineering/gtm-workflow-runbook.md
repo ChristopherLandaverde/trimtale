@@ -240,6 +240,25 @@ without invoking rollback.
 | Browser request passes but GA4 count is unchanged | Keep platform confirmation pending, allow the explicit retry, and retain the independent browser pass. Do not submit repeatedly merely to outrun Realtime latency. |
 | Analytics Data API read is denied | Confirm the API is enabled for the OAuth project and the saved grant includes `analytics.readonly`; do not broaden to an edit scope. |
 
+## Second live unpublished version review
+
+On 2026-08-23, Playwright drove the visible ConsentFlow workbench through the current
+plan, exact application confirmation, resume, validation, and version result:
+
+- Operation: `operation_spec_form_workflow-smoke-form`.
+- Plan: create `Form success - visible_element`, update managed
+  `GA4 Event - generate_lead`, and retain `Page URL` unchanged.
+- Validation: passed with zero compiler errors; preview fingerprint
+  `1787537271064`.
+- Immutable version: version 4, fingerprint `1787537272032`.
+- Prior live: version 3, fingerprint `1787458659661`.
+- Publication: no approval, publish, or rollback request occurred. A fresh container
+  read confirmed version 3 remained live.
+
+The run proves the workbench's credentialed application boundary. It does not prove
+version 4's browser behavior because the version remains unpublished. Review its
+visible-success trigger before any separate publication decision.
+
 ## Related documentation
 
 - [Resumable API workflow](./resumable-api-workflow.md)

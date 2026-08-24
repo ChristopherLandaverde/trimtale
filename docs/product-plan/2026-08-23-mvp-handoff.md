@@ -161,8 +161,9 @@ for the current setup workflow.
 ## Honest gaps
 
 - Existing `resume` semantics combine apply, validation, and version creation.
-- Ordinary verification mocks Google; a disposable credentialed GTM journey remains
-  necessary before claiming production readiness.
+- Ordinary verification mocks Google. The disposable credentialed GTM application
+  journey passed, but live browser behavior still represents published version 3, not
+  unpublished version 4.
 - The fixture corpus simulates dynamic and SPA behavior but does not prove a real React
   application integration.
 - Enhanced-measurement coverage beyond current form and navigation behavior is not
@@ -172,20 +173,25 @@ for the current setup workflow.
 
 ## Next checkpoint
 
-Run the credential-gated disposable GTM journey through plan, exact application
-confirmation, resume, and immutable version inspection. Confirm the generated entities,
-clean compiler evidence, version fingerprint, prior-live fingerprint, and absence of
-publication. Do not claim production readiness or expand scope until this passes.
+The credential-gated disposable journey passed on 2026-08-23 through the visible
+ConsentFlow workbench. Playwright reviewed two changes, used the exact application
+confirmation, and created immutable version 4 with fingerprint `1787537272032` after
+clean validation. The recorded prior-live fingerprint is `1787458659661`; an
+independent read confirmed version 3 remains live and no publication route was called.
+
+Next, review whether version 4's visible-success trigger is the intended durable signal.
+Publication requires a separate exact-fingerprint decision. If it is not approved,
+leave version 4 unpublished and continue with real React coverage and the remaining
+enhanced-measurement event types.
 
 ## Verification checkpoint
 
-After semantic-navigation removal and Playwright fixture consolidation, `npm run
-verify` passed:
+After persistent Google-session support, `npm run verify` passed:
 
-- 273 deterministic tests across 39 files.
+- 277 deterministic tests across 40 files.
 - 43 Chromium journeys.
 - Strict checks and all builds.
-- 43 valid change records, including the retained superseded history.
+- 44 valid change records, including the retained superseded history.
 
 No real Google mutation is part of the ordinary gate.
 
