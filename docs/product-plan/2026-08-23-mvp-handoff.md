@@ -42,6 +42,11 @@ Website
 | Test sites | Static, AJAX, redirect, dynamic, SPA-like, ambiguous, failure, consent, and cross-origin scenarios | `apps/fixture-site/`, `apps/verification-target/` |
 | Product regressions | Core contracts and full built-extension journeys | `packages/core/src/*.test.ts`, `tests/e2e/` |
 
+Built-extension journeys share one Playwright fixture. Each test receives an isolated
+Chromium profile; failures retain traces under `test-results/`. Tests act through
+visible roles and labels. Fixed sleeps and simulated mouse movement are not part of
+the reliability strategy.
+
 ## What the branch added
 
 ### Connected verification evidence
@@ -168,10 +173,11 @@ work before this decision is resolved.
 
 ## Verification checkpoint
 
-After semantic-navigation removal, `npm run verify` passed:
+After semantic-navigation removal and Playwright fixture consolidation, `npm run
+verify` passed:
 
 - 273 deterministic tests across 39 files.
-- 38 Chromium journeys.
+- 41 Chromium journeys.
 - Strict checks and all builds.
 - 41 valid change records, including the retained superseded history.
 

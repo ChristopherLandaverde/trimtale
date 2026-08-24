@@ -1,31 +1,23 @@
-import { chromium, expect, type BrowserContext, type Page } from "@playwright/test";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { expect, type BrowserContext, type Page } from "@playwright/test";
 
 export interface ExtensionJourney {
   context: BrowserContext;
   page: Page;
   root: ReturnType<Page["locator"]>;
   send(message: string): Promise<void>;
-  close(): Promise<void>;
 }
 
 export async function openExtensionJourney(
+  context: BrowserContext,
+  page: Page,
   fixtureState: string,
   gtmContainerId?: string,
 ): Promise<ExtensionJourney> {
-  const profile = await mkdtemp(join(tmpdir(), "gtm-observability-journey-"));
-  const extensionPath = resolve("apps/extension/dist");
-  const context = await chromium.launchPersistentContext(profile, {
-    channel: "chromium",
-    headless: true,
-    args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
-  });
-  const page = await context.newPage();
   const url = new URL("http://127.0.0.1:4173/");
   url.searchParams.set("formScenario", fixtureState);
-  if (gtmContainerId) url.searchParams.set("gtm", gtmContainerId);
+  if (gtmContainerId) {
+    url.searchParams.set("gtm", gtmContainerId);
+  }
   await page.goto(url.toString());
   const root = page.locator("#gtm-observability-root");
   await expect(root).toBeAttached();
@@ -39,10 +31,6 @@ export async function openExtensionJourney(
       await root.getByLabel("Tracking request").fill(message);
       await root.getByRole("button", { name: "Send request" }).click();
       await expect(root.getByText(message, { exact: true })).toBeVisible();
-    },
-    async close() {
-      await context.close();
-      await rm(profile, { recursive: true, force: true });
     },
   };
 }

@@ -16,7 +16,7 @@ export default defineConfig({
     : [["list"], ["html", { open: "never" }]],
   use: {
     screenshot: "only-on-failure",
-    trace: "on",
+    trace: "retain-on-failure",
   },
   webServer: [
     {
