@@ -31,6 +31,7 @@ export function stage1SmokeEnvironment(baseEnvironment) {
     GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED: "true",
     GOOGLE_GTM_PUBLICATION_ENABLED: "true",
     GOOGLE_GTM_WRITE_TARGET_PUBLIC_ID: STAGE1_GOOGLE_TARGET.publicId,
+    GOOGLE_ANALYTICS_WRITES_ENABLED: "false",
     TRACKING_OPERATION_STORE: operationStore,
   };
 }

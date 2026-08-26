@@ -10,12 +10,16 @@ const extensionId = "a".repeat(32);
 
 describe("credentialed Stage 1 workflow", () => {
   it("locks the publication session to the disposable target", () => {
-    expect(stage1SmokeEnvironment({ SAFE_BASE: "kept" })).toMatchObject({
+    expect(stage1SmokeEnvironment({
+      SAFE_BASE: "kept",
+      GOOGLE_ANALYTICS_WRITES_ENABLED: "true",
+    })).toMatchObject({
       SAFE_BASE: "kept",
       GOOGLE_GTM_CONTAINER_WRITES_ENABLED: "true",
       GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED: "true",
       GOOGLE_GTM_PUBLICATION_ENABLED: "true",
       GOOGLE_GTM_WRITE_TARGET_PUBLIC_ID: "GTM-PCJ3Q5RK",
+      GOOGLE_ANALYTICS_WRITES_ENABLED: "false",
     });
   });
 

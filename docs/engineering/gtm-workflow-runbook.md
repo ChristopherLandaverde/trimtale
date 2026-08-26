@@ -57,7 +57,9 @@ ConsentFlow target. It enables publication only for that process, locks all GTM
 mutations to `GTM-PCJ3Q5RK`, and stops unless the extension origin, exact website
 origin/path/query, and sole observed GTM ID match. The profile is retained under
 `.data/stage1-google-smoke-profile` so the supported human Google and Tag Assistant
-session can survive restarts. Closing Chromium stops the backend.
+session can survive restarts. The launcher explicitly disables Analytics writes even
+if its parent shell enabled them for another session. Closing Chromium stops the
+backend.
 
 Keep Analytics writes off for ordinary sessions. For an approved session, start the
 saved launcher with `GOOGLE_ANALYTICS_WRITES_ENABLED=true npm run google -- api`, then

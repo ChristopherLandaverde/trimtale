@@ -54,5 +54,8 @@ portal, build the workflow, and start implementation on 2026-08-25.
 - 2026-08-26: Tightened the credentialed launcher from an origin-only page check to
   the exact ConsentFlow path and query. Same-origin alternate and attacker-query URLs
   now stop before the session reaches its ready state.
+- 2026-08-26: The launcher now overrides inherited Analytics-write enablement to
+  `false`, keeping the credentialed exercise within its GTM workspace and publication
+  authority even when the parent shell was used for a separate GA4 session.
 - Remaining: complete the current website-agent and human Tag Assistant handoff,
   publish the reviewed immutable version, and record live verification or rollback.
