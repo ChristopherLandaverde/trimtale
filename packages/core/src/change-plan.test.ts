@@ -230,6 +230,23 @@ describe("tracking change plan", () => {
     );
   });
 
+  it("treats an omitted empty blocking-trigger list as equivalent", () => {
+    const setup = formSetup();
+    const current = entities(setup);
+    const tag = current.tag?.[0] as Record<string, unknown>;
+    tag.tagId = "7";
+    tag.fingerprint = "tag-7";
+    delete tag.blockingTriggerId;
+
+    const plan = createTrackingChangePlan(setup, current);
+
+    expect(plan.status).toBe("ready");
+    expect(plan.actions.find((action) => action.kind === "tag")).toMatchObject({
+      action: "reuse",
+      existingId: "7",
+    });
+  });
+
   it("fails closed when multiple existing entities are semantically equivalent", () => {
     const setup = navigationSetup();
     const current = entities(setup);

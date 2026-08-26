@@ -60,6 +60,7 @@ const volatileKeys = new Set([
 ]);
 const identityKeys = new Set(["tagId", "triggerId", "variableId"]);
 const emptyDefaultParameterKeys = new Set(["uniqueTriggerId", "waitForTagsTimeout"]);
+const emptyDefaultArrayKeys = new Set(["blockingTriggerId"]);
 const propertyAliases = new Map([
   ["autoEventFilter", "filter"],
 ]);
@@ -139,6 +140,8 @@ function canonicalize(
     (propertyAliases.get(left) ?? left).localeCompare(propertyAliases.get(right) ?? right))) {
     if (volatileKeys.has(childKey)) continue;
     if (emptyDefaultParameterKeys.has(childKey) && emptyTemplateParameter(childValue)) continue;
+    if (emptyDefaultArrayKeys.has(childKey)
+      && Array.isArray(childValue) && childValue.length === 0) continue;
     if ((childKey === "map" || childKey === "list")
       && Array.isArray(childValue) && childValue.length === 0) continue;
     if (mode === "semantic" && (childKey === "name" || identityKeys.has(childKey))) continue;
