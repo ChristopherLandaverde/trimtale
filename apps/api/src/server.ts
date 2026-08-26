@@ -42,6 +42,7 @@ import {
 
 const port = Number.parseInt(process.env.PORT ?? "8787", 10);
 const configuredExtensionOrigin = process.env.EXTENSION_ORIGIN;
+const stage1SmokeSessionId = process.env.STAGE1_SMOKE_SESSION_ID?.trim();
 const maximumBodyBytes = 256_000;
 const websiteChatActor = "website_chat_human";
 const oauthConfig = googleOAuthConfig();
@@ -153,7 +154,11 @@ const server = createServer(async (request, response) => {
   }
 
   if (request.method === "GET" && request.url === "/health") {
-    sendJson(response, 200, { status: "ok", service: "gtm-observability-api" });
+    sendJson(response, 200, {
+      status: "ok",
+      service: "gtm-observability-api",
+      sessionId: stage1SmokeSessionId,
+    });
     return;
   }
 

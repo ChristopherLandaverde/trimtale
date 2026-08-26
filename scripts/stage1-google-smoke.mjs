@@ -1,5 +1,6 @@
 import { chromium } from "@playwright/test";
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { chmod, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -25,7 +26,11 @@ export const STAGE1_GOOGLE_TARGET = Object.freeze({
 });
 const recognitionUrl = `http://127.0.0.1:8787/api/google/containers/recognize?publicId=${STAGE1_GOOGLE_TARGET.publicId}`;
 
-export function stage1SmokeEnvironment(baseEnvironment) {
+export function stage1SmokeEnvironment(baseEnvironment, sessionId) {
+  if (typeof sessionId !== "string" || sessionId.trim().length === 0) {
+    throw new Error("The Stage 1 API session identity is required.");
+  }
+
   return {
     ...baseEnvironment,
     GOOGLE_GTM_CONTAINER_WRITES_ENABLED: "true",
@@ -33,8 +38,18 @@ export function stage1SmokeEnvironment(baseEnvironment) {
     GOOGLE_GTM_PUBLICATION_ENABLED: "true",
     GOOGLE_GTM_WRITE_TARGET_PUBLIC_ID: STAGE1_GOOGLE_TARGET.publicId,
     GOOGLE_ANALYTICS_WRITES_ENABLED: "false",
+    STAGE1_SMOKE_SESSION_ID: sessionId.trim(),
     TRACKING_OPERATION_STORE: operationStore,
   };
+}
+
+export function assertSmokeApi(body, expectedSessionId) {
+  if (!isRecord(body)
+    || body.status !== "ok"
+    || body.service !== "gtm-observability-api"
+    || body.sessionId !== expectedSessionId) {
+    throw new Error("The health check did not come from the launched API session.");
+  }
 }
 
 export function assertSmokeExtension(configuredOrigin, serviceWorkerUrl) {
@@ -99,11 +114,12 @@ export async function verifySmokeRecognition(fetcher = fetch) {
   }
 }
 
-async function waitForApi(fetcher = fetch) {
+async function waitForApi(expectedSessionId, fetcher = fetch) {
   for (let attempt = 0; attempt < healthAttempts; attempt += 1) {
     try {
       const response = await fetcher(healthUrl);
       if (response.ok) {
+        assertSmokeApi(await response.json(), expectedSessionId);
         return;
       }
     } catch {
@@ -149,7 +165,8 @@ export async function runStage1GoogleSmoke(baseEnvironment = process.env) {
     GoogleSessionMode.Stage1,
     STAGE1_GOOGLE_TARGET.publicId,
   );
-  const environment = stage1SmokeEnvironment(googleEnvironment);
+  const sessionId = randomUUID();
+  const environment = stage1SmokeEnvironment(googleEnvironment, sessionId);
   const api = spawn("npm", ["run", "start", "--workspace", "@gtm-observability/api"], {
     cwd: repositoryRoot,
     env: environment,
@@ -158,7 +175,7 @@ export async function runStage1GoogleSmoke(baseEnvironment = process.env) {
   let context;
 
   try {
-    await waitForApi();
+    await waitForApi(sessionId);
     await mkdir(profilePath, { recursive: true, mode: 0o700 });
     await chmod(profilePath, 0o700);
     context = await chromium.launchPersistentContext(profilePath, {

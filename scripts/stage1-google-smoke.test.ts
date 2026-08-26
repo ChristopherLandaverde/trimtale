@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   STAGE1_GOOGLE_TARGET,
+  assertSmokeApi,
   assertSmokeExtension,
   assertSmokePage,
   stage1SmokeEnvironment,
@@ -10,18 +11,37 @@ import {
 const extensionId = "a".repeat(32);
 
 describe("credentialed Stage 1 workflow", () => {
+  it("accepts readiness only from the launched API session", () => {
+    expect(() => assertSmokeApi({
+      status: "ok",
+      service: "gtm-observability-api",
+      sessionId: "current-session",
+    }, "current-session")).not.toThrow();
+    expect(() => assertSmokeApi({
+      status: "ok",
+      service: "gtm-observability-api",
+      sessionId: "stale-session",
+    }, "current-session")).toThrow("launched API session");
+    expect(() => assertSmokeApi({
+      status: "ok",
+      service: "gtm-observability-api",
+    }, "current-session")).toThrow("launched API session");
+  });
+
   it("locks the publication session to the disposable target", () => {
     expect(stage1SmokeEnvironment({
       SAFE_BASE: "kept",
       GOOGLE_ANALYTICS_WRITES_ENABLED: "true",
-    })).toMatchObject({
+    }, "current-session")).toMatchObject({
       SAFE_BASE: "kept",
       GOOGLE_GTM_CONTAINER_WRITES_ENABLED: "true",
       GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED: "true",
       GOOGLE_GTM_PUBLICATION_ENABLED: "true",
       GOOGLE_GTM_WRITE_TARGET_PUBLIC_ID: "GTM-PCJ3Q5RK",
       GOOGLE_ANALYTICS_WRITES_ENABLED: "false",
+      STAGE1_SMOKE_SESSION_ID: "current-session",
     });
+    expect(() => stage1SmokeEnvironment({}, " ")).toThrow("session identity");
   });
 
   it("accepts only the configured extension origin", () => {
