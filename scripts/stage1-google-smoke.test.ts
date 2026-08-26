@@ -70,6 +70,10 @@ describe("credentialed Stage 1 workflow", () => {
       "https://consentflow-psi.vercel.app/?redirect=attacker",
       ["GTM-PCJ3Q5RK"],
     )).toThrow("website target");
+    expect(() => assertSmokePage(
+      "https://consentflow-psi.vercel.app/#redirect=attacker",
+      ["GTM-PCJ3Q5RK"],
+    )).toThrow("website target");
     expect(() => assertSmokePage(STAGE1_GOOGLE_TARGET.url, ["GTM-OTHER123"]))
       .toThrow("container target");
   });

@@ -66,5 +66,7 @@ portal, build the workflow, and start implementation on 2026-08-25.
   stopped without a workspace, version, publication, rollback, or GA4 mutation.
 - 2026-08-26: Bound launcher readiness to a fresh per-run API session identity. A
   stale service on the local port can no longer satisfy the launcher health gate.
+- 2026-08-26: Completed the exact website target comparison by rejecting unexpected
+  URL fragments as well as origin, path, and query mismatches.
 - Remaining: complete the current website-agent and human Tag Assistant handoff,
   publish the reviewed immutable version, and record live verification or rollback.
