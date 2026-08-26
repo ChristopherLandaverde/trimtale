@@ -166,6 +166,10 @@ Permanent Chromium coverage asserts that the managed setup screen does not expos
 already-installed verification action and that the exact managed path continues
 through preview, version, approval, and publication.
 
+The same exact-preview and immutable-version gate now runs against representative
+static, dynamically inserted, client-routed, and attacker-labeled form pages. Private
+form values and attacker-shaped labels remain outside the provider request.
+
 ## Safe interactive demo
 
 Run:
@@ -215,8 +219,8 @@ Current working-tree baseline:
 
 - `npm run verify` passes.
 - 411 deterministic tests pass across 51 test files.
-- 66 Playwright Chromium journeys pass.
-- All workspace typechecks and preflight checks pass; 75 change records validate.
+- 70 Playwright Chromium journeys pass.
+- All workspace typechecks and preflight checks pass; 76 change records validate.
 
 ## Recommended next implementation order
 

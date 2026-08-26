@@ -297,7 +297,7 @@ Latency targets remain product hypotheses until measured in representative workf
   the portal.
 - [x] Publication requires human approval bound to the displayed verified version
   fingerprint.
-- [ ] The same supported setup passes representative static, dynamic, client-routed,
+- [x] The same supported setup passes representative static, dynamic, client-routed,
   and adversarial browser fixtures.
 
 ## Non-goals

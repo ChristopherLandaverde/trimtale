@@ -28,7 +28,9 @@ The user authorized continuous Stage 1 implementation on 2026-08-24.
 - Repair attempts are bounded, individually receipted, preserve the confirmed intent,
   and stop on ambiguity.
 - Static, client-routed, dynamic, excluded-page, and adversarial fixtures run through
-  the same verification interface.
+  the same verification interface. `tests/e2e/conversational-form.spec.ts` carries
+  representative static, client-routed, dynamic, and adversarial pages through exact
+  draft evidence and immutable version creation.
 
 ## Dependencies
 
@@ -59,13 +61,15 @@ evidence must still match the exact setup, workspace, and quick-preview fingerpr
   validation, and new workspace/preview fingerprints before another browser run.
 - Ambiguous, exhausted, stale, inconclusive, or intent-changing repair paths stop
   without creating a version or publishing.
+- One shared Chromium matrix now carries static, dynamically inserted, client-routed,
+  and attacker-labeled forms through the same exact-preview fingerprints, privacy
+  boundary, passing evidence, and immutable version gate.
 
 ## Remaining work
 
 - Exercise the handoff against a real authenticated GTM workspace and Tag Assistant
   session; controlled provider responses do not satisfy that external acceptance
   criterion.
-- Expand representative exact-preview fixtures beyond the two current browser paths.
 
 ## Comments
 
@@ -77,3 +81,9 @@ evidence must still match the exact setup, workspace, and quick-preview fingerpr
   411 deterministic tests and 64 Chromium journeys; headed exploratory review has no
   unresolved finding. The issue remains open for real Tag Assistant interoperability
   and broader representative preview fixtures.
+- 2026-08-26: Added one exact-preview Chromium matrix for static, dynamic,
+  client-routed, and adversarial pages. Every case reaches an immutable version from
+  the same three fingerprints, excludes private and attacker-shaped values from the
+  provider request, and stops without publication. Headed review found no unresolved
+  issue. The representative-fixture acceptance criterion is complete; Issue 06 remains
+  open only for real authenticated GTM and Tag Assistant interoperability.

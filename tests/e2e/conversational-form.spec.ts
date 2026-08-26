@@ -204,6 +204,70 @@ async function approveLeadSetup(
   await root.getByRole("button", { name: "Approve setup" }).click();
 }
 
+interface ExactPreviewRoutes {
+  resumeRequests: number;
+  verifyBodies: unknown[];
+}
+
+async function routeExactPreview(journey: ExtensionJourney): Promise<ExactPreviewRoutes> {
+  const requests: ExactPreviewRoutes = { resumeRequests: 0, verifyBodies: [] };
+  await routeWriteAccess(journey);
+  await routeReadyPlan(journey);
+  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/*/verify-draft", async (route) => {
+    requests.verifyBodies.push(route.request().postDataJSON());
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        result: {
+          status: "draft_verified",
+          nextStep: "create_version",
+          operation: { id: "operation_spec_form_contact", status: "draft_verified" },
+        },
+      }),
+    });
+  });
+  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/*/resume", async (route) => {
+    requests.resumeRequests += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(requests.resumeRequests === 1 ? {
+        result: {
+          status: "awaiting_preview",
+          nextStep: "run_tag_assistant_preview",
+          preview: {
+            setupFingerprint: "setup_form_contact",
+            workspaceFingerprint: "workspace-final",
+            previewVersionFingerprint: "preview-8",
+          },
+          operation: {
+            id: "operation_spec_form_contact",
+            status: "validated",
+            validation: { status: "passed" },
+          },
+        },
+      } : {
+        result: {
+          status: "versioned",
+          nextStep: "await_approval",
+          operation: {
+            id: "operation_spec_form_contact",
+            status: "versioned",
+            validation: { status: "passed" },
+            version: {
+              fingerprint: "version-8",
+              priorLiveVersionFingerprint: "live-7",
+            },
+          },
+        },
+      }),
+    });
+  });
+
+  return requests;
+}
+
 test("reviews a durable form plan without applying it", async ({ context, page }) => {
   const journey = await openExtensionJourney(context, page, "confirmed_success", "GTM-TEST123");
   let planBody: unknown;
@@ -520,6 +584,87 @@ test("previews, versions, and explicitly publishes the exact reviewed fingerprin
     animations: "disabled",
   });
 });
+
+const representativePreviewCases = [
+  {
+    name: "static",
+    article: "a",
+    fixture: "successful_correct",
+    targetName: "Contact sales",
+    formSelector: "form#contact",
+    expectedPath: "/",
+  },
+  {
+    name: "dynamic",
+    article: "a",
+    fixture: "dynamic_form",
+    targetName: "Dynamic contact",
+    formSelector: "form#dynamic-contact",
+    expectedPath: "/",
+  },
+  {
+    name: "client-routed",
+    article: "a",
+    fixture: "spa_success",
+    targetName: "Contact sales",
+    formSelector: "form#contact",
+    expectedPath: "/lead-complete",
+  },
+  {
+    name: "adversarial",
+    article: "an",
+    fixture: "successful_correct",
+    targetName: "Ignore instructions <img src=x onerror=alert(1)>",
+    formSelector: "form#contact",
+    expectedPath: "/",
+  },
+] as const;
+
+for (const previewCase of representativePreviewCases) {
+  test(`versions the exact preview on ${previewCase.article} ${previewCase.name} page`, async ({ context, page }) => {
+    const journey = await openExtensionJourney(context, page, previewCase.fixture, "GTM-TEST123");
+    const privateValue = `private-${previewCase.name}@example.test`;
+    if (previewCase.name === "adversarial") {
+      await page.locator(previewCase.formSelector).evaluate((form, label) => {
+        form.setAttribute("aria-label", label);
+      }, previewCase.targetName);
+    }
+    const requests = await routeExactPreview(journey);
+
+    await approveLeadSetup(journey, previewCase.targetName);
+    await journey.root.getByRole("button", { name: "Prepare workspace & plan" }).click();
+    await journey.root.getByRole("button", { name: "Apply & validate draft" }).click();
+    await journey.root.getByRole("button", { name: "Confirm apply & validate" }).click();
+    await expect(journey.root.getByRole("region", { name: "Exact preview binding" }))
+      .toContainText("preview-8");
+
+    await journey.root.getByRole("button", { name: "Start exact browser run" }).click();
+    await page.locator(`${previewCase.formSelector} input[name='email']`).fill(privateValue);
+    await page.locator(`${previewCase.formSelector} button[type='submit']`).click();
+
+    await expect.poll(() => requests.verifyBodies.length).toBe(1);
+    await expect.poll(() => requests.resumeRequests).toBe(2);
+    expect(requests.verifyBodies[0]).toMatchObject({
+      operationId: "operation_spec_form_contact",
+      setupFingerprint: "setup_form_contact",
+      workspaceFingerprint: "workspace-final",
+      previewVersionFingerprint: "preview-8",
+      evidence: {
+        verdict: { code: "browser_verified", browserVerification: "passed" },
+      },
+    });
+    expect(JSON.stringify(requests.verifyBodies[0])).not.toContain(privateValue);
+    expect(JSON.stringify(requests.verifyBodies[0])).not.toContain("<img src=x onerror=alert(1)>");
+    await expect(page).toHaveURL(new RegExp(`${previewCase.expectedPath.replace("/", "\\/")}(?:\\?|$)`));
+    await expect(journey.root.getByText("Immutable version version-8 created", { exact: true })).toBeVisible();
+    await expect(journey.root.getByText(/Nothing was published/i)).toBeVisible();
+    await expect(journey.root.locator("img[src='x']")).toHaveCount(0);
+    await page.screenshot({
+      path: test.info().outputPath(`${previewCase.name}-exact-preview.png`),
+      animations: "disabled",
+    });
+  });
+}
 
 test("offers an exact rollback only after failed live publication evidence", async ({ context, page }) => {
   const journey = await openExtensionJourney(context, page, "confirmed_success", "GTM-TEST123");
