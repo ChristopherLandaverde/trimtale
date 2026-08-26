@@ -65,8 +65,9 @@ The agent currently supports:
 - Email-link requests grounded in observable `mailto:` links, with sitewide or
   current-page scope and privacy-safe `email_click` setup generation.
 - An explicit model-authored alternative for a confirmed known interaction, with its
-  event, provider, rationale, and parameter classifications visible before separate
-  setup approval and deterministic planning.
+  event, provider, rationale, and readable parameter classifications visible before
+  separate setup approval and deterministic planning. This includes a visible GA4
+  custom-metric suggestion that remains unapplied when no numeric source is grounded.
 - Explicit managed-workspace preparation and safe change-plan review for a confirmed
   lead-form setup when connected GTM edit access is available.
 - Separate review and approval of the exact `form_name` custom dimension and

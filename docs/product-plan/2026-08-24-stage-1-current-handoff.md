@@ -220,7 +220,7 @@ Current working-tree baseline:
 - `npm run verify` passes.
 - 411 deterministic tests pass across 51 test files.
 - 70 Playwright Chromium journeys pass.
-- All workspace typechecks and preflight checks pass; 76 change records validate.
+- All workspace typechecks and preflight checks pass; 77 change records validate.
 
 ## Recommended next implementation order
 

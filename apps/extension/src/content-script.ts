@@ -2220,6 +2220,21 @@ function appendSpecificationRows(
   }
 }
 
+const suggestionClassLabels: Record<string, string> = {
+  provider_required: "Provider required",
+  provider_recommended: "Provider recommended",
+  observed_available: "Observed and available",
+  model_suggested: "Model suggested",
+  unavailable: "Unavailable",
+  requires_clarification: "Needs clarification",
+  requires_custom_definition: "GA4 custom definition",
+  prohibited: "Prohibited",
+};
+
+function suggestionClassLabel(classification: string): string {
+  return suggestionClassLabels[classification] ?? "Suggestion";
+}
+
 function renderInteractionDraft(requestId: string, result: ConversationIntakeResult): void {
   const proposal = interactionSetupProposal(result);
   const definition = knownInteractionDefinition(result.interaction);
@@ -2306,7 +2321,7 @@ async function authorInteractionAlternative(
     appendAgentText(
       review,
       "agent-specification-value",
-      `${suggestion.classification}: ${suggestion.name} — ${suggestion.rationale}`,
+      `${suggestionClassLabel(suggestion.classification)}: ${suggestion.name} — ${suggestion.rationale}`,
     );
   }
   task.append(review);

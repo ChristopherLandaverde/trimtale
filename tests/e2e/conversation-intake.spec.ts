@@ -373,6 +373,7 @@ test("authors and reviews a privacy-safe phone-click setup through chat", async 
 test("reviews a model-authored event and sends it through durable planning", async ({ context }) => {
   let authoringBody: unknown;
   let workflowBody: unknown;
+  let ga4ConfigurationRequests = 0;
   await context.route("https://www.googletagmanager.com/**", (route) => route.fulfill({
     contentType: "application/javascript",
     body: "",
@@ -419,13 +420,22 @@ test("reviews a model-authored event and sends it through durable planning", asy
             eventName: "contact_intent",
             rationale: "Use a business-facing event name for confirmed phone-link clicks.",
           },
-          suggestions: [{
-            name: "phone_number",
-            classification: "prohibited",
-            requirement: "optional",
-            valueCandidateId: null,
-            rationale: "Do not send phone numbers to Analytics.",
-          }],
+          suggestions: [
+            {
+              name: "phone_number",
+              classification: "prohibited",
+              requirement: "optional",
+              valueCandidateId: null,
+              rationale: "Do not send phone numbers to Analytics.",
+            },
+            {
+              name: "lead_score",
+              classification: "requires_custom_definition",
+              requirement: "optional",
+              valueCandidateId: null,
+              rationale: "Register this numeric parameter as an event-scoped GA4 custom metric only after a numeric source is grounded.",
+            },
+          ],
           setup: {
             schemaVersion: 1,
             id: "setup_authored_contact_intent",
@@ -478,6 +488,10 @@ test("reviews a model-authored event and sends it through durable planning", asy
       }),
     });
   });
+  await context.route("http://127.0.0.1:8787/api/google/analytics/configuration/**", (route) => {
+    ga4ConfigurationRequests += 1;
+    return route.abort();
+  });
   await context.route("http://127.0.0.1:4175/model-phone-links", (route) => route.fulfill({
     contentType: "text/html",
     body: `<!doctype html><html><head>
@@ -502,6 +516,9 @@ test("reviews a model-authored event and sends it through durable planning", asy
   const task = root.getByRole("region", { name: "Agent task" });
   await expect(task.getByText("contact_intent", { exact: true })).toBeVisible();
   await expect(task.getByText(/Prohibited.*phone_number/i)).toBeVisible();
+  await expect(task.getByText(
+    /GA4 custom definition.*lead_score.*event-scoped GA4 custom metric.*numeric source is grounded/i,
+  )).toBeVisible();
   expect(JSON.stringify(authoringBody)).not.toContain("+12125550123");
   expect(JSON.stringify(authoringBody)).not.toContain("<img src=x onerror=alert(1)>");
   const modelReview = task.getByRole("region", { name: "Model-authored setup review" });
@@ -523,6 +540,8 @@ test("reviews a model-authored event and sends it through durable planning", asy
     },
     container: { publicId: "GTM-TEST123" },
   });
+  expect(JSON.stringify(workflowBody)).not.toContain("lead_score");
+  expect(ga4ConfigurationRequests).toBe(0);
   expect(JSON.stringify(workflowBody)).not.toContain("+12125550123");
   expect(JSON.stringify(workflowBody)).not.toContain("<img src=x onerror=alert(1)>");
 });

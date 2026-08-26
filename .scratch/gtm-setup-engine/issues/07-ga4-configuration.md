@@ -47,10 +47,13 @@ definitions and key events, and authorized continuous Stage 1 implementation on
   state, and validates every returned action receipt against the reviewed plan.
 - Planning and application make no GTM workflow request. Stale provider state,
   disabled writes, malformed responses, and provider failures make no success claim.
+- Model-authored reviews translate internal suggestion classes into practitioner-facing
+  labels. A representative numeric `lead_score` suggestion is identified as requiring
+  a GA4 custom definition, while its missing grounded value keeps it out of the GTM
+  setup and prevents any inferred GA4 action.
 
 ## Remaining work
 
-- Expose a representative custom-metric suggestion through visible authoring.
 - Replace the actor class `website_chat_human` with signed-in organization identity.
 - Exercise the exact actions against a disposable authenticated GA4 property.
 
@@ -61,3 +64,7 @@ definitions and key events, and authorized continuous Stage 1 implementation on
   GTM workflow. Chromium covers passing, stale, and attacker-shaped page input. The
   issue remains open for visible custom-metric authoring, product identity, and a real
   disposable-property exercise.
+- 2026-08-26: Exposed a readable event-scoped custom-metric suggestion in the visible
+  model-authored review. The regression proves the ungrounded numeric parameter does
+  not enter the confirmed GTM setup or trigger a GA4 write. Issue 07 remains open for
+  signed-in organization identity and disposable-property interoperability.
