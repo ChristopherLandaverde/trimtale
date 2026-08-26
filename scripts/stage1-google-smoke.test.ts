@@ -4,6 +4,7 @@ import {
   assertSmokeExtension,
   assertSmokePage,
   stage1SmokeEnvironment,
+  verifySmokeRecognition,
 } from "./stage1-google-smoke.mjs";
 
 const extensionId = "a".repeat(32);
@@ -51,5 +52,27 @@ describe("credentialed Stage 1 workflow", () => {
     )).toThrow("website target");
     expect(() => assertSmokePage(STAGE1_GOOGLE_TARGET.url, ["GTM-OTHER123"]))
       .toThrow("container target");
+  });
+
+  it("requires the exact recognized container and GA4 destination", async () => {
+    const recognized = {
+      containerWritesEnabled: true,
+      result: {
+        status: "recognized",
+        publicId: STAGE1_GOOGLE_TARGET.publicId,
+        container: { publicId: STAGE1_GOOGLE_TARGET.publicId },
+        measurementIds: [STAGE1_GOOGLE_TARGET.measurementId],
+      },
+    };
+    await expect(verifySmokeRecognition(async () => new Response(JSON.stringify(recognized))))
+      .resolves.toBeUndefined();
+    await expect(verifySmokeRecognition(async () => new Response(JSON.stringify({
+      ...recognized,
+      result: { ...recognized.result, measurementIds: ["G-OTHER123"] },
+    })))).rejects.toThrow("GA4 destination");
+    await expect(verifySmokeRecognition(async () => new Response(JSON.stringify({
+      ...recognized,
+      result: { status: "ambiguous", publicId: STAGE1_GOOGLE_TARGET.publicId },
+    })))).rejects.toThrow("container recognition");
   });
 });

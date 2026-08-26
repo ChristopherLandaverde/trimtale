@@ -55,7 +55,8 @@ This explicit command builds the product, starts the saved authenticated backend
 loads the production extension in a persistent headed Chromium profile, and opens the
 ConsentFlow target. It enables publication only for that process, locks all GTM
 mutations to `GTM-PCJ3Q5RK`, and stops unless the extension origin, exact website
-origin/path/query, and sole observed GTM ID match. The profile is retained under
+origin/path/query, sole observed GTM ID, fresh provider recognition, and exact
+`G-YV879ECLRV` destination match. The profile is retained under
 `.data/stage1-google-smoke-profile` so the supported human Google and Tag Assistant
 session can survive restarts. The launcher explicitly disables Analytics writes even
 if its parent shell enabled them for another session. Closing Chromium stops the
@@ -305,6 +306,10 @@ measurement destination, live version 3, and available managed-workspace capacit
 The `smoke:google:stage1` launcher then matched the configured extension, ConsentFlow
 origin, and sole observed ID `GTM-PCJ3Q5RK`. No mutation occurred during that readiness
 review.
+
+Current launchers repeat this read-only recognition and require the exact GA4
+destination before announcing readiness. A saved-session run passed that gate against
+current Google state on 2026-08-26 without mutation.
 
 This proves the lane is correctly configured and contained. It does not yet prove the
 current website-agent-to-Tag-Assistant handoff, immutable version creation,

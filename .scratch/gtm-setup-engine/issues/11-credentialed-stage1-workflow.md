@@ -34,7 +34,8 @@ portal, build the workflow, and start implementation on 2026-08-25.
 - `apps/api/src/google-publication.test.ts` proves off-target publication and rollback
   stop before any Google request.
 - `scripts/stage1-google-smoke.test.ts` proves the launcher validates the exact target
-  URL, container ID, extension origin, and publication-locked environment.
+  URL, container ID, GA4 destination, extension origin, and publication-locked
+  environment.
 - The real integration lane remains credential-gated and records its exploratory
   evidence under `docs/reviews/`; it never runs in `npm run verify`.
 
@@ -57,5 +58,11 @@ portal, build the workflow, and start implementation on 2026-08-25.
 - 2026-08-26: The launcher now overrides inherited Analytics-write enablement to
   `false`, keeping the credentialed exercise within its GTM workspace and publication
   authority even when the parent shell was used for a separate GA4 session.
+- 2026-08-26: Added a fresh read-only recognition gate before the launcher announces
+  readiness. Inaccessible or ambiguous container state, write-capability mismatch, or
+  any GA4 destination other than `G-YV879ECLRV` now stops the session.
+- 2026-08-26: The saved authenticated session passed the new GET-only gate against
+  current Google state for `GTM-PCJ3Q5RK` and `G-YV879ECLRV`; the backend was then
+  stopped without a workspace, version, publication, rollback, or GA4 mutation.
 - Remaining: complete the current website-agent and human Tag Assistant handoff,
   publish the reviewed immutable version, and record live verification or rollback.

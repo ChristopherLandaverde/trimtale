@@ -23,6 +23,7 @@ export const STAGE1_GOOGLE_TARGET = Object.freeze({
   publicId: "GTM-PCJ3Q5RK",
   measurementId: "G-YV879ECLRV",
 });
+const recognitionUrl = `http://127.0.0.1:8787/api/google/containers/recognize?publicId=${STAGE1_GOOGLE_TARGET.publicId}`;
 
 export function stage1SmokeEnvironment(baseEnvironment) {
   return {
@@ -58,6 +59,43 @@ export function assertSmokePage(pageUrl, observedPublicIds) {
     || !publicContainerIdPattern.test(normalized[0] ?? "")
     || normalized[0] !== STAGE1_GOOGLE_TARGET.publicId) {
     throw new Error("The website does not expose the exact Stage 1 container target.");
+  }
+}
+
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export async function verifySmokeRecognition(fetcher = fetch) {
+  let response;
+  try {
+    response = await fetcher(recognitionUrl);
+  } catch {
+    throw new Error("The Stage 1 container recognition request failed.");
+  }
+  if (!response.ok) {
+    throw new Error("The Stage 1 container recognition request failed.");
+  }
+
+  let body;
+  try {
+    body = await response.json();
+  } catch {
+    throw new Error("The Stage 1 container recognition response is invalid.");
+  }
+  const result = isRecord(body) && isRecord(body.result) ? body.result : undefined;
+  const container = result && isRecord(result.container) ? result.container : undefined;
+  if (!isRecord(body)
+    || body.containerWritesEnabled !== true
+    || result?.status !== "recognized"
+    || String(result.publicId).toUpperCase() !== STAGE1_GOOGLE_TARGET.publicId
+    || String(container?.publicId).toUpperCase() !== STAGE1_GOOGLE_TARGET.publicId) {
+    throw new Error("The Stage 1 container recognition does not match the write target.");
+  }
+  if (!Array.isArray(result.measurementIds)
+    || result.measurementIds.length !== 1
+    || result.measurementIds[0] !== STAGE1_GOOGLE_TARGET.measurementId) {
+    throw new Error("The Stage 1 GA4 destination does not match the declared target.");
   }
 }
 
@@ -140,6 +178,7 @@ export async function runStage1GoogleSmoke(baseEnvironment = process.env) {
     const page = context.pages()[0] ?? await context.newPage();
     await page.goto(STAGE1_GOOGLE_TARGET.url);
     assertSmokePage(page.url(), await observedContainerIds(page));
+    await verifySmokeRecognition();
     await page.bringToFront();
 
     console.log(`Stage 1 Google workflow ready for ${STAGE1_GOOGLE_TARGET.publicId}.`);
