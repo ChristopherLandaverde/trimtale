@@ -236,8 +236,8 @@ Current working-tree baseline:
 
 1. Read this handoff, `CONTEXT.md`, and ADRs 0001–0003.
 2. Read `.scratch/gtm-setup-engine/spec.md` and Issues 06, 08, and 09.
-3. Inspect `git status --short`. The current work is intentionally uncommitted; do not
-   discard or overwrite unrelated changes.
+3. Inspect `git status --short`. Preserve unrelated changes and keep each completed
+   workflow boundary in a separate reviewable commit.
 4. Run `npm run verify` before extending authority-sensitive code.
 5. Use `npm run demo:stage1` for visible product review.
 6. Preserve the distinctions in the evidence ladder; never collapse setup approval,
