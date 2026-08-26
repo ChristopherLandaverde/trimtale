@@ -113,7 +113,7 @@ function canonicalize(
   key?: string,
 ): unknown {
   if (Array.isArray(value)) {
-    const items = key === "firingTriggerId" && mode === "semantic"
+    const items = (key === "firingTriggerId" || key === "blockingTriggerId") && mode === "semantic"
       ? value.map((item) => {
           const id = String(item);
           return triggerSignatures.get(id) ?? `unresolved-trigger:${id}`;

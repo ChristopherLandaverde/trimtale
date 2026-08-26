@@ -32,6 +32,7 @@ Use these controls deliberately:
 | Setting | Purpose |
 |---|---|
 | `GOOGLE_GTM_CONTAINER_WRITES_ENABLED=true` | Allows guarded container and workspace changes. |
+| `GOOGLE_GTM_WRITE_TARGET_PUBLIC_ID` | Rejects every GTM mutation outside one exact public container ID. |
 | `GOOGLE_OAUTH_TOKEN_STORE` | Enables owner-only refresh-token persistence across backend restarts. |
 | `TRACKING_OPERATION_STORE` | Selects the durable operation collection; defaults under `.data/`. |
 | `GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED=true` | Includes publish scope during one-time consent without enabling publication. |
@@ -43,6 +44,20 @@ Run `npm run preflight:google` before credentialed planning and
 `npm run preflight:publication` before an approved publication session. Keep
 publication disabled during ordinary planning, application, validation, and version
 review.
+
+For the disposable Stage 1 end-to-end lane, run:
+
+```bash
+npm run smoke:google:stage1
+```
+
+This explicit command builds the product, starts the saved authenticated backend,
+loads the production extension in a persistent headed Chromium profile, and opens the
+ConsentFlow target. It enables publication only for that process, locks all GTM
+mutations to `GTM-PCJ3Q5RK`, and stops unless the extension origin, website origin, and
+sole observed GTM ID match. The profile is retained under
+`.data/stage1-google-smoke-profile` so the supported human Google and Tag Assistant
+session can survive restarts. Closing Chromium stops the backend.
 
 Keep Analytics writes off for ordinary sessions. For an approved session, start the
 saved launcher with `GOOGLE_ANALYTICS_WRITES_ENABLED=true npm run google -- api`, then
@@ -60,12 +75,16 @@ The supported orchestration routes are:
 
 - `POST /api/google/workflows/plan`
 - `POST /api/google/workflows/{operationId}/resume`
+- `POST /api/google/workflows/{operationId}/repair-draft`
+- `POST /api/google/workflows/{operationId}/apply-repair`
 - `GET /api/google/workflows/{operationId}`
 
 The ordinary progression is:
 
 ```text
-planned -> applying -> applied -> validated -> versioned -> await approval
+planned -> applying -> applied -> validated -> exact draft preview
+  -> failed -> review bounded repair -> validated -> new exact draft preview
+  -> draft_verified -> versioned -> await publication approval
 ```
 
 Planning accepts navigation setup input or a confirmed lead-form specification. It
@@ -74,11 +93,20 @@ semantically, and records create, reuse, no-op, or conflict actions. Resume pers
 `applying` before writes and can reconcile an interrupted create from freshly read GTM
 state without duplicating the entity.
 
-The workflow routes deliberately stop at version review. The extension exposes plan
-review and resume only after an exact pre-write confirmation. The current server
-exposes no public publication approval, publication, rollback, or post-publication-
-evidence route; those backend domain/client methods require a separate product slice
-before the extension can operate them.
+The extension exposes plan review and resume only after an exact pre-write
+confirmation. An exact Tag Assistant browser run must bind the setup, workspace, and
+quick-preview fingerprints before version creation. Publication controls remain
+separate and require the exact immutable fingerprint. After publication, a second
+browser run binds evidence to that live fingerprint. Only failed evidence exposes the
+separate exact rollback review; inconclusive evidence keeps rollback locked.
+
+A failed exact-draft run may request repair only while all three preview bindings are
+current. Repair re-plans the unchanged generated setup against the same managed
+workspace. A create or product-owned update must receive separate review before
+application. Reuse/no-op-only, conflicting, ambiguous, stale, exhausted, and
+intent-changing paths stop. Successful application is provider-validated and yields a
+new workspace and quick-preview fingerprint; it never skips the next exact browser
+run or creates a version directly.
 
 ## Approval, publication, and rollback
 
@@ -116,9 +144,12 @@ GA4 commonly transports the standard `page_location` field as `dl`, not
 `ep.page_location`. Normalize both representations to the same semantic requirement
 and remove query parameters before persisting evidence.
 
-Only passing evidence completes the operation. A genuine non-passing run records the
-evidence and prepares the exact prior-live rollback target. An incomplete synthetic
-diagnostic should remain diagnostic rather than being persisted as a completed journey.
+Only passing evidence completes the operation. A failed run records the evidence and
+prepares the exact prior-live rollback target. The website agent then requires a
+separate review and confirmation before the backend rechecks fresh Google state and
+restores that fingerprint. Inconclusive evidence remains retryable and cannot unlock
+rollback. An incomplete synthetic diagnostic should remain diagnostic rather than
+being persisted as a completed journey.
 
 ### Optional read-only GA4 correlation
 
@@ -264,6 +295,18 @@ plan, exact application confirmation, resume, validation, and version result:
 The run proves the workbench's credentialed application boundary. It does not prove
 version 4's browser behavior because the version remains unpublished. Review its
 visible-success trigger before any separate publication decision.
+
+## Current credentialed workflow readiness
+
+On 2026-08-25, read-only recognition matched the exact disposable container,
+measurement destination, live version 3, and available managed-workspace capacity.
+The `smoke:google:stage1` launcher then matched the configured extension, ConsentFlow
+origin, and sole observed ID `GTM-PCJ3Q5RK`. No mutation occurred during that readiness
+review.
+
+This proves the lane is correctly configured and contained. It does not yet prove the
+current website-agent-to-Tag-Assistant handoff, immutable version creation,
+publication, or live verification. Those steps remain the next acceptance run.
 
 ## Related documentation
 

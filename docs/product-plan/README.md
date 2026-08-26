@@ -5,7 +5,9 @@ MVP into a conversion setup, debugging, and observability product.
 
 The core thesis:
 
-> Agencies and marketing teams do not only need a faster way to create GTM tags. They need a reliable way to know whether tracking still works after websites, campaigns, consent banners, and GTM containers change.
+> Agencies and marketing teams do not only need a faster way to create GTM tags. They
+> need evidence that one exact measurement change works before publication and remains
+> correct after websites, campaigns, consent banners, and GTM containers change.
 
 ## Product shape
 
@@ -28,7 +30,7 @@ and evidence while conversion capabilities are added; new technical capabilities
 should advance that task rather than introduce another customer-facing layer or a
 scripted chat transcript.
 
-GTM Observability has three layers:
+GTM Observability follows one measurement lifecycle with three stages:
 
 1. **Setup and verification**
    Turn a tracking intent into a reviewable GTM change and browser-side proof.
@@ -41,7 +43,31 @@ GTM Observability has three layers:
 
 The agent UX is the delight layer. The recurring scans and evidence history are the retention layer.
 
-These are product capabilities, not three separate interfaces. Internally, the browser overlay, extension service worker, backend, shared tracking logic, and GTM integration remain separate security and reliability boundaries. Customers should not need a proprietary SDK for browser-observable conversion setup and verification.
+These are stages of one evidence chain, not separate products or interfaces. The
+tracking specification establishes expected behavior. Tracking checks record observed
+behavior. Deterministic verdicts decide whether the evidence passes, and later checks
+reuse the same specification as their baseline.
+
+The launch product is the first stage carried through an exact version boundary:
+
+```text
+tracking intent
+    -> confirmed tracking specification
+    -> tracking setup
+    -> tracking change plan
+    -> managed-workspace draft
+    -> exact draft preview
+    -> deterministic verdict
+    -> verified version
+    -> human publication approval
+```
+
+A browser run against the current live container cannot qualify a different,
+unpublished draft. Closing that evidence boundary takes priority over broad static
+linting, scheduled monitoring, or an MCP interface. Internally, the browser overlay,
+extension service worker, backend, shared tracking logic, and GTM integration remain
+separate security and reliability boundaries. Customers should not need a proprietary
+SDK for browser-observable conversion setup and verification.
 
 ## Documents
 

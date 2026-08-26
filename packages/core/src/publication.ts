@@ -1,4 +1,4 @@
-import type { TrackingRunEvidenceV1 } from "./contracts.js";
+import { assertTrackingRunEvidence, type TrackingRunEvidenceV1 } from "./contracts.js";
 import { assertTrackingOperation, type TrackingSetupOperationV1 } from "./tracking-operation.js";
 
 export const PUBLICATION_APPROVAL_LIFETIME_MS = 30 * 60 * 1_000;
@@ -34,6 +34,7 @@ export function recordPostPublicationEvidence(
   updatedAt = new Date().toISOString(),
 ): TrackingSetupOperationV1 {
   assertTrackingOperation(operation);
+  assertTrackingRunEvidence(evidence);
   if (operation.status !== "published" || !operation.version) throw new Error("Only a published operation accepts post-publication evidence.");
   if (evidence.specificationId !== operation.specification.id) throw new Error("Post-publication evidence belongs to another specification.");
   const result = structuredClone(operation);
@@ -41,7 +42,7 @@ export function recordPostPublicationEvidence(
   result.postPublicationEvidenceId = evidence.runId;
   if (evidence.verdict.browserVerification === "passed" && evidence.verdict.code === "browser_verified") {
     result.status = "completed";
-  } else {
+  } else if (evidence.verdict.browserVerification === "failed") {
     result.status = "rollback_required";
     result.rollback = { targetVersionFingerprint: operation.version.priorLiveVersionFingerprint, status: "required" };
   }

@@ -2,7 +2,11 @@ import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadGoogleEnvironment, resolveGoogleCommand } from "./google-session.mjs";
+import {
+  GoogleSessionMode,
+  loadGoogleEnvironment,
+  resolveGoogleCommand,
+} from "./google-session.mjs";
 
 const temporaryDirectories: string[] = [];
 
@@ -72,6 +76,34 @@ describe("persistent Google session", () => {
     const directory = await configDir({ clientMode: 0o644 });
 
     await expect(loadGoogleEnvironment(directory)).rejects.toThrow("must use mode 0600");
+  });
+
+  it("enables an exact-target Stage 1 publication session explicitly", async () => {
+    const directory = await configDir();
+    const environment = await loadGoogleEnvironment(
+      directory,
+      {},
+      GoogleSessionMode.Stage1,
+      "gtm-pcj3q5rk",
+    );
+
+    expect(environment).toMatchObject({
+      GOOGLE_GTM_CONTAINER_WRITES_ENABLED: "true",
+      GOOGLE_GTM_PUBLICATION_ENABLED: "true",
+      GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED: "true",
+      GOOGLE_GTM_WRITE_TARGET_PUBLIC_ID: "GTM-PCJ3Q5RK",
+    });
+  });
+
+  it("rejects a Stage 1 session without one valid write target", async () => {
+    const directory = await configDir();
+
+    await expect(loadGoogleEnvironment(
+      directory,
+      {},
+      GoogleSessionMode.Stage1,
+      "not-a-container",
+    )).rejects.toThrow("valid GTM public container ID");
   });
 
   it("allows only preflight and API commands", () => {

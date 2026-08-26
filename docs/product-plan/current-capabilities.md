@@ -1,6 +1,6 @@
 # What GTM Observability has today
 
-Status date: 2026-08-24
+Status date: 2026-08-26
 
 GTM Observability currently maintains one site-aware agent task from supported tracking
 intent through reviewable setup and verification. It observes the website's GTM
@@ -10,8 +10,9 @@ backend API can safely prepare one reusable managed workspace, durably plan and 
 navigation and confirmed lead-form setups, validate the workspace, and create an
 immutable version. Separate backend clients can publish an exactly approved version
 and restore its recorded prior-live version. For a confirmed lead form, the website
-agent exposes plan review and an exact application confirmation through immutable
-version creation. It does not expose publication approval, publication, or rollback.
+agent exposes plan review, exact application and preview confirmation, immutable
+version review, publication approval, live verification, and explicit rollback after
+failed evidence when those guarded backend capabilities are enabled.
 
 ## Current product workflow
 
@@ -22,15 +23,20 @@ Open the agent and inspect page GTM / authorized access
     -> highlight and confirm the target
     -> confirm the tracking specification
     -> generate a reviewable GTM setup
+    -> optionally request and approve a bounded model-authored interaction alternative
     -> optionally prepare the managed workspace and review its change plan
-    -> explicitly approve application, validation, and immutable version creation
+    -> explicitly approve application and validation
+    -> verify the exact draft before immutable version creation
+    -> on failed exact evidence, review one bounded repair and repeat exact preview
     -> optionally download the GTM JSON
     -> use the exact pre-chat GTM container and GA4 destination context
     -> record a read-only GA4 Realtime baseline
     -> submit the guided browser run once
     -> classify the browser request independently
     -> optionally confirm an aggregate GA4 Realtime count increase
-    -> stop before publication approval
+    -> separately review and approve the exact immutable version
+    -> publish, run the confirmed interaction against the live container
+    -> complete on passing evidence or separately review the exact rollback after failure
 ```
 
 Each evidence stage is intentionally separate. A generated setup does not mean it was
@@ -54,18 +60,37 @@ The agent currently supports:
 - Lead-form tracking requests.
 - File-download requests that reuse one exact GA4 stream's automatic coverage or name
   its exact gap without generating duplicate GTM.
+- Page-view, scroll, site-search, and video-engagement requests that report the exact
+  stream's automatic coverage or its exact gap without generating fallback GTM setup.
+- Email-link requests grounded in observable `mailto:` links, with sitewide or
+  current-page scope and privacy-safe `email_click` setup generation.
+- An explicit model-authored alternative for a confirmed known interaction, with its
+  event, provider, rationale, and parameter classifications visible before separate
+  setup approval and deterministic planning.
 - Explicit managed-workspace preparation and safe change-plan review for a confirmed
   lead-form setup when connected GTM edit access is available.
-- Exact confirmation before applying the reviewed plan, validating the workspace, and
-  creating one immutable version. Publication remains separate and unavailable.
+- Exact confirmation before applying and validating the reviewed plan, followed by
+  fingerprint-bound draft verification before immutable version creation.
+- A two-attempt, intent-preserving repair review for failed exact-draft evidence when
+  the unchanged setup has one concrete managed-entity repair, followed by provider
+  revalidation and a new exact-preview fingerprint.
+- Separate exact-version publication review and approval when publication is enabled,
+  followed by live browser verification and an explicit prior-version rollback review
+  only after failed evidence.
 - Page discovery and visible candidate highlights.
+- Confirmed highlights for automatically resolved forms and candidate/confirmed page
+  markers for locally matched phone, email, outbound, and download links.
 - Explicit target and tracking-specification confirmation.
 - Clear unsupported handoffs for interaction types that are understood but not implemented.
-- An evidence path that separates intent, page inspection, target confirmation, setup generation, GTM runtime, GTM access, browser verification, and platform confirmation.
+- Concise action receipts and final browser/platform verification results without a
+  duplicate customer-facing evidence-stage card.
 - Exact connected context carried into setup generation, browser verification, and
   optional aggregate GA4 Realtime confirmation without proprietary page meta tags.
 - One versioned, runtime-validated agent turn containing a bounded task goal, status,
   plan, one optional question, safe actions, and action receipts.
+- Compact action receipts reserve readable label space and wrap long evidence details.
+  Long task updates open at their status and goal while their actions remain reachable
+  through the overlay scroll area.
 - In-place task progress from target selection through setup approval, download,
   browser verification, and a structured final result rather than simulated streaming
   response bubbles.
@@ -160,8 +185,20 @@ The main agent task uses that result before generation. Automatic outbound click
 navigation `Partially covered` and require intentional link selection. Confirmed leads
 still `Need custom setup` because form starts and submits do not prove the business
 outcome. `Track downloads` reports `Already covered` only when the exact stream's
-master and file-download settings are on; otherwise it names the bounded gap. Without
-an audit or exact stream, the task makes no coverage claim or GTM setup.
+master and file-download settings are on. Exact outbound-link and download requests
+with matching page evidence can use the shared scoped setup workflow when automatic
+coverage is unavailable or disabled. The fallback setup sends only its event name and
+GA4's automatic page context; destination URLs, query strings, link text, and file
+names remain excluded.
+
+Page views, scrolls, site search, and video engagement are coverage-only intents. The
+agent reports `Already covered`, an exact feature or master-switch gap, or an
+unavailable exact-stream check. It does not create fallback tags or expose setup
+actions for these requests.
+
+Email-link clicks reuse the shared known-interaction workflow. The generated
+`email_click` event contains no custom parameters; email addresses, `mailto:` URLs,
+subject/body values, and visible link text remain excluded from GA4.
 
 Starting a guided run records the expected event's Realtime `eventCount` and retains an
 opaque verification handle for ten minutes in bounded process memory. Confirmation is
@@ -202,10 +239,16 @@ immutable version creation. Each transition is recorded in a file-backed operati
 an interrupted application resumes from freshly read Google state and completed action
 signatures.
 
-The runner stops at the `versioned` state and returns `await_approval`. The extension
-exposes preparation, bounded plan review, an exact pre-write confirmation, and the
-resume result through version review. Publication remains behind its separate backend
-flag, OAuth scope, and exact fingerprint approval.
+The runner stops at each authority checkpoint: exact draft preview, immutable version
+review, publication approval, and live verification. Publication remains behind its
+separate backend flag, OAuth scope, and exact fingerprint approval. A passing live run
+completes the operation. A failed run records the prior-live target and requires a
+second exact rollback confirmation; inconclusive evidence keeps rollback locked.
+
+Failed exact-draft evidence may separately enter bounded repair. The operation records
+the failed evidence fingerprint and repair ledger, accepts only a reviewed plan for
+the unchanged setup, stops on ambiguity or exhaustion, and requires a newly bound
+exact preview after successful provider revalidation.
 
 ## Evidence and diagnosis foundations
 

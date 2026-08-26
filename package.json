@@ -23,7 +23,9 @@
     "google": "node scripts/google-session.mjs",
     "dev:api": "npm run dev --workspace @gtm-observability/api",
     "dev:fixture": "npm run dev --workspace @gtm-observability/fixture-site",
-    "build:extension": "npm run build --workspace @gtm-observability/extension"
+    "build:extension": "npm run build --workspace @gtm-observability/extension",
+    "demo:stage1": "npm run build && node scripts/stage1-interactive-demo.mjs",
+    "smoke:google:stage1": "npm run build && node scripts/stage1-google-smoke.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",

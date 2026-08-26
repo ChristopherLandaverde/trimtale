@@ -159,7 +159,11 @@ describe("tracking change plan", () => {
   it("fails closed on a same-name semantic conflict", () => {
     const setup = navigationSetup();
     const current = entities(setup);
-    const tag = current.tag?.[0] as { parameter?: Array<{ key?: string; value?: string }> };
+    const tag = current.tag?.[0] as {
+      notes?: string;
+      parameter?: Array<{ key?: string; value?: string }>;
+    };
+    delete tag.notes;
     const measurement = tag.parameter?.find((item) => item.key === "measurementId");
     if (measurement) measurement.value = "G-CONFLICT999";
 
@@ -179,6 +183,7 @@ describe("tracking change plan", () => {
     const tag = current.tag?.[0] as Record<string, unknown> & {
       parameter?: Array<{ key?: string; value?: string }>;
     };
+    const existingId = String(tag.tagId);
     const measurement = tag.parameter?.find((item) => item.key === "measurementId");
     if (measurement) measurement.value = "G-OLDVALUE1";
     tag.notes = GTM_MANAGED_ENTITY_NOTE;
@@ -190,7 +195,7 @@ describe("tracking change plan", () => {
       kind: "tag",
       action: "conflict",
       reason: "managed_change_requires_approval",
-      existingId: "900002",
+      existingId,
     }));
   });
 

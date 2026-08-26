@@ -10,6 +10,36 @@ Describe what should count as a conversion. The system discovers the relevant we
 
 Lead-generation websites are the initial market: qualified form submissions, appointment requests, phone intent, email intent, and primary lead actions. The underlying product model is broader conversion measurement, so purchases, registrations, trials, and subscriptions can be supported later without redefining the product.
 
+## Product thesis
+
+The current product direction already implements the measurement-observability thesis;
+it is not a separate pivot toward a linter or MCP wrapper. The launch outcome is a
+shorter, safer path from tracking intent to verified version:
+
+```text
+Tracking intent
+    -> confirmed tracking specification
+    -> tracking setup
+    -> tracking change plan
+    -> managed-workspace draft
+    -> exact draft preview
+    -> deterministic verdict
+    -> verified version
+    -> human publication approval
+```
+
+The defining invariant is that browser evidence must belong to the exact unpublished
+draft under review. Testing the current live container cannot qualify a different
+workspace draft for version creation or publication. The agent may interpret the
+request and explain the result, but deterministic contracts, tool results, evidence,
+and approval checkpoints remain authoritative.
+
+Setup, diagnosis, and continuous observation are stages of one measurement lifecycle,
+not separate products. A confirmed tracking specification establishes the expected
+behavior, a tracking check records observed behavior, and the same evidence chain can
+later support monitoring, diagnostic handoffs, and verified resolutions. GTM is the
+first implementation target; APIs, MCP, and future agent interfaces remain adapters.
+
 ## Core workflow
 
 ```text

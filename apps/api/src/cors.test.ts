@@ -13,8 +13,12 @@ describe("API CORS boundary", () => {
       "/api/google/containers/prepare-workspace",
       "/api/google/workflows/plan",
       "/api/google/workflows/operation_spec_123/resume",
+      "/api/google/workflows/operation_spec_123/verify-draft",
+      "/api/google/workflows/operation_spec_123/approve-publication",
+      "/api/google/workflows/operation_spec_123/publish",
       "/api/intake-evaluations",
       "/api/intake-evaluations/intake_report_123",
+      "/api/setup-authoring",
     ]) {
       expect(corsDecision(pathname, "https://attacker.example", undefined)).toEqual({
         allowed: false,
@@ -59,6 +63,15 @@ describe("API CORS boundary", () => {
       expect(corsDecision(pathname, extensionOrigin, "*")).toEqual({ allowed: false });
       expect(corsDecision(pathname, extensionOrigin, "null")).toEqual({ allowed: false });
     }
+  });
+
+  it("protects setup authoring with the exact extension origin", () => {
+    expect(corsDecision("/api/setup-authoring", extensionOrigin, extensionOrigin)).toEqual({
+      allowed: true,
+      allowOrigin: extensionOrigin,
+    });
+    expect(corsDecision("/api/setup-authoring", "https://attacker.example", extensionOrigin))
+      .toEqual({ allowed: false });
   });
 
   it("preserves the public CORS behavior of non-Google local routes", () => {

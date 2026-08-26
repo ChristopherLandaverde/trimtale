@@ -67,12 +67,18 @@ Synchronization errors and merge conflicts return `sync_conflict`; the API does 
 
 ## Assistant behavior
 
-When exactly one runtime container ID is observed, the evidence path offers `Check GTM access`. A successful exact match becomes a recognized container and displays workspace availability. Only then, and only when writes are enabled, does `Prepare managed workspace` appear.
+Opening the assistant performs one bounded connection check. A successful exact match
+appears in the GTM connection card with the account, container, destination, and
+effective access. When edit access is enabled, managed-workspace preparation remains
+inside the explicitly reviewed setup workflow rather than a separate evidence card.
 
 If matching, permissions, capacity, ownership, or synchronization prevent preparation, the existing generated-container-file and planning paths remain available. No state claims publication or platform confirmation.
 
 ## Testing
 
-Core policy and API-client tests use deterministic fake Google responses. Chromium intercepts the fixed local integration endpoints and exercises inspection and explicit preparation without credentials. Ordinary `npm run verify` never calls Google or consumes a real workspace.
+Core policy and API-client tests use deterministic fake Google responses. Chromium
+intercepts the fixed local integration endpoints and exercises connection inspection
+and reviewed workflow preparation without credentials. Ordinary `npm run verify`
+never calls Google or consumes a real workspace.
 
 Any real Google integration lane must require explicit credentials and a disposable container. It must not run in ordinary CI.

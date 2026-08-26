@@ -1,9 +1,11 @@
 import {
+  bindExactDraftBrowserRun,
   createSetupProposal,
   createTrackingChangePlan,
   GTM_MANAGED_ENTITY_NOTE,
   GTM_MANAGED_WORKSPACE_DESCRIPTION,
   GTM_MANAGED_WORKSPACE_NAME,
+  setupArtifactFingerprint,
   type GtmEntitySet,
   type TrackingSetupOperationV1,
 } from "@gtm-observability/core";
@@ -41,7 +43,40 @@ function currentEntities(): Required<GtmEntitySet> {
   };
 }
 
-function operation(status: "applied" | "validated" = "applied"): TrackingSetupOperationV1 {
+function operation(status: "applied" | "validated" | "draft_verified" = "applied"): TrackingSetupOperationV1 {
+  if (status === "draft_verified") {
+    const validated = operation("validated");
+    validated.previewPolicy = "exact_draft_required";
+    const draftVerification = bindExactDraftBrowserRun(validated, {
+      schemaVersion: 1,
+      operationId: validated.id,
+      setupFingerprint: setupArtifactFingerprint(validated),
+      workspaceFingerprint: validated.workspace.fingerprint,
+      previewVersionFingerprint: validated.validation!.previewVersionFingerprint!,
+      completedAt: "2026-08-22T12:05:00.000Z",
+      evidence: {
+        schemaVersion: 1,
+        runId: "run_exact_preview",
+        specificationId: validated.specification.id,
+        startedAt: "2026-08-22T12:04:30.000Z",
+        observations: {
+          interaction: { type: "navigation_click", targetId: "pricing", attempted: true, submissionResult: "unknown" },
+          outcome: { observed: true, observable: true, evidenceType: "navigation_click" },
+          dataLayer: { matchingEvents: [] },
+          tagFired: true,
+          network: { ga4Requests: [{ url: "https://www.google-analytics.com/g/collect?en=navigation_click", observedAt: "2026-08-22T12:04:40.000Z" }] },
+          consent: { analyticsStorage: "granted" },
+        },
+        verdict: {
+          code: "browser_verified",
+          browserVerification: "passed",
+          platformConfirmation: "unverified",
+          nextAction: "Bind this exact run.",
+        },
+      },
+    });
+    return { ...validated, status, draftVerification };
+  }
   const generated = proposal();
   const plan = createTrackingChangePlan(generated.containerFile, {});
   return {
@@ -73,6 +108,7 @@ function validationFetch(options: {
   workspaceFingerprint?: string;
   changes?: readonly unknown[];
   compilerError?: boolean;
+  previewFingerprint?: string;
   createCompilerError?: boolean;
   createFailure?: boolean;
   entities?: Required<GtmEntitySet>;
@@ -100,7 +136,7 @@ function validationFetch(options: {
     if (url.pathname.endsWith(":quick_preview")) return Response.json({
       compilerError: options.compilerError ?? false,
       syncStatus: {},
-      containerVersion: { fingerprint: "preview-8" },
+      containerVersion: { fingerprint: options.previewFingerprint ?? "preview-8" },
     });
     if (url.pathname.endsWith(":create_version") && init?.method === "POST") {
       if (options.createFailure) return Response.json({ error: "version failed" }, { status: 500 });
@@ -170,6 +206,26 @@ describe("managed workspace validation and version creation", () => {
       notes: "Tracking setup operation operation_navigation",
     });
     expect(fetcher.mock.calls.some(([input]) => input.toString().includes(":publish"))).toBe(false);
+  });
+
+  it("creates an exact-policy version only from a current browser-verified preview fingerprint", async () => {
+    const fetcher = validationFetch();
+    expect(await new GtmDiscoveryClient(async () => "token", fetcher, true)
+      .createValidatedVersion(operation("draft_verified"))).toMatchObject({
+        status: "versioned",
+        version: { fingerprint: "version-8" },
+      });
+
+    const changed = validationFetch({ previewFingerprint: "preview-9" });
+    expect(await new GtmDiscoveryClient(async () => "token", changed, true)
+      .createValidatedVersion(operation("draft_verified"))).toMatchObject({
+        status: "blocked",
+        validation: {
+          status: "failed",
+          errors: ["The GTM preview fingerprint changed after browser verification."],
+        },
+      });
+    expect(changed.mock.calls.some(([input]) => input.toString().includes(":create_version"))).toBe(false);
   });
 
   it("refuses version creation when GTM returns compiler errors or the request fails", async () => {

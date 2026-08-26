@@ -12,12 +12,16 @@ function isIntakeEvaluationRoute(pathname: string): boolean {
     || pathname.startsWith("/api/intake-evaluations/");
 }
 
+function isSetupAuthoringRoute(pathname: string): boolean {
+  return pathname === "/api/setup-authoring";
+}
+
 export function corsDecision(
   pathname: string,
   requestOrigin: string | undefined,
   configuredExtensionOrigin: string | undefined,
 ): CorsDecision {
-  if (!isGoogleRoute(pathname) && !isIntakeEvaluationRoute(pathname)) {
+  if (!isGoogleRoute(pathname) && !isIntakeEvaluationRoute(pathname) && !isSetupAuthoringRoute(pathname)) {
     return { allowed: true, allowOrigin: "*" };
   }
 

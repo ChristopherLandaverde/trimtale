@@ -38,3 +38,7 @@ GA4 already covers before offering custom setup.
   selection begins empty so a custom event remains intentional.
 - 2026-08-23: Exploratory review found and resolved the conflicting `Track all`
   shortcut. No unresolved finding remains.
+- 2026-08-25: The element screenshot now fixes its test-only surface to the approved
+  348px border-box width before capture. This prevents a one-pixel parent-scrollbar
+  change from rewrapping the task summary; 20 repeated focused cases and the full
+  55-journey gate passed with the baseline unchanged.

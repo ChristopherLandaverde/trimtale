@@ -77,19 +77,55 @@ A diagnosis and corrective action supported by before-and-after tracking evidenc
 _Avoid_: Agent learning, chat answer, suggested fix
 
 **Tracking setup**:
-The process that turns a tracking intent into a tested Google Tag Manager configuration that a tracking practitioner can review and deploy.
-_Avoid_: Tag creation, AI-generated tag, automatic tagging
+A versioned, reviewable configuration derived from a confirmed tracking specification that defines tag actions, firing policies, consent requirements, and positive and negative verification expectations.
+_Avoid_: Tag creation, generated container file, tracking setup operation
+
+**GTM setup engine**:
+The GTM- and GA4-focused capability that turns a confirmed tracking specification into a reviewable and testable web-container configuration, including its supporting triggers, variables, custom code, and Analytics definitions.
+_Avoid_: Event generator, raw MCP wrapper, general marketing agent
+
+**Firing policy**:
+A structured definition of the trigger source, inclusion and exclusion conditions, frequency, consent requirements, and variables that control when a tag action may occur.
+_Avoid_: Event-specific workflow, prompt logic, generated trigger
+
+**Parameter suggestion**:
+A visible classification of a proposed analytics parameter by provider obligation, business usefulness, availability, privacy, or need for clarification or a custom definition.
+_Avoid_: Hidden model choice, inferred private value, event parameter
+
+**Custom-code proposal**:
+A reviewable adaptation of authoritative third-party instructions into exact Custom HTML or JavaScript, with its source, behavior, inputs, destinations, firing policy, consent requirements, and positive and negative verification expectations disclosed.
+_Avoid_: Arbitrary script, vendor snippet, published tag
 
 **Tracking change plan**:
 A deterministic, reviewable comparison between a generated tracking setup and the current managed workspace that classifies required changes, safe reuse, no-ops, and conflicts without mutating GTM.
 _Avoid_: Diff, patch, agent proposal
 
+**GA4 configuration plan**:
+A reviewable set of changes bound to one exact GA4 property, web stream, and observed provider state. Its approval and action receipts remain separate from any GTM change.
+_Avoid_: Tracking change plan, implicit Analytics setup, combined provider approval
+
 **Tracking setup operation**:
 A durable record of one tracking setup's progress from its confirmed specification through planning, application, validation, publication approval, publication, evidence, and any rollback. It is the source of truth for safe resumption after interruption.
 _Avoid_: Job, agent session, chat state
 
+**Verified draft**:
+A managed-workspace draft whose setup, workspace, and preview fingerprints match passing browser evidence for the confirmed tracking specification. Any change to those fingerprints invalidates the verification.
+_Avoid_: Compiler-valid workspace, generated setup, live-site check
+
+**Exact draft preview**:
+A guided browser check of the exact managed-workspace preview that will be eligible for version creation. Its run evidence must bind to the setup, workspace, and preview fingerprints.
+_Avoid_: Already-installed setup check, generic Tag Assistant session, live-site check
+
+**Already-installed setup check**:
+A tracking check of configuration believed to be installed independently of the current tracking setup operation. It may prove browser behavior but cannot create a version or grant publication authority for that operation.
+_Avoid_: Exact draft preview, managed-workspace verification, version approval
+
+**Verified version**:
+An immutable GTM container version created from a verified draft and presented for publication review. It is not live until its exact fingerprint receives publication approval and Google confirms publication.
+_Avoid_: Verified draft, approved version, published container
+
 **Publication approval**:
-A tracking practitioner's explicit authorization to publish one immutable, reviewed GTM version fingerprint. It becomes invalid when the version or live container changes.
+A tracking practitioner's explicit authorization, from an authenticated product surface, to publish the reviewed GTM version fingerprint currently displayed there. It becomes invalid when the version or live container changes.
 _Avoid_: General write permission, confirmation, deploy toggle
 
 **Recognized container**:
@@ -103,6 +139,18 @@ _Avoid_: Temporary workspace, workspace per request, default workspace
 **Managed GTM entity**:
 A tag, trigger, or custom variable created by the site-aware analytics agent in the managed workspace and carrying its exact ownership note. Only such an entity may be updated automatically.
 _Avoid_: AI tag, owned tag, generated entity
+
+**Control portal**:
+The signed-in organization surface for Google connections, container inventory, access, change awareness, and durable setup and publication history. Tagging setup and its publication flow remain available in the website agent.
+_Avoid_: Tag editor, website agent, observability scanner
+
+**Container inventory**:
+The accessible GTM accounts and web containers known for one organization, together with each container's effective access and connected GA4 context.
+_Avoid_: Website list, detected containers, client dashboard
+
+**Container change awareness**:
+Evidence that newly observed GTM workspace or version state differs from the prior recorded state, without claiming that website behavior changed.
+_Avoid_: Runtime regression, incident, website scan
 
 **Tracking practitioner**:
 A freelancer or agency team member responsible for implementing and verifying tracking on client websites.
@@ -134,6 +182,19 @@ _Avoid_: Menu click, individual link event
 The set of navigation elements discovered by the agent and confirmed by the tracking practitioner before a tracking setup is created.
 _Avoid_: All links, automatic selection
 
+**Outbound-link click**:
+A click on an HTTP or HTTPS destination outside the current website origin. It is an observed interaction, not evidence that the destination loaded or produced a conversion.
+_Avoid_: External conversion, referral, navigation click
+
+**File download**:
+A click on a link whose destination has a supported downloadable-file extension. It is an observed interaction, not evidence that the transfer completed or the file was opened.
+_Avoid_: Download completion, document view, file conversion
+
+**Email-link click**:
+A click on a `mailto:` link. It is an observed interaction, not evidence that an email
+client opened, a message was sent, or a conversion occurred.
+_Avoid_: Email conversion, sent email, contact lead
+
 **Generated container file**:
 A downloadable GTM-compatible JSON file containing the ordinary tags, triggers, and variables for a tracking setup, intended to be imported into a GTM workspace.
 _Avoid_: Custom template, container template, production update
@@ -149,10 +210,6 @@ _Avoid_: Browser verification, guaranteed attribution, delivery confidence
 **Collection acknowledgement**:
 Evidence that a destination collection endpoint returned a successful transport response, such as HTTP 204, for a validated analytics request. It proves endpoint acknowledgement but not reporting, attribution, or platform processing.
 _Avoid_: Platform confirmation, GA4 event received, attribution confirmation
-
-**Evidence path**:
-The ordered evidence connecting an observed interaction to its tracking configuration and destination outcome, showing where measurement succeeded, remains unconfirmed, or failed.
-_Avoid_: Agent reasoning, activity log, chain of thought
 
 **Scenario corpus**:
 A collection of reproducible website, consent, GTM, and destination configurations with known expected outcomes, used to test diagnoses, generated setups, and implementation-confidence calibration.

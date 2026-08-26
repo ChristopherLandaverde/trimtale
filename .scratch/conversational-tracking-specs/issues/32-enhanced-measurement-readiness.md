@@ -54,3 +54,7 @@ enhanced-measurement interactions before proposing custom GTM work.
   feature toggles configured on. No setting or GTM resource was changed.
 - 2026-08-23: Exploratory review found and resolved omitted ProtoJSON boolean decoding
   and unclear master-off copy. No unresolved finding remains.
+- 2026-08-25: The element screenshot now fixes its test-only surface to the approved
+  348px border-box width before capture. This removes a one-pixel parent-scrollbar
+  toggle without changing the product or baseline; 20 repeated focused cases and the
+  full 55-journey gate passed.

@@ -1,6 +1,17 @@
 import { resolve } from "node:path";
-import type { BrowserContext } from "@playwright/test";
+import type { BrowserContext, Locator } from "@playwright/test";
 import { expect, test } from "./helpers/extension-test.js";
+
+const visualSurfaceWidth = 382;
+
+async function stabilizeSurface(surface: Locator): Promise<void> {
+  await surface.evaluate((element, width) => {
+    const target = element as HTMLElement;
+    target.style.boxSizing = "border-box";
+    target.style.width = `${width}px`;
+  }, visualSurfaceWidth);
+  await expect(surface).toHaveCSS("width", `${visualSurfaceWidth}px`);
+}
 
 async function routeEnhanced(context: BrowserContext): Promise<void> {
   await context.route("http://127.0.0.1:8787/api/google/analytics/enhanced-measurement?*", (route) => route.fulfill({
@@ -121,12 +132,13 @@ test("carries exact GTM context through generation, browser evidence, and GA4 co
   await root.getByRole("button", { name: "Contact sales" }).click();
   await root.getByRole("button", { name: "Review setup" }).click();
   await root.getByRole("button", { name: "Approve setup" }).click();
-  const evidence = root.getByRole("region", { name: "Tracking evidence path" });
-  await expect(evidence.getByText("Reviewable generate_lead setup generated", { exact: true })).toBeVisible();
-  await expect(evidence.getByText(/Agency.*Lead site.*G-EXACT123/)).toBeVisible();
+  await expect(root.getByRole("region", { name: "Tracking evidence path" })).toHaveCount(0);
+  await expect(task.getByText(/Setup approved and generated/i)).toBeVisible();
+  await expect(root.getByRole("region", { name: "GTM connection" })).toContainText("Agency");
+  await expect(root.getByRole("region", { name: "GTM connection" })).toContainText("Lead site");
 
-  await root.getByRole("button", { name: "Start verification" }).click();
-  await expect(evidence.getByText(/Waiting for one successful browser run/)).toBeVisible();
+  await root.getByRole("button", { name: "Verify already-installed setup" }).click();
+  await expect(task.getByText(/watching for one successful browser run/i)).toBeVisible();
   expect(analyticsStarts).toBe(1);
   await page.evaluate(() => {
     const sendBeacon = navigator.sendBeacon.bind(navigator);
@@ -147,20 +159,24 @@ test("carries exact GTM context through generation, browser evidence, and GA4 co
   await page.locator("form#contact input[name='email']").fill("private@example.test");
   await page.locator("form#contact button[type='submit']").click();
 
-  await expect(evidence.getByText(/Browser request verified/)).toBeVisible();
-  await expect(evidence.getByText(/GA4 Realtime count increased from 4 to 5/)).toBeVisible();
-  await expect(evidence.getByText(/Aggregate correlation; no user or event-level identity/)).toBeVisible();
-  await expect(root.locator(".agent-verification-result .agent-specification-row")
+  const result = task.locator(".agent-verification-result");
+  await expect(result.locator(".agent-specification-row")
+    .filter({ hasText: "Browser verification" }).getByText("passed", { exact: true })).toBeVisible();
+  await expect(result.locator(".agent-specification-row")
     .filter({ hasText: "Platform confirmation" }).getByText("passed", { exact: true })).toBeVisible();
+  await expect(result.getByText(/aggregate count increase against the pre-run baseline/i)).toBeVisible();
+  await expect(result.getByText(/no user or event-level identity is claimed/i)).toBeVisible();
   expect(analyticsConfirms).toBe(1);
   await expect(root.getByText("private@example.test", { exact: true })).toHaveCount(0);
-  await evidence.evaluate((element) => element.scrollIntoView({ block: "start" }));
+  await task.evaluate((element) => element.scrollIntoView({ block: "start" }));
   const messageWidths = await root.locator(".messages").evaluate((element) => ({
     client: element.clientWidth,
     scroll: element.scrollWidth,
   }));
   expect(messageWidths.scroll).toBe(messageWidths.client);
-  await expect(root.locator("section.assistant")).toHaveScreenshot("connected-verification-evidence.png", {
+  const assistant = root.locator("section.assistant");
+  await stabilizeSurface(assistant);
+  await expect(assistant).toHaveScreenshot("connected-verification-result.png", {
     animations: "disabled",
     stylePath: resolve("tests/e2e/visual-stability.css"),
   });
@@ -222,18 +238,22 @@ test("keeps browser verification usable when the Analytics provider denies the r
   await root.getByRole("button", { name: "Contact sales" }).click();
   await root.getByRole("button", { name: "Review setup" }).click();
   await root.getByRole("button", { name: "Approve setup" }).click();
-  await root.getByRole("button", { name: "Start verification" }).click();
+  await root.getByRole("button", { name: "Verify already-installed setup" }).click();
 
-  const evidence = root.getByRole("region", { name: "Tracking evidence path" });
-  await expect(evidence.getByText("The Analytics Data API is unavailable or the saved grant cannot read it", { exact: true }))
-    .toBeVisible();
+  await expect(root.getByRole("region", { name: "Tracking evidence path" })).toHaveCount(0);
   await expect(root.getByText(/privateSentinel: raw provider detail/)).toHaveCount(0);
   await expect(root.locator("img, script")).toHaveCount(0);
 
   await page.locator("form#contact input[name='email']").fill("private@example.test");
   await page.locator("form#contact button[type='submit']").click();
-  await expect(evidence.getByText(/Browser request verified/)).toBeVisible();
-  await expect(evidence.getByText("The Analytics Data API is unavailable or the saved grant cannot read it", { exact: true }))
+  const task = root.getByRole("region", { name: "Agent task" });
+  await expect(task.getByText(/The Analytics Data API is unavailable or the saved grant cannot read it/).first())
     .toBeVisible();
+  const result = task.locator(".agent-verification-result");
+  await expect(result.locator(".agent-specification-row")
+    .filter({ hasText: "Browser verification" }).getByText("passed", { exact: true })).toBeVisible();
+  await expect(result.locator(".agent-specification-row")
+    .filter({ hasText: "Platform confirmation" }).getByText("unavailable", { exact: true })).toBeVisible();
+  await expect(task.getByRole("button", { name: "Try verification again" })).toBeVisible();
   await expect(root.getByText("private@example.test", { exact: true })).toHaveCount(0);
 });

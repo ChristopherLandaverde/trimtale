@@ -20,7 +20,7 @@ test("completes the lead-form journey on a real React page", async ({ page }) =>
   await root.getByRole("button", { name: "Send request" }).click();
   await root.getByRole("button", { name: "Review setup" }).click();
   await root.getByRole("button", { name: "Approve setup" }).click();
-  await root.getByRole("button", { name: "Start verification" }).click();
+  await root.getByRole("button", { name: "Verify already-installed setup" }).click();
 
   await page.locator("#react-lead-form button[type='submit']").click();
   await expect(page.locator("#react-success")).toBeHidden();

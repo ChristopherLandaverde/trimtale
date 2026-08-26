@@ -166,6 +166,56 @@ describe("read-only GTM discovery", () => {
     expect(fetcher).toHaveBeenCalledTimes(4);
   });
 
+  it("captures web-container state without pretending the current OAuth grant proves ACLs", async () => {
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(input.toString());
+      if (url.pathname.endsWith("/accounts")) {
+        return Response.json({ account: [{ accountId: "1", name: "Agency", path: "accounts/1" }] });
+      }
+      if (url.pathname.endsWith("/containers")) {
+        return Response.json({ container: [
+          { accountId: "1", containerId: "10", name: "Web", path: "accounts/1/containers/10", publicId: "GTM-WEB1", usageContext: ["web"] },
+          { accountId: "1", containerId: "11", name: "Server", path: "accounts/1/containers/11", publicId: "GTM-SERVER1", usageContext: ["server"] },
+        ] });
+      }
+      if (url.pathname.endsWith("/workspaces")) {
+        return Response.json({ workspace: [{
+          path: "accounts/1/containers/10/workspaces/2",
+          accountId: "1",
+          containerId: "10",
+          workspaceId: "2",
+          name: "Default",
+          fingerprint: "workspace-2",
+        }] });
+      }
+      if (url.pathname.endsWith("/versions:live")) {
+        return Response.json({
+          path: "accounts/1/containers/10/versions/7",
+          fingerprint: "live-7",
+          tag: [{ type: "googtag", parameter: [{ key: "measurementId", value: "G-YV879ECLRV" }] }],
+        });
+      }
+      return Response.json({
+        accountId: "1", containerId: "10", name: "Web", path: "accounts/1/containers/10",
+        publicId: "GTM-WEB1", usageContext: ["web"],
+      });
+    });
+    const client = new GtmDiscoveryClient(async () => "token", fetcher, false, false, () => Date.parse("2026-08-24T16:00:00.000Z"));
+
+    const result = await client.captureContainerInventory("org_agency", "google_primary");
+
+    expect(result).toMatchObject({
+      organizationId: "org_agency",
+      capturedAt: "2026-08-24T16:00:00.000Z",
+      containers: [{
+        container: { publicId: "GTM-WEB1", usageContext: "WEB" },
+        access: { status: "unavailable", reason: "permission_scope_not_granted" },
+        liveVersion: { status: "observed", fingerprint: "live-7" },
+        ga4: { measurementIds: ["G-YV879ECLRV"], context: "unavailable" },
+      }],
+    });
+  });
+
   it("retrieves a container's workspaces and live entity context", async () => {
     const fetcher = vi.fn<typeof fetch>(async (input) => {
       const url = new URL(input.toString());
@@ -456,6 +506,22 @@ describe("recognized container workspace workflow", () => {
   it("refuses preparation before any Google calls when writes are disabled", async () => {
     const fetcher = googleFixtureFetch({ workspaces: [defaultWorkspace] });
     const client = new GtmDiscoveryClient(async () => "token", fetcher, false);
+
+    await expect(client.prepareManagedWorkspace("GTM-ABC123")).rejects.toMatchObject({ status: 403 });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("refuses off-target preparation before any Google calls", async () => {
+    const fetcher = googleFixtureFetch({ workspaces: [defaultWorkspace] });
+    const client = new GtmDiscoveryClient(
+      async () => "token",
+      fetcher,
+      true,
+      false,
+      Date.now,
+      undefined,
+      "GTM-LOCKED123",
+    );
 
     await expect(client.prepareManagedWorkspace("GTM-ABC123")).rejects.toMatchObject({ status: 403 });
     expect(fetcher).not.toHaveBeenCalled();

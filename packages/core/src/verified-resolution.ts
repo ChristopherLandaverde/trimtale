@@ -14,7 +14,13 @@ export type VerifiedResolutionCause = typeof verifiedResolutionCauses[number];
 export type VerifiedResolutionAction = typeof verifiedResolutionActions[number];
 
 export interface VerifiedResolutionEnvironmentV1 {
-  interactionType: "navigation_click" | "form_submission";
+  interactionType:
+    | "navigation_click"
+    | "form_submission"
+    | "phone_click"
+    | "email_click"
+    | "outbound_click"
+    | "file_download";
   submissionResult: "success" | "validation_error" | "server_error" | "unknown";
   analyticsStorage: "granted" | "denied" | "unknown";
 }
@@ -68,7 +74,14 @@ export function validateVerifiedResolution(value: unknown): string[] {
   if (!environment) {
     errors.push("environment is required");
   } else {
-    if (environment.interactionType !== "navigation_click" && environment.interactionType !== "form_submission") errors.push("environment.interactionType is invalid");
+    if (![
+      "navigation_click",
+      "form_submission",
+      "phone_click",
+      "email_click",
+      "outbound_click",
+      "file_download",
+    ].includes(String(environment.interactionType))) errors.push("environment.interactionType is invalid");
     if (!["success", "validation_error", "server_error", "unknown"].includes(String(environment.submissionResult))) errors.push("environment.submissionResult is invalid");
     if (!["granted", "denied", "unknown"].includes(String(environment.analyticsStorage))) errors.push("environment.analyticsStorage is invalid");
   }

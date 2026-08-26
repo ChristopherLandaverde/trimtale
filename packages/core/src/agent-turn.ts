@@ -1,4 +1,8 @@
-import type { ConversationIntakeResult } from "./conversation.js";
+import type {
+  AutomaticCoverageInteraction,
+  ConversationIntakeResult,
+} from "./conversation.js";
+import { knownInteractionDefinition, type KnownInteractionTypeV1 } from "./interaction-authoring.js";
 
 export type AgentTaskStatus =
   | "working"
@@ -41,9 +45,14 @@ export interface AgentTurnV1 {
 export interface AgentTurnContext {
   formCount: number;
   navigationCount: number;
+  interactionCounts?: Partial<Record<KnownInteractionTypeV1, number>>;
   automaticCoverage?: {
     enabled: boolean;
+    pageViews?: boolean;
+    scrolls?: boolean;
     outboundClicks: boolean;
+    siteSearch?: boolean;
+    videoEngagement?: boolean;
     fileDownloads: boolean;
     formInteractions: boolean;
   };
@@ -55,6 +64,23 @@ export interface AgentTurnContext {
 
 const gtmPublicIdPattern = /^GTM-[A-Z0-9]+$/;
 const ga4MeasurementIdPattern = /^G-[A-Z0-9]+$/;
+
+const automaticCoverageDefinitions: Record<AutomaticCoverageInteraction, {
+  feature: "pageViews" | "scrolls" | "siteSearch" | "videoEngagement";
+  label: string;
+  subject: string;
+  gap: string;
+}> = {
+  page_view: { feature: "pageViews", label: "Page views", subject: "page views", gap: "page-view" },
+  scroll: { feature: "scrolls", label: "Scrolls", subject: "scrolls", gap: "scroll" },
+  site_search: { feature: "siteSearch", label: "Site search", subject: "site search", gap: "site-search" },
+  video_engagement: {
+    feature: "videoEngagement",
+    label: "Video engagement",
+    subject: "video engagement",
+    gap: "video-engagement",
+  },
+};
 
 function leadTask(
   context: AgentTurnContext,
@@ -86,7 +112,17 @@ function boundedCount(value: number): number {
 function pageDetail(context: AgentTurnContext): string {
   const forms = boundedCount(context.formCount);
   const navigation = boundedCount(context.navigationCount);
-  return `${forms} form${forms === 1 ? "" : "s"} · ${navigation} navigation link${navigation === 1 ? "" : "s"}`;
+  const details = [
+    `${forms} form${forms === 1 ? "" : "s"}`,
+    `${navigation} navigation link${navigation === 1 ? "" : "s"}`,
+  ];
+  const phone = boundedCount(context.interactionCounts?.phone_click ?? 0);
+  if (phone > 0) details.push(`${phone} phone link${phone === 1 ? "" : "s"}`);
+  const outbound = boundedCount(context.interactionCounts?.outbound_click ?? 0);
+  if (outbound > 0) details.push(`${outbound} outbound link${outbound === 1 ? "" : "s"}`);
+  const downloads = boundedCount(context.interactionCounts?.file_download ?? 0);
+  if (downloads > 0) details.push(`${downloads} downloadable file link${downloads === 1 ? "" : "s"}`);
+  return details.join(" · ");
 }
 
 function countWord(count: number): string {
@@ -110,6 +146,20 @@ function plan(
   ];
 }
 
+function coveragePlan(
+  targetStatus: AgentPlanStageStatus,
+  verifyStatus: AgentPlanStageStatus,
+): AgentPlanStageV1[] {
+  const reviewStatus = targetStatus === "blocked" ? "pending" : "completed";
+  return [
+    { id: "understand", label: "Understand the outcome", status: "completed", kind: "work" },
+    { id: "inspect", label: "Inspect this page", status: "completed", kind: "work" },
+    { id: "target", label: "Check automatic coverage", status: targetStatus, kind: "work" },
+    { id: "review", label: "Avoid duplicate setup", status: reviewStatus, kind: "work" },
+    { id: "verify", label: "Verify measurement", status: verifyStatus, kind: "work" },
+  ];
+}
+
 function safeConnection(context: AgentTurnContext): AgentActionReceiptV1 | undefined {
   const publicId = context.connection?.publicId.trim().toUpperCase();
   const measurementId = context.connection?.measurementId?.trim().toUpperCase();
@@ -129,60 +179,90 @@ function exactMeasurementId(context: AgentTurnContext): string | undefined {
   return measurementId;
 }
 
-function downloadTask(context: AgentTurnContext): AgentTurnV1["task"] {
+function coverageOnlyTask(
+  interaction: AutomaticCoverageInteraction,
+  context: AgentTurnContext,
+): AgentTurnV1["task"] {
+  const definition = automaticCoverageDefinitions[interaction];
   const measurementId = exactMeasurementId(context);
-  if (!measurementId) {
-    return {
-      goal: "Coverage unknown · File downloads",
-      status: "blocked",
-      summary: "Connect one exact GA4 stream before deciding download coverage. No GTM setup was generated.",
-    };
-  }
-
   const coverage = context.automaticCoverage;
-  if (!coverage) {
+  if (!measurementId || !coverage) {
+    const coverageSubject = definition.gap.replaceAll("-", " ");
     return {
-      goal: "Coverage unknown · File downloads",
+      goal: `Check automatic coverage · ${definition.label}`,
       status: "blocked",
-      summary: `Enhanced-measurement coverage could not be read for ${measurementId}. No GTM setup was generated.`,
+      summary: `I need one exact GA4 web stream and its Enhanced Measurement settings to check ${coverageSubject} coverage. No setup was generated.`,
     };
   }
   if (!coverage.enabled) {
     return {
-      goal: "Coverage gap · File downloads",
+      goal: `Coverage gap · ${definition.label}`,
       status: "blocked",
-      summary: `GA4 automatic measurement is off for ${measurementId}. File downloads are not automatically covered. No GTM setup was generated.`,
+      summary: `GA4 automatic measurement is off for ${measurementId}. No GTM setup was generated.`,
     };
   }
-  if (!coverage.fileDownloads) {
+  if (coverage[definition.feature] !== true) {
     return {
-      goal: "Coverage gap · File downloads",
+      goal: `Coverage gap · ${definition.label}`,
       status: "blocked",
-      summary: `GA4 automatic file downloads are off for ${measurementId}. No GTM setup was generated.`,
+      summary: `GA4 automatic ${definition.gap} measurement is off for ${measurementId}. No GTM setup was generated.`,
     };
   }
-
   return {
-    goal: "Already covered · File downloads",
+    goal: `Already covered · ${definition.label}`,
     status: "completed",
-    summary: `GA4 ${measurementId} automatically measures supported file links. No GTM setup is needed. Next: verify a real file link in the browser.`,
+    summary: `GA4 ${measurementId} automatically measures ${definition.subject}. No GTM setup is needed.`,
   };
 }
 
-function downloadTurn(
-  context: AgentTurnContext,
-  receipts: AgentActionReceiptV1[],
-): AgentTurnV1 {
-  const task = downloadTask(context);
-  const planStatus = task.status === "completed" ? "completed" : "blocked";
+function isCoverageInteraction(
+  interaction: ConversationIntakeResult["interaction"],
+): interaction is AutomaticCoverageInteraction {
+  return interaction === "page_view"
+    || interaction === "scroll"
+    || interaction === "site_search"
+    || interaction === "video_engagement";
+}
 
+function automaticInteractionTask(
+  interaction: KnownInteractionTypeV1,
+  context: AgentTurnContext,
+): AgentTurnV1["task"] | undefined {
+  if (interaction !== "file_download" && interaction !== "outbound_click") {
+    return undefined;
+  }
+  const measurementId = exactMeasurementId(context);
+  const coverage = context.automaticCoverage;
+  if (!measurementId || !coverage?.enabled) return undefined;
+  const covered = interaction === "file_download"
+    ? coverage.fileDownloads
+    : coverage.outboundClicks;
+  if (!covered) return undefined;
+  const fileDownload = interaction === "file_download";
   return {
-    schemaVersion: 1,
-    task,
-    plan: plan(planStatus, planStatus, task.status === "completed" ? "pending" : "blocked"),
-    actions: [],
-    receipts,
+    goal: fileDownload ? "Already covered · File downloads" : "Already covered · Outbound links",
+    status: "completed",
+    summary: fileDownload
+      ? `GA4 ${measurementId} automatically measures supported file links. No GTM setup is needed. Next: verify a real file link in the browser.`
+      : `GA4 ${measurementId} automatically measures outbound link clicks. No GTM setup is needed. Next: verify a real outbound link in the browser.`,
   };
+}
+
+function coverageGapPrefix(
+  interaction: KnownInteractionTypeV1,
+  context: AgentTurnContext,
+): string {
+  const coverage = context.automaticCoverage;
+  if (interaction !== "file_download" && interaction !== "outbound_click") return "";
+  if (!coverage) return "";
+  if (!coverage.enabled) return "GA4 automatic measurement is off. ";
+  if (interaction === "file_download" && !coverage.fileDownloads) {
+    return "GA4 automatic file-download measurement is off. ";
+  }
+  if (interaction === "outbound_click" && !coverage.outboundClicks) {
+    return "GA4 automatic outbound-click measurement is off. ";
+  }
+  return "";
 }
 
 export function agentTurnForIntake(
@@ -199,8 +279,21 @@ export function agentTurnForIntake(
   if (connection) receipts.push(connection);
   const actions = intake.options.map((action) => ({ id: action.id, label: action.label }));
 
-  if (intake.interaction === "file_download") {
-    return downloadTurn(context, receipts);
+  if (intake.state === "coverage_check" && isCoverageInteraction(intake.interaction)) {
+    const task = coverageOnlyTask(intake.interaction, context);
+    const exactCoverage = exactMeasurementId(context) !== undefined
+      && context.automaticCoverage !== undefined;
+    return {
+      schemaVersion: 1,
+      task,
+      plan: task.status === "completed"
+        ? coveragePlan("completed", "pending")
+        : exactCoverage
+          ? coveragePlan("completed", "blocked")
+          : coveragePlan("blocked", "pending"),
+      actions: [],
+      receipts,
+    };
   }
 
   if (intake.interaction === "navigation_click") {
@@ -297,6 +390,62 @@ export function agentTurnForIntake(
         ),
         plan: plan("completed", "active"),
         question: "Review the grounded setup before I generate anything.",
+        actions,
+        receipts,
+      };
+    }
+  }
+
+  const knownInteraction = knownInteractionDefinition(intake.interaction);
+  if (knownInteraction) {
+    const count = boundedCount(context.interactionCounts?.[knownInteraction.interaction] ?? 0);
+    if (intake.state === "insufficient_evidence" || count === 0) {
+      return {
+        schemaVersion: 1,
+        task: {
+          goal: knownInteraction.goal,
+          status: "blocked",
+          summary: `I could not find an observable ${knownInteraction.singular} on this page. No setup was generated.`,
+        },
+        plan: plan("blocked"),
+        actions: [],
+        receipts,
+      };
+    }
+    if (intake.state === "awaiting_scope") {
+      const automaticTask = automaticInteractionTask(knownInteraction.interaction, context);
+      if (automaticTask) {
+        return {
+          schemaVersion: 1,
+          task: automaticTask,
+          plan: plan("completed", "completed", "pending"),
+          actions: [],
+          receipts,
+        };
+      }
+      return {
+        schemaVersion: 1,
+        task: {
+          goal: knownInteraction.goal,
+          status: "needs_input",
+          summary: `${coverageGapPrefix(knownInteraction.interaction, context)}I found ${count} ${count === 1 ? knownInteraction.singular : knownInteraction.plural}. The event can cover matching ${knownInteraction.plural} sitewide or only this page.`,
+        },
+        plan: plan("active"),
+        question: `Where should ${knownInteraction.eventName} fire?`,
+        actions,
+        receipts,
+      };
+    }
+    if (intake.state === "draft_ready") {
+      return {
+        schemaVersion: 1,
+        task: {
+          goal: knownInteraction.goal,
+          status: "ready_for_review",
+          summary: `I can track matching ${knownInteraction.plural} as ${knownInteraction.eventName} ${intake.scope === "current_page" ? "only on this page" : "sitewide"}. ${knownInteraction.privacySummary}`,
+        },
+        plan: plan("completed", "active"),
+        question: "Review the firing scope and privacy choices before generation.",
         actions,
         receipts,
       };

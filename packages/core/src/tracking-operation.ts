@@ -1,4 +1,10 @@
 import { validateTrackingSpecification, type TrackingSpecificationV1 } from "./contracts.js";
+import { validateTrackingSetup, type TrackingSetupV1 } from "./setup-contract.js";
+import {
+  MAX_REPAIR_ATTEMPT_LIMIT,
+  verifiedDraftBindingCurrent,
+  type DraftRepairLedgerV1,
+} from "./draft-verification.js";
 import type { TrackingChangePlan } from "./change-plan.js";
 import type { GtmContainerExport } from "./types.js";
 
@@ -10,6 +16,7 @@ export type TrackingOperationStatus =
   | "applied"
   | "validation_failed"
   | "validated"
+  | "draft_verified"
   | "versioned"
   | "approved"
   | "published"
@@ -23,6 +30,7 @@ export type TrackingOperationNextStep =
   | "reconcile_application"
   | "validate"
   | "revise_plan"
+  | "run_preview"
   | "create_version"
   | "await_approval"
   | "publish"
@@ -32,18 +40,41 @@ export type TrackingOperationNextStep =
   | "refresh_state"
   | "reconcile_state";
 
+export interface TrackingDraftVerificationV1 {
+  schemaVersion: 1;
+  operationId: string;
+  setupFingerprint: string;
+  workspaceFingerprint: string;
+  previewVersionFingerprint: string;
+  evidenceRunId: string;
+  evidenceFingerprint: string;
+  verifiedAt: string;
+}
+
+export interface TrackingDraftRepairV1 {
+  schemaVersion: 1;
+  status: "review_required" | "passed_to_verification" | "stopped";
+  failedEvidenceRunId: string;
+  failedEvidenceFingerprint: string;
+  reasonCode: string;
+  workspaceFingerprint: string;
+  plan?: TrackingChangePlan;
+  ledger: DraftRepairLedgerV1;
+}
+
 export interface TrackingSetupOperationV1 {
   schemaVersion: typeof TRACKING_OPERATION_SCHEMA_VERSION;
   id: string;
   status: TrackingOperationStatus;
   createdAt: string;
   updatedAt: string;
-  specification: TrackingSpecificationV1;
+  specification: TrackingSpecificationV1 | TrackingSetupV1;
   generatedSetup: GtmContainerExport;
   container: { publicId: string; path: string };
   workspace: { path: string; fingerprint: string };
   plan: TrackingChangePlan;
   completedActionSignatures: string[];
+  previewPolicy?: "legacy_pre_checkpoint" | "exact_draft_required";
   validation?: {
     status: "passed" | "failed";
     checkedAt: string;
@@ -51,7 +82,9 @@ export interface TrackingSetupOperationV1 {
     errors: string[];
     workspaceChanges?: unknown[];
     previewVersionFingerprint?: string;
-  };
+  } | undefined;
+  draftVerification?: TrackingDraftVerificationV1 | undefined;
+  draftRepair?: TrackingDraftRepairV1 | undefined;
   version?: {
     path: string;
     fingerprint: string;
@@ -75,7 +108,7 @@ export interface TrackingSetupOperationV1 {
 type JsonRecord = Record<string, unknown>;
 
 const statuses = new Set<TrackingOperationStatus>([
-  "planned", "applying", "applied", "validation_failed", "validated", "versioned",
+  "planned", "applying", "applied", "validation_failed", "validated", "draft_verified", "versioned",
   "approved", "published", "verification_failed", "rollback_required", "rolled_back", "completed",
 ]);
 
@@ -84,7 +117,8 @@ const nextSteps: Record<TrackingOperationStatus, TrackingOperationNextStep> = {
   applying: "reconcile_application",
   applied: "validate",
   validation_failed: "revise_plan",
-  validated: "create_version",
+  validated: "run_preview",
+  draft_verified: "create_version",
   versioned: "await_approval",
   approved: "publish",
   published: "verify_publication",
@@ -118,7 +152,11 @@ export function validateTrackingOperation(value: unknown): string[] {
   if (!statuses.has(value.status as TrackingOperationStatus)) errors.push("status is unsupported");
   if (!validTimestamp(value.createdAt)) errors.push("createdAt is invalid");
   if (!validTimestamp(value.updatedAt)) errors.push("updatedAt is invalid");
-  errors.push(...validateTrackingSpecification(value.specification).map((error) => `specification.${error}`));
+  const genericSetup = isRecord(value.specification) && Array.isArray(value.specification.tagActions);
+  const specificationErrors = genericSetup
+    ? validateTrackingSetup(value.specification)
+    : validateTrackingSpecification(value.specification);
+  errors.push(...specificationErrors.map((error) => `specification.${error}`));
   if (isRecord(value.specification) && value.specification.status !== "confirmed") {
     errors.push("specification must be confirmed");
   }
@@ -182,6 +220,12 @@ export function validateTrackingOperation(value: unknown): string[] {
 
   if (!statuses.has(value.status as TrackingOperationStatus)) return [...new Set(errors)];
   const status = value.status as TrackingOperationStatus;
+  if (value.previewPolicy !== undefined
+    && value.previewPolicy !== "legacy_pre_checkpoint"
+    && value.previewPolicy !== "exact_draft_required") {
+    errors.push("previewPolicy is unsupported");
+  }
+  const exactDraftRequired = value.previewPolicy === "exact_draft_required";
   const completed = Array.isArray(value.completedActionSignatures)
     ? new Set(value.completedActionSignatures.filter(nonempty))
     : new Set<string>();
@@ -194,7 +238,7 @@ export function validateTrackingOperation(value: unknown): string[] {
     errors.push("only ready plans may advance beyond planning");
   }
   if (requires(status, [
-    "applied", "validation_failed", "validated", "versioned", "approved", "published",
+    "applied", "validation_failed", "validated", "draft_verified", "versioned", "approved", "published",
     "verification_failed", "rollback_required", "rolled_back", "completed",
   ]) && actionableSignatures.some((signature) => !completed.has(signature))) {
     errors.push("status requires every plan action to be completed");
@@ -203,7 +247,7 @@ export function validateTrackingOperation(value: unknown): string[] {
   const validationErrors = validation && Array.isArray(validation.errors) ? validation.errors : undefined;
   const requiresFailedValidation = status === "validation_failed";
   const requiresPassedValidation = requires(status, [
-    "validated", "versioned", "approved", "published", "verification_failed",
+    "validated", "draft_verified", "versioned", "approved", "published", "verification_failed",
     "rollback_required", "rolled_back", "completed",
   ]);
   if ((requiresFailedValidation || requiresPassedValidation) && !validation) {
@@ -224,6 +268,93 @@ export function validateTrackingOperation(value: unknown): string[] {
     }
     if (requiresPassedValidation && (validation.status !== "passed" || !validationErrors || validationErrors.length !== 0)) {
       errors.push("status requires passing validation evidence");
+    }
+  }
+
+  const draftVerificationStatuses: TrackingOperationStatus[] = [
+    "draft_verified", "versioned", "approved", "published", "verification_failed",
+    "rollback_required", "rolled_back", "completed",
+  ];
+  const draftVerification = isRecord(value.draftVerification) ? value.draftVerification : undefined;
+  if ((exactDraftRequired || status === "draft_verified")
+    && requires(status, draftVerificationStatuses)
+    && !draftVerification) {
+    errors.push("draftVerification is required for status");
+  }
+  if (draftVerification) {
+    if (draftVerification.schemaVersion !== 1
+      || draftVerification.operationId !== value.id
+      || !nonempty(draftVerification.setupFingerprint)
+      || !nonempty(draftVerification.workspaceFingerprint)
+      || !nonempty(draftVerification.previewVersionFingerprint)
+      || !nonempty(draftVerification.evidenceRunId)
+      || !nonempty(draftVerification.evidenceFingerprint)
+      || !validTimestamp(draftVerification.verifiedAt)) {
+      errors.push("draftVerification is invalid");
+    } else if (!verifiedDraftBindingCurrent(
+      value as unknown as TrackingSetupOperationV1,
+      draftVerification as unknown as TrackingDraftVerificationV1,
+    )) {
+      errors.push("draftVerification must match the current setup, workspace, and preview fingerprints");
+    }
+  }
+
+  const draftRepair = isRecord(value.draftRepair) ? value.draftRepair : undefined;
+  if (draftRepair) {
+    const repairPlan = isRecord(draftRepair.plan) ? draftRepair.plan : undefined;
+    const ledger = isRecord(draftRepair.ledger) ? draftRepair.ledger : undefined;
+    const attempts = ledger && Array.isArray(ledger.attempts) ? ledger.attempts : undefined;
+    if (draftRepair.schemaVersion !== 1
+      || !["review_required", "passed_to_verification", "stopped"].includes(String(draftRepair.status))
+      || !nonempty(draftRepair.failedEvidenceRunId)
+      || !nonempty(draftRepair.failedEvidenceFingerprint)
+      || !nonempty(draftRepair.reasonCode)
+      || !nonempty(draftRepair.workspaceFingerprint)) {
+      errors.push("draftRepair is invalid");
+    }
+    if (!ledger
+      || ledger.schemaVersion !== 1
+      || ledger.operationId !== value.id
+      || !nonempty(ledger.intentFingerprint)
+      || !Number.isInteger(ledger.maximumAttempts)
+      || Number(ledger.maximumAttempts) < 1
+      || Number(ledger.maximumAttempts) > MAX_REPAIR_ATTEMPT_LIMIT
+      || !attempts
+      || !["available", "passed_to_verification", "stopped_ambiguous", "exhausted"].includes(String(ledger.status))) {
+      errors.push("draftRepair.ledger is invalid");
+    } else {
+      const malformedAttempt = attempts.some((attempt, index) => !isRecord(attempt)
+        || attempt.attempt !== index + 1
+        || !validTimestamp(attempt.attemptedAt)
+        || attempt.intentFingerprint !== ledger.intentFingerprint
+        || !nonempty(attempt.fromSetupFingerprint)
+        || !nonempty(attempt.toSetupFingerprint)
+        || !nonempty(attempt.reasonCode)
+        || !["applied", "rejected", "ambiguous"].includes(String(attempt.result)));
+      if (malformedAttempt || attempts.length > Number(ledger.maximumAttempts)) {
+        errors.push("draftRepair.ledger attempts are invalid");
+      }
+      if (draftRepair.status === "review_required" && ledger.status !== "available") {
+        errors.push("review-required repair needs an available ledger");
+      }
+      if (draftRepair.status === "passed_to_verification" && ledger.status !== "passed_to_verification") {
+        errors.push("repair verification status must match its ledger");
+      }
+      if (draftRepair.status === "stopped"
+        && ledger.status !== "stopped_ambiguous"
+        && ledger.status !== "exhausted") {
+        errors.push("stopped repair needs a terminal ledger");
+      }
+    }
+    if (draftRepair.status === "review_required"
+      && (!repairPlan
+        || repairPlan.schemaVersion !== 1
+        || repairPlan.status !== "ready"
+        || !nonempty(repairPlan.fingerprint)
+        || !Array.isArray(repairPlan.actions)
+        || !repairPlan.actions.some((action) => isRecord(action)
+          && (action.action === "create" || action.action === "update")))) {
+      errors.push("review-required repair needs a concrete ready plan");
     }
   }
 

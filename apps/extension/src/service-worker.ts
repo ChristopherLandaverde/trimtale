@@ -1,12 +1,20 @@
 import {
   agentTurnForIntake,
   interpretConversationIntent,
+  validateTrackingSetup,
+  validateExactDraftBrowserRun,
+  validateTrackingRunEvidence,
+  validateAuthoringInput,
   validateFormSetupRequest,
   type AgentTurnContext,
   type BrowserEvidence,
+  type ExactDraftBrowserRunV1,
   type FormSetupRequest,
+  type GenericTrackingSetupRequest,
   type FormCandidate,
+  type KnownInteractionTypeV1,
   type NavigationElement,
+  type TrackingRunEvidenceV1,
 } from "@gtm-observability/core";
 
 function validAutomaticCoverage(
@@ -17,7 +25,11 @@ function validAutomaticCoverage(
   }
 
   return typeof value.enabled === "boolean"
+    && typeof value.pageViews === "boolean"
+    && typeof value.scrolls === "boolean"
     && typeof value.outboundClicks === "boolean"
+    && typeof value.siteSearch === "boolean"
+    && typeof value.videoEngagement === "boolean"
     && typeof value.fileDownloads === "boolean"
     && typeof value.formInteractions === "boolean";
 }
@@ -51,6 +63,7 @@ chrome.runtime.onConnect.addListener((port) => {
       url: string;
       navigation: NavigationElement[];
       forms: FormCandidate[];
+      interactionCounts?: Partial<Record<KnownInteractionTypeV1, number>>;
     };
     connection?: { publicId: string; measurementId?: string };
     automaticCoverage?: unknown;
@@ -60,10 +73,12 @@ chrome.runtime.onConnect.addListener((port) => {
     const intake = interpretConversationIntent(message.prompt, {
       navigationCount: page.navigation.length,
       forms: page.forms ?? [],
+      ...(page.interactionCounts ? { interactionCounts: page.interactionCounts } : {}),
     });
     const turn = agentTurnForIntake(intake, {
       formCount: page.forms.length,
       navigationCount: page.navigation.length,
+      ...(page.interactionCounts ? { interactionCounts: page.interactionCounts } : {}),
       ...(validAutomaticCoverage(message.automaticCoverage)
         ? { automaticCoverage: message.automaticCoverage }
         : {}),
@@ -75,6 +90,7 @@ chrome.runtime.onConnect.addListener((port) => {
       turn,
       navigation: page.navigation,
       forms: page.forms,
+      interactionCounts: page.interactionCounts,
       intake,
     });
   });
@@ -135,6 +151,63 @@ function exactMeasurementId(value: unknown): string | undefined {
 
   return measurementIds[0];
 }
+
+chrome.runtime.onMessage.addListener(
+  (message: unknown, _sender, sendResponse) => {
+    if (!isRecord(message) || message.type !== "SETUP_AUTHORING_REQUEST") return undefined;
+    if (validateAuthoringInput(message.input).length > 0 || !isRecord(message.grounding)) {
+      sendResponse({ ok: false, error: "invalid_request" });
+      return undefined;
+    }
+    void fetch("http://127.0.0.1:8787/api/setup-authoring", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ input: message.input, grounding: message.grounding }),
+    }).then(async (response) => {
+      if (!response.ok) {
+        sendResponse({ ok: false, error: response.status === 503 ? "authoring_unavailable" : "authoring_rejected" });
+        return;
+      }
+      const body: unknown = await response.json();
+      const result = isRecord(body) && isRecord(body.result) ? body.result : undefined;
+      const proposal = result && isRecord(result.proposal) ? result.proposal : undefined;
+      const setup = result?.setup;
+      const suggestions = result?.suggestions;
+      if (!result
+        || typeof result.providerId !== "string"
+        || !proposal
+        || proposal.status !== "ready"
+        || typeof proposal.eventName !== "string"
+        || typeof proposal.rationale !== "string"
+        || !Array.isArray(suggestions)
+        || suggestions.some((item) => !isRecord(item)
+          || typeof item.name !== "string"
+          || typeof item.classification !== "string"
+          || typeof item.rationale !== "string")
+        || validateTrackingSetup(setup).length > 0
+        || !isRecord(setup)
+        || setup.status !== "draft") {
+        sendResponse({ ok: false, error: "invalid_response" });
+        return;
+      }
+      sendResponse({
+        ok: true,
+        result: {
+          providerId: result.providerId,
+          eventName: proposal.eventName,
+          rationale: proposal.rationale,
+          suggestions: suggestions.map((item) => ({
+            name: item.name,
+            classification: item.classification,
+            rationale: item.rationale,
+          })),
+          setup,
+        },
+      });
+    }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
+    return true;
+  },
+);
 
 chrome.runtime.onMessage.addListener(
   (message: unknown, _sender, sendResponse) => {
@@ -344,14 +417,41 @@ interface WorkflowPlanSummary {
 
 interface WorkflowResumeSummary {
   operationId: string;
-  status: "versioned" | "blocked" | "paused";
+  status: "awaiting_preview" | "versioned" | "blocked" | "paused";
   stage?: "planning" | "application" | "validation" | "version";
   validationStatus?: "passed";
   versionFingerprint?: string;
-  nextStep?: "await_approval";
+  nextStep?: "run_tag_assistant_preview" | "await_approval";
+  setupFingerprint?: string;
+  workspaceFingerprint?: string;
+  previewVersionFingerprint?: string;
 }
 
-function formWorkflowRequest(value: unknown): FormSetupRequest | undefined {
+interface WorkflowRepairSummary {
+  operationId: string;
+  status: "repair_ready";
+  planFingerprint: string;
+  reasonCode: "workspace_entity_drift";
+  attempt: number;
+  maximumAttempts: number;
+  actions: PlanActionSummary[];
+}
+
+interface WorkflowPublicationSummary {
+  operationId: string;
+  status: "approved" | "published";
+  versionFingerprint: string;
+  approvedAt?: string;
+  publishedAt?: string;
+}
+
+function trackingWorkflowRequest(value: unknown): FormSetupRequest | GenericTrackingSetupRequest | undefined {
+  if (isRecord(value) && isRecord(value.setup) && isRecord(value.container)) {
+    const request = value as unknown as GenericTrackingSetupRequest;
+    return request.setup.status === "confirmed" && validateTrackingSetup(request.setup).length === 0
+      ? request
+      : undefined;
+  }
   if (!isRecord(value)
     || !isRecord(value.specification)
     || typeof value.measurementId !== "string"
@@ -420,7 +520,7 @@ function resumeSummary(
   operationId: string,
 ): WorkflowResumeSummary | undefined {
   if (!isRecord(value)
-    || !["versioned", "blocked", "paused"].includes(String(value.status))
+    || !["awaiting_preview", "versioned", "blocked", "paused"].includes(String(value.status))
     || !isRecord(value.operation)
     || value.operation.id !== operationId) {
     return undefined;
@@ -443,6 +543,27 @@ function resumeSummary(
       nextStep: "await_approval",
     };
   }
+  if (value.status === "awaiting_preview") {
+    if (value.nextStep !== "run_tag_assistant_preview"
+      || value.operation.status !== "validated"
+      || !isRecord(value.operation.validation)
+      || value.operation.validation.status !== "passed"
+      || !isRecord(value.preview)
+      || !validFingerprint(value.preview.setupFingerprint)
+      || !validFingerprint(value.preview.workspaceFingerprint)
+      || !validFingerprint(value.preview.previewVersionFingerprint)) {
+      return undefined;
+    }
+    return {
+      operationId,
+      status: "awaiting_preview",
+      validationStatus: "passed",
+      nextStep: "run_tag_assistant_preview",
+      setupFingerprint: value.preview.setupFingerprint,
+      workspaceFingerprint: value.preview.workspaceFingerprint,
+      previewVersionFingerprint: value.preview.previewVersionFingerprint,
+    };
+  }
   if (!["planning", "application", "validation", "version"].includes(String(value.stage))) {
     return undefined;
   }
@@ -453,12 +574,191 @@ function resumeSummary(
   };
 }
 
+function repairSummary(value: unknown, operationId: string): WorkflowRepairSummary | undefined {
+  if (!isRecord(value)
+    || value.status !== "repair_ready"
+    || value.nextStep !== "review_repair"
+    || !isRecord(value.repair)
+    || !isRecord(value.operation)
+    || value.operation.id !== operationId
+    || value.operation.status !== "validated"
+    || !isRecord(value.operation.draftRepair)
+    || value.operation.draftRepair.status !== "review_required"
+    || !isRecord(value.operation.draftRepair.plan)) {
+    return undefined;
+  }
+  const repair = value.repair;
+  const plan = value.operation.draftRepair.plan;
+  if (!validFingerprint(repair.planFingerprint)
+    || repair.planFingerprint !== plan.fingerprint
+    || repair.reasonCode !== "workspace_entity_drift"
+    || !Number.isInteger(repair.attempt)
+    || !Number.isInteger(repair.maximumAttempts)
+    || Number(repair.attempt) < 1
+    || Number(repair.maximumAttempts) < Number(repair.attempt)
+    || !Array.isArray(plan.actions)
+    || plan.actions.length > maxPlanActions) {
+    return undefined;
+  }
+  const actions: PlanActionSummary[] = [];
+  for (const action of plan.actions) {
+    if (!isRecord(action)
+      || !["tag", "trigger", "variable", "builtInVariable"].includes(String(action.kind))
+      || !["create", "reuse", "no_op", "update"].includes(String(action.action))
+      || typeof action.generatedName !== "string"
+      || action.generatedName.trim().length === 0
+      || action.generatedName.length > maxGeneratedNameLength) {
+      return undefined;
+    }
+    actions.push({
+      kind: action.kind as PlanActionSummary["kind"],
+      action: action.action as PlanActionSummary["action"],
+      generatedName: action.generatedName,
+    });
+  }
+  if (!actions.some(({ action }) => action === "create" || action === "update")) {
+    return undefined;
+  }
+  return {
+    operationId,
+    status: "repair_ready",
+    planFingerprint: repair.planFingerprint,
+    reasonCode: "workspace_entity_drift",
+    attempt: Number(repair.attempt),
+    maximumAttempts: Number(repair.maximumAttempts),
+    actions,
+  };
+}
+
+function publicationSummary(
+  value: unknown,
+  operationId: string,
+  expectedVersionFingerprint: string,
+): WorkflowPublicationSummary | undefined {
+  if (!isRecord(value)
+    || !isRecord(value.operation)
+    || value.operation.id !== operationId
+    || !isRecord(value.operation.version)
+    || value.operation.version.fingerprint !== expectedVersionFingerprint) {
+    return undefined;
+  }
+  if (value.status === "approved"
+    && value.nextStep === "publish"
+    && value.operation.status === "approved"
+    && isRecord(value.operation.approval)
+    && value.operation.approval.versionFingerprint === expectedVersionFingerprint
+    && typeof value.operation.approval.approvedAt === "string") {
+    return {
+      operationId,
+      status: "approved",
+      versionFingerprint: expectedVersionFingerprint,
+      approvedAt: value.operation.approval.approvedAt,
+    };
+  }
+  if (value.status === "published"
+    && value.nextStep === "verify_publication"
+    && value.operation.status === "published"
+    && isRecord(value.operation.publication)
+    && value.operation.publication.versionFingerprint === expectedVersionFingerprint
+    && typeof value.operation.publication.publishedAt === "string") {
+    return {
+      operationId,
+      status: "published",
+      versionFingerprint: expectedVersionFingerprint,
+      publishedAt: value.operation.publication.publishedAt,
+    };
+  }
+  return undefined;
+}
+
+function liveVerificationSummary(
+  value: unknown,
+  operationId: string,
+  expectedVersionFingerprint: string,
+): Record<string, string> | undefined {
+  if (!isRecord(value)
+    || !["published", "completed", "rollback_required"].includes(String(value.status))
+    || !isRecord(value.operation)
+    || value.operation.id !== operationId
+    || value.operation.status !== value.status
+    || !isRecord(value.operation.version)
+    || value.operation.version.fingerprint !== expectedVersionFingerprint
+    || !isRecord(value.operation.publication)
+    || value.operation.publication.versionFingerprint !== expectedVersionFingerprint
+    || typeof value.operation.postPublicationEvidenceId !== "string") {
+    return undefined;
+  }
+  if (value.status === "published" && value.nextStep === "verify_publication") {
+    return {
+      operationId,
+      status: "published",
+      nextStep: "verify_publication",
+      versionFingerprint: expectedVersionFingerprint,
+      evidenceRunId: value.operation.postPublicationEvidenceId,
+    };
+  }
+  if (value.status === "completed" && value.nextStep === "complete") {
+    return {
+      operationId,
+      status: "completed",
+      nextStep: "complete",
+      versionFingerprint: expectedVersionFingerprint,
+      evidenceRunId: value.operation.postPublicationEvidenceId,
+    };
+  }
+  if (value.status === "rollback_required"
+    && value.nextStep === "rollback"
+    && isRecord(value.operation.rollback)
+    && validFingerprint(value.operation.rollback.targetVersionFingerprint)
+    && value.operation.rollback.status === "required") {
+    return {
+      operationId,
+      status: "rollback_required",
+      nextStep: "rollback",
+      versionFingerprint: expectedVersionFingerprint,
+      evidenceRunId: value.operation.postPublicationEvidenceId,
+      targetVersionFingerprint: value.operation.rollback.targetVersionFingerprint,
+    };
+  }
+  return undefined;
+}
+
+function rollbackSummary(
+  value: unknown,
+  operationId: string,
+  expectedVersionFingerprint: string,
+  expectedTargetFingerprint: string,
+): Record<string, string> | undefined {
+  if (!isRecord(value)
+    || value.status !== "rolled_back"
+    || value.nextStep !== "complete"
+    || !isRecord(value.operation)
+    || value.operation.id !== operationId
+    || value.operation.status !== "rolled_back"
+    || !isRecord(value.operation.publication)
+    || value.operation.publication.versionFingerprint !== expectedVersionFingerprint
+    || !isRecord(value.operation.rollback)
+    || value.operation.rollback.status !== "completed"
+    || value.operation.rollback.targetVersionFingerprint !== expectedTargetFingerprint
+    || typeof value.operation.rollback.completedAt !== "string") {
+    return undefined;
+  }
+  return {
+    operationId,
+    status: "rolled_back",
+    nextStep: "complete",
+    versionFingerprint: expectedVersionFingerprint,
+    targetVersionFingerprint: expectedTargetFingerprint,
+    completedAt: value.operation.rollback.completedAt,
+  };
+}
+
 chrome.runtime.onMessage.addListener(
   (message: unknown, _sender, sendResponse) => {
     if (!isRecord(message) || message.type !== "GTM_WORKFLOW_PLAN_REQUEST") {
       return undefined;
     }
-    const request = formWorkflowRequest(message.request);
+    const request = trackingWorkflowRequest(message.request);
     if (!request) {
       sendResponse({ ok: false, error: "invalid_request" });
       return undefined;
@@ -482,6 +782,234 @@ chrome.runtime.onMessage.addListener(
         ? { ok: true, result: summary }
         : { ok: false, error: "invalid_response" });
     }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
+    return true;
+  },
+);
+
+chrome.runtime.onMessage.addListener(
+  (message: unknown, _sender, sendResponse) => {
+    if (!isRecord(message) || message.type !== "GTM_WORKFLOW_REPAIR_DRAFT_REQUEST") {
+      return undefined;
+    }
+    const operationId = message.operationId;
+    const run = message.run;
+    if (typeof operationId !== "string"
+      || !/^operation_[A-Za-z0-9_-]+$/.test(operationId)
+      || validateExactDraftBrowserRun(run).length > 0
+      || (run as ExactDraftBrowserRunV1).operationId !== operationId
+      || (run as ExactDraftBrowserRunV1).evidence.verdict.browserVerification !== "failed") {
+      sendResponse({ ok: false, error: "invalid_request" });
+      return undefined;
+    }
+    void fetch(`${workflowBaseUrl}/${encodeURIComponent(operationId)}/repair-draft`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(run),
+    }).then(async (response) => {
+      if (!response.ok) {
+        sendResponse({ ok: false, error: "repair_unavailable" });
+        return;
+      }
+      const body: unknown = await response.json();
+      const result = isRecord(body) ? repairSummary(body.result, operationId) : undefined;
+      sendResponse(result
+        ? { ok: true, result }
+        : { ok: false, error: "invalid_response" });
+    }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
+    return true;
+  },
+);
+
+chrome.runtime.onMessage.addListener(
+  (message: unknown, _sender, sendResponse) => {
+    if (!isRecord(message) || message.type !== "GTM_WORKFLOW_APPLY_REPAIR_REQUEST") {
+      return undefined;
+    }
+    const operationId = message.operationId;
+    const planFingerprint = message.planFingerprint;
+    if (typeof operationId !== "string"
+      || !/^operation_[A-Za-z0-9_-]+$/.test(operationId)
+      || !validFingerprint(planFingerprint)) {
+      sendResponse({ ok: false, error: "invalid_request" });
+      return undefined;
+    }
+    void fetch(`${workflowBaseUrl}/${encodeURIComponent(operationId)}/apply-repair`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ planFingerprint }),
+    }).then(async (response) => {
+      if (!response.ok) {
+        sendResponse({ ok: false, error: "repair_rejected" });
+        return;
+      }
+      const body: unknown = await response.json();
+      const result = isRecord(body) ? resumeSummary(body.result, operationId) : undefined;
+      sendResponse(result?.status === "awaiting_preview"
+        ? { ok: true, result }
+        : { ok: false, error: "invalid_response" });
+    }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
+    return true;
+  },
+);
+
+chrome.runtime.onMessage.addListener(
+  (message: unknown, _sender, sendResponse) => {
+    if (!isRecord(message) || message.type !== "GTM_WORKFLOW_VERIFY_PUBLICATION_REQUEST") {
+      return undefined;
+    }
+    const operationId = message.operationId;
+    const versionFingerprint = message.versionFingerprint;
+    const evidence = message.evidence;
+    if (typeof operationId !== "string"
+      || !/^operation_[A-Za-z0-9_-]+$/.test(operationId)
+      || !validFingerprint(versionFingerprint)
+      || validateTrackingRunEvidence(evidence).length > 0) {
+      sendResponse({ ok: false, error: "invalid_request" });
+      return undefined;
+    }
+    void fetch(`${workflowBaseUrl}/${encodeURIComponent(operationId)}/verify-publication`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ versionFingerprint, evidence: evidence as TrackingRunEvidenceV1 }),
+    }).then(async (response) => {
+      if (!response.ok) {
+        sendResponse({ ok: false, error: "verification_rejected" });
+        return;
+      }
+      const body: unknown = await response.json();
+      const result = isRecord(body)
+        ? liveVerificationSummary(body.result, operationId, versionFingerprint)
+        : undefined;
+      sendResponse(result
+        ? { ok: true, result }
+        : { ok: false, error: "invalid_response" });
+    }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
+    return true;
+  },
+);
+
+chrome.runtime.onMessage.addListener(
+  (message: unknown, _sender, sendResponse) => {
+    if (!isRecord(message) || message.type !== "GTM_WORKFLOW_ROLLBACK_REQUEST") {
+      return undefined;
+    }
+    const operationId = message.operationId;
+    const versionFingerprint = message.versionFingerprint;
+    const targetVersionFingerprint = message.targetVersionFingerprint;
+    if (typeof operationId !== "string"
+      || !/^operation_[A-Za-z0-9_-]+$/.test(operationId)
+      || !validFingerprint(versionFingerprint)
+      || !validFingerprint(targetVersionFingerprint)) {
+      sendResponse({ ok: false, error: "invalid_request" });
+      return undefined;
+    }
+    void fetch(`${workflowBaseUrl}/${encodeURIComponent(operationId)}/rollback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ versionFingerprint, targetVersionFingerprint }),
+    }).then(async (response) => {
+      if (!response.ok) {
+        sendResponse({ ok: false, error: "rollback_rejected" });
+        return;
+      }
+      const body: unknown = await response.json();
+      const result = isRecord(body)
+        ? rollbackSummary(body.result, operationId, versionFingerprint, targetVersionFingerprint)
+        : undefined;
+      sendResponse(result
+        ? { ok: true, result }
+        : { ok: false, error: "invalid_response" });
+    }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
+    return true;
+  },
+);
+
+chrome.runtime.onMessage.addListener(
+  (message: unknown, _sender, sendResponse) => {
+    if (!isRecord(message)
+      || (message.type !== "GTM_WORKFLOW_APPROVE_PUBLICATION_REQUEST"
+        && message.type !== "GTM_WORKFLOW_PUBLISH_REQUEST")) {
+      return undefined;
+    }
+    const operationId = message.operationId;
+    const versionFingerprint = message.versionFingerprint;
+    if (typeof operationId !== "string"
+      || !/^operation_[A-Za-z0-9_-]+$/.test(operationId)
+      || !validFingerprint(versionFingerprint)) {
+      sendResponse({ ok: false, error: "invalid_request" });
+      return undefined;
+    }
+    const action = message.type === "GTM_WORKFLOW_APPROVE_PUBLICATION_REQUEST"
+      ? "approve-publication"
+      : "publish";
+    const expectedStatus = action === "approve-publication" ? "approved" : "published";
+    void fetch(`${workflowBaseUrl}/${encodeURIComponent(operationId)}/${action}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ versionFingerprint }),
+    }).then(async (response) => {
+      if (!response.ok) {
+        sendResponse({
+          ok: false,
+          error: response.status === 403
+            ? "publication_disabled"
+            : response.status === 409
+              ? "publication_stale"
+              : "publication_unavailable",
+        });
+        return;
+      }
+      const body: unknown = await response.json();
+      const result = isRecord(body)
+        ? publicationSummary(body.result, operationId, versionFingerprint)
+        : undefined;
+      sendResponse(result?.status === expectedStatus
+        ? { ok: true, result }
+        : { ok: false, error: "invalid_response" });
+    }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
+    return true;
+  },
+);
+
+chrome.runtime.onMessage.addListener(
+  (message: unknown, _sender, sendResponse) => {
+    if (!isRecord(message) || message.type !== "GTM_WORKFLOW_VERIFY_DRAFT_REQUEST") return undefined;
+    const operationId = message.operationId;
+    const run = message.run;
+    if (typeof operationId !== "string"
+      || !/^operation_[A-Za-z0-9_-]+$/.test(operationId)
+      || validateExactDraftBrowserRun(run).length > 0
+      || (run as ExactDraftBrowserRunV1).operationId !== operationId) {
+      sendResponse({ ok: false, error: "invalid_request" });
+      return undefined;
+    }
+    void fetch(`${workflowBaseUrl}/${encodeURIComponent(operationId)}/verify-draft`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(run),
+    }).then(async (response) => {
+      if (!response.ok) {
+        sendResponse({ ok: false, error: "verification_rejected" });
+        return;
+      }
+      const body: unknown = await response.json();
+      const result = isRecord(body) ? body.result : undefined;
+      sendResponse(isRecord(result)
+        && result.status === "draft_verified"
+        && result.nextStep === "create_version"
+        ? { ok: true }
+        : { ok: false, error: "invalid_response" });
+    }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
+    return true;
+  },
+);
+
+chrome.runtime.onMessage.addListener(
+  (message: unknown, _sender, sendResponse) => {
+    if (!isRecord(message) || message.type !== "OPEN_TAG_ASSISTANT") return undefined;
+    void chrome.tabs.create({ url: "https://tagmanager.google.com/" })
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
     return true;
   },
 );

@@ -41,7 +41,7 @@ for (const acceptance of contract.journeys) {
       .toBeVisible();
     await root.getByRole("button", { name: "Approve setup" }).click();
     await expect(root.getByText(/Setup approved and generated/)).toBeVisible();
-    await expect(root.getByText("Reviewable generate_lead setup generated")).toBeVisible();
+    await expect(root.getByRole("region", { name: "Tracking evidence path" })).toHaveCount(0);
     await expect(page.locator('meta[name="gtm-observability-measurement-id"]')).toHaveAttribute("content", "G-TEST123456");
     await expect(page.locator('meta[name="gtm-observability-container-id"]')).toHaveAttribute("content", "GTM-TEST123");
 
@@ -66,7 +66,7 @@ for (const acceptance of contract.journeys) {
     expect(artifactText).toContain(acceptance.expected.eventName);
     expect(artifactText).not.toContain("private@example.com");
 
-    await root.getByRole("button", { name: "Start verification" }).click();
+    await root.getByRole("button", { name: "Verify already-installed setup" }).click();
     await expect(root.getByText(/Verification is ready/)).toBeVisible();
     await page.locator("form#contact button[type='submit']").click();
 
@@ -91,38 +91,17 @@ for (const acceptance of contract.journeys) {
   });
 }
 
-test("a confirmed lead form can recognize the page container", async ({ context, page }) => {
+test("keeps container context separate from a confirmed lead task", async ({ context, page }) => {
   const journey = await openExtensionJourney(context, page, "confirmed_success", "GTM-TEST123");
-  await journey.context.route("http://127.0.0.1:8787/api/google/containers/**", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        containerWritesEnabled: false,
-        result: {
-          status: "recognized",
-          publicId: "GTM-TEST123",
-          container: { name: "Lead site", publicId: "GTM-TEST123" },
-          workspace: {
-            status: "available",
-            action: "create",
-            workspaceCount: 1,
-            remainingSlots: 2,
-          },
-        },
-      }),
-    });
-  });
   const { root } = journey;
   await journey.send("Track leads from the contact form");
   await root.getByRole("button", { name: "Contact sales" }).click();
   await root.getByRole("button", { name: "Review setup" }).click();
   await root.getByRole("button", { name: "Approve setup" }).click();
 
-  await expect(root.getByText("Detected GTM-TEST123")).toBeVisible();
-  await root.getByRole("button", { name: "Check GTM access" }).click();
-  await expect(root.getByText(/Recognized Lead site.*Managed workspace can be prepared/)).toBeVisible();
-  await expect(root.getByText(/Workspace preparation is disabled/)).toBeVisible();
+  await expect(root.getByRole("region", { name: "GTM connection" })).toContainText("GTM-TEST123");
+  await expect(root.getByRole("region", { name: "Tracking evidence path" })).toHaveCount(0);
+  await expect(root.getByRole("button", { name: "Check GTM access" })).toHaveCount(0);
   await expect(root.getByRole("button", { name: "Prepare managed workspace" })).toHaveCount(0);
 });
 
@@ -165,11 +144,15 @@ const readyPlanResponse = {
   },
 };
 
-async function routeWriteAccess(journey: ExtensionJourney): Promise<void> {
+async function routeWriteAccess(journey: ExtensionJourney, publicationEnabled = false): Promise<void> {
   await journey.context.route("http://127.0.0.1:8787/api/google/status", (route) => route.fulfill({
     status: 200,
     contentType: "application/json",
-    body: JSON.stringify(connectedWriteStatus),
+    body: JSON.stringify(publicationEnabled ? {
+      ...connectedWriteStatus,
+      publicationScopeRequested: true,
+      publicationEnabled: true,
+    } : connectedWriteStatus),
   }));
   await journey.context.route("http://127.0.0.1:8787/api/google/containers/recognize?*", (route) => route.fulfill({
     status: 200,
@@ -213,7 +196,7 @@ async function approveLeadSetup(
 ): Promise<void> {
   const { root } = journey;
   await root.getByRole("button", { name: "Refresh GTM connection" }).click();
-  await expect(root.getByRole("region", { name: "GTM connection" }).getByText("Edit access", { exact: true }))
+  await expect(root.getByRole("region", { name: "GTM connection" }).getByText(/^(Edit access|Publish enabled)$/))
     .toBeVisible();
   await journey.send("Track leads from the contact form");
   await root.getByRole("button", { name: targetName }).click();
@@ -236,6 +219,8 @@ test("reviews a durable form plan without applying it", async ({ context, page }
 
   const { root } = journey;
   await approveLeadSetup(journey);
+  await expect(root.getByRole("button", { name: /^(Start verification|Verify already-installed setup)$/ }))
+    .toHaveCount(0);
   await root.getByRole("button", { name: "Prepare workspace & plan" }).click();
 
   const plan = root.getByRole("region", { name: "Tracking change plan" });
@@ -296,7 +281,7 @@ test("blocks silent replacement of an existing managed setup", async ({ context,
     "Existing managed setup differs. Keep it or begin an explicit replacement review.",
     { exact: true },
   )).toBeVisible();
-  await expect(root.getByRole("button", { name: "Apply, validate & create version" })).toHaveCount(0);
+  await expect(root.getByRole("button", { name: "Apply & validate draft" })).toHaveCount(0);
   expect(resumeRequests).toBe(0);
   await root.getByRole("region", { name: "Agent task" }).screenshot({
     path: test.info().outputPath("managed-replacement-blocked.png"),
@@ -304,13 +289,33 @@ test("blocks silent replacement of an existing managed setup", async ({ context,
   });
 });
 
-test("applies, validates, and versions a reviewed plan only after confirmation", async ({ context, page }) => {
+test("previews, versions, and explicitly publishes the exact reviewed fingerprint from chat", async ({ context, page }) => {
   const journey = await openExtensionJourney(context, page, "confirmed_success", "GTM-TEST123");
   let resumeRequests = 0;
   let publicationRequests = 0;
+  let liveVerificationRequests = 0;
+  let verifyDraftRequests = 0;
+  let verifyDraftBody: unknown;
+  let liveVerificationBody: unknown;
+  const publicationBodies: unknown[] = [];
   let resumeRequest: { method: string; body: string | null; path: string } | undefined;
-  await routeWriteAccess(journey);
+  await routeWriteAccess(journey, true);
   await routeReadyPlan(journey);
+  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/*/verify-draft", async (route) => {
+    verifyDraftRequests += 1;
+    verifyDraftBody = route.request().postDataJSON();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        result: {
+          status: "draft_verified",
+          nextStep: "create_version",
+          operation: { id: "operation_spec_form_contact", status: "draft_verified" },
+        },
+      }),
+    });
+  });
   await journey.context.route("http://127.0.0.1:8787/api/google/workflows/*/resume", async (route) => {
     resumeRequests += 1;
     resumeRequest = {
@@ -318,7 +323,26 @@ test("applies, validates, and versions a reviewed plan only after confirmation",
       body: route.request().postData(),
       path: new URL(route.request().url()).pathname,
     };
-    await route.fulfill({
+    await route.fulfill(resumeRequests === 1 ? {
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        result: {
+          status: "awaiting_preview",
+          nextStep: "run_tag_assistant_preview",
+          preview: {
+            setupFingerprint: "setup_form_contact",
+            workspaceFingerprint: "workspace-final",
+            previewVersionFingerprint: "preview-8",
+          },
+          operation: {
+            id: "operation_spec_form_contact",
+            status: "validated",
+            validation: { status: "passed", checkedAt: "2026-08-23T21:45:00.000Z" },
+          },
+        },
+      }),
+    } : {
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
@@ -340,8 +364,73 @@ test("applies, validates, and versions a reviewed plan only after confirmation",
       }),
     });
   });
+  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/*/approve-publication", async (route) => {
+    publicationBodies.push(route.request().postDataJSON());
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        result: {
+          status: "approved",
+          nextStep: "publish",
+          operation: {
+            id: "operation_spec_form_contact",
+            status: "approved",
+            version: { fingerprint: "version-8" },
+            approval: {
+              approvedAt: "2026-08-24T15:15:00.000Z",
+              versionFingerprint: "version-8",
+            },
+          },
+        },
+      }),
+    });
+  });
+  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/*/publish", async (route) => {
+    publicationBodies.push(route.request().postDataJSON());
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        result: {
+          status: "published",
+          nextStep: "verify_publication",
+          operation: {
+            id: "operation_spec_form_contact",
+            status: "published",
+            version: { fingerprint: "version-8" },
+            publication: {
+              publishedAt: "2026-08-24T15:15:02.000Z",
+              versionFingerprint: "version-8",
+            },
+          },
+        },
+      }),
+    });
+  });
+  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/*/verify-publication", async (route) => {
+    liveVerificationRequests += 1;
+    liveVerificationBody = route.request().postDataJSON();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        result: {
+          status: "completed",
+          nextStep: "complete",
+          operation: {
+            id: "operation_spec_form_contact",
+            status: "completed",
+            version: { fingerprint: "version-8" },
+            publication: { versionFingerprint: "version-8" },
+            postPublicationEvidenceId: "run_live_form",
+          },
+        },
+      }),
+    });
+  });
   journey.context.on("request", (request) => {
-    if (/approval|publish|rollback/.test(new URL(request.url()).pathname)) {
+    if (/approval|publication|publish|rollback/.test(new URL(request.url()).pathname)) {
       publicationRequests += 1;
     }
   });
@@ -349,16 +438,17 @@ test("applies, validates, and versions a reviewed plan only after confirmation",
   const { root } = journey;
   await approveLeadSetup(journey);
   await root.getByRole("button", { name: "Prepare workspace & plan" }).click();
-  await root.getByRole("button", { name: "Apply, validate & create version" }).click();
+  await root.getByRole("button", { name: "Apply & validate draft" }).click();
 
   expect(resumeRequests).toBe(0);
-  await expect(root.getByText(/writes the reviewed changes.*creates an immutable version/i)).toBeVisible();
+  await expect(root.getByText(/writes the reviewed changes and validates the managed workspace/i)).toBeVisible();
+  await expect(root.getByText(/Browser preview must pass before an immutable version/i)).toBeVisible();
   await expect(root.getByText(/does not publish/i)).toBeVisible();
   await root.getByRole("region", { name: "Agent task" }).screenshot({
     path: test.info().outputPath("form-operation-approval.png"),
     animations: "disabled",
   });
-  await root.getByRole("button", { name: "Confirm apply & create version" }).click();
+  await root.getByRole("button", { name: "Confirm apply & validate" }).click();
 
   await expect.poll(() => resumeRequests).toBe(1);
   expect(resumeRequest).toEqual({
@@ -366,13 +456,401 @@ test("applies, validates, and versions a reviewed plan only after confirmation",
     body: null,
     path: "/api/google/workflows/operation_spec_form_contact/resume",
   });
+  await expect(root.getByText(/No immutable version exists yet/i)).toBeVisible();
+  await expect(root.getByRole("region", { name: "Exact preview binding" })).toContainText("preview-8");
+  expect(await root.getByText(/Immutable version/).count()).toBe(0);
+  await page.locator("form#contact input[name='email']").fill("private@example.com");
+  await root.getByRole("button", { name: "Start exact browser run" }).click();
+  await page.locator("form#contact button[type='submit']").click();
+
+  await expect.poll(() => verifyDraftRequests).toBe(1);
+  await expect.poll(() => resumeRequests).toBe(2);
+  expect(verifyDraftBody).toMatchObject({
+    operationId: "operation_spec_form_contact",
+    setupFingerprint: "setup_form_contact",
+    workspaceFingerprint: "workspace-final",
+    previewVersionFingerprint: "preview-8",
+    evidence: {
+      specificationId: "spec_form_contact",
+      verdict: { code: "browser_verified", browserVerification: "passed" },
+    },
+  });
+  expect(JSON.stringify(verifyDraftBody)).not.toContain("private@example.com");
   await expect(root.getByText("Validation passed", { exact: true })).toBeVisible();
   await expect(root.getByText("Immutable version version-8 created", { exact: true })).toBeVisible();
-  await expect(root.getByText(/Publication requires separate approval.*Nothing was published/i)).toBeVisible();
+  await expect(root.getByText(/Review this exact version.*Nothing was published/i)).toBeVisible();
   await expect(root.getByText(/privateSentinel/)).toHaveCount(0);
   expect(publicationRequests).toBe(0);
   await root.getByRole("region", { name: "Agent task" }).screenshot({
     path: test.info().outputPath("form-operation-versioned.png"),
+    animations: "disabled",
+  });
+  await root.getByRole("button", { name: "Review publication" }).click();
+  await expect(root.getByRole("region", { name: "Publication approval binding" }))
+    .toContainText("version-8");
+  await expect(root.getByText(/separate from setup approval and browser verification/i)).toBeVisible();
+  expect(publicationRequests).toBe(0);
+  await root.getByRole("button", { name: "Approve & publish version-8" }).click();
+  await expect.poll(() => publicationRequests).toBe(2);
+  expect(publicationBodies).toEqual([
+    { versionFingerprint: "version-8" },
+    { versionFingerprint: "version-8" },
+  ]);
+  await expect(root.getByText(/Google confirmed publication of immutable version version-8/i)).toBeVisible();
+  await expect(root.getByRole("region", { name: "Publication result" })).toContainText("version-8");
+  await expect(root.getByText(/Live post-publication verification next/i)).toBeVisible();
+  await expect(root.getByRole("button", { name: "Run live verification" })).toBeVisible();
+  await root.getByRole("button", { name: "Run live verification" }).click();
+  await page.locator("form#contact input[name='email']").fill("live-private@example.com");
+  await page.locator("form#contact button[type='submit']").click();
+
+  await expect.poll(() => liveVerificationRequests).toBe(1);
+  expect(liveVerificationBody).toMatchObject({
+    versionFingerprint: "version-8",
+    evidence: {
+      specificationId: "spec_form_contact",
+      verdict: { code: "browser_verified", browserVerification: "passed" },
+    },
+  });
+  expect(JSON.stringify(liveVerificationBody)).not.toContain("live-private@example.com");
+  await expect(root.getByText(/Live browser verification passed for published version version-8/i)).toBeVisible();
+  await expect(root.getByText(/rollback/i)).toHaveCount(0);
+  await root.getByRole("region", { name: "Agent task" }).screenshot({
+    path: test.info().outputPath("live-publication-verified.png"),
+    animations: "disabled",
+  });
+});
+
+test("offers an exact rollback only after failed live publication evidence", async ({ context, page }) => {
+  const journey = await openExtensionJourney(context, page, "confirmed_success", "GTM-TEST123");
+  let resumeRequests = 0;
+  let rollbackRequests = 0;
+  let liveVerificationBody: unknown;
+  let rollbackBody: unknown;
+  await routeWriteAccess(journey, true);
+  await routeReadyPlan(journey);
+  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/*/verify-draft", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      result: {
+        status: "draft_verified",
+        nextStep: "create_version",
+        operation: { id: "operation_spec_form_contact", status: "draft_verified" },
+      },
+    }),
+  }));
+  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/*/resume", (route) => {
+    resumeRequests += 1;
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(resumeRequests === 1 ? {
+        result: {
+          status: "awaiting_preview",
+          nextStep: "run_tag_assistant_preview",
+          preview: {
+            setupFingerprint: "setup_form_contact",
+            workspaceFingerprint: "workspace-final",
+            previewVersionFingerprint: "preview-8",
+          },
+          operation: {
+            id: "operation_spec_form_contact",
+            status: "validated",
+            validation: { status: "passed" },
+          },
+        },
+      } : {
+        result: {
+          status: "versioned",
+          nextStep: "await_approval",
+          operation: {
+            id: "operation_spec_form_contact",
+            status: "versioned",
+            validation: { status: "passed" },
+            version: {
+              fingerprint: "version-8",
+              priorLiveVersionFingerprint: "live-7",
+            },
+          },
+        },
+      }),
+    });
+  });
+  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/*/approve-publication", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      result: {
+        status: "approved",
+        nextStep: "publish",
+        operation: {
+          id: "operation_spec_form_contact",
+          status: "approved",
+          version: { fingerprint: "version-8" },
+          approval: {
+            approvedAt: "2026-08-24T15:15:00.000Z",
+            versionFingerprint: "version-8",
+          },
+        },
+      },
+    }),
+  }));
+  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/*/publish", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      result: {
+        status: "published",
+        nextStep: "verify_publication",
+        operation: {
+          id: "operation_spec_form_contact",
+          status: "published",
+          version: { fingerprint: "version-8" },
+          publication: {
+            publishedAt: "2026-08-24T15:15:02.000Z",
+            versionFingerprint: "version-8",
+          },
+        },
+      },
+    }),
+  }));
+  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/*/verify-publication", async (route) => {
+    liveVerificationBody = route.request().postDataJSON();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        result: {
+          status: "rollback_required",
+          nextStep: "rollback",
+          operation: {
+            id: "operation_spec_form_contact",
+            status: "rollback_required",
+            version: { fingerprint: "version-8" },
+            publication: { versionFingerprint: "version-8" },
+            postPublicationEvidenceId: "run_live_failed",
+            rollback: { targetVersionFingerprint: "live-7", status: "required" },
+          },
+        },
+      }),
+    });
+  });
+  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/*/rollback", async (route) => {
+    rollbackRequests += 1;
+    rollbackBody = route.request().postDataJSON();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        result: {
+          status: "rolled_back",
+          nextStep: "complete",
+          operation: {
+            id: "operation_spec_form_contact",
+            status: "rolled_back",
+            publication: { versionFingerprint: "version-8" },
+            rollback: {
+              targetVersionFingerprint: "live-7",
+              status: "completed",
+              completedAt: "2026-08-24T15:20:00.000Z",
+            },
+          },
+        },
+      }),
+    });
+  });
+
+  const { root } = journey;
+  await approveLeadSetup(journey);
+  await root.getByRole("button", { name: "Prepare workspace & plan" }).click();
+  await root.getByRole("button", { name: "Apply & validate draft" }).click();
+  await root.getByRole("button", { name: "Confirm apply & validate" }).click();
+  await root.getByRole("button", { name: "Start exact browser run" }).click();
+  await page.locator("form#contact button[type='submit']").click();
+  await expect(root.getByRole("button", { name: "Review publication" })).toBeVisible();
+  await root.getByRole("button", { name: "Review publication" }).click();
+  await root.getByRole("button", { name: "Approve & publish version-8" }).click();
+  await expect(root.getByRole("button", { name: "Run live verification" })).toBeVisible();
+  await page.evaluate(() => {
+    const fixture = (window as Window & { __formFixture?: { ga4RequestCount: number } }).__formFixture;
+    if (fixture) fixture.ga4RequestCount = 0;
+  });
+  await page.locator("form#contact").evaluate((form) => {
+    form.setAttribute("data-hostile-review", "<img src=x onerror=alert(1)>");
+  });
+  await root.getByRole("button", { name: "Run live verification" }).click();
+  await page.locator("form#contact input[name='email']").fill("private-attacker@example.test");
+  await page.locator("form#contact button[type='submit']").click();
+
+  await expect(root.getByText(/Live browser verification failed for published version version-8/i)).toBeVisible();
+  expect(liveVerificationBody).toMatchObject({
+    versionFingerprint: "version-8",
+    evidence: {
+      verdict: { code: "tag_fired_request_missing", browserVerification: "failed" },
+    },
+  });
+  expect(JSON.stringify(liveVerificationBody)).not.toContain("private-attacker@example.test");
+  expect(JSON.stringify(liveVerificationBody)).not.toContain("<img src=x onerror=alert(1)>");
+  expect(rollbackRequests).toBe(0);
+  await root.getByRole("region", { name: "Agent task" }).screenshot({
+    path: test.info().outputPath("live-publication-failed.png"),
+    animations: "disabled",
+  });
+  await root.getByRole("button", { name: "Review rollback" }).click();
+  await expect(root.getByRole("region", { name: "Rollback approval binding" })).toContainText("live-7");
+  expect(rollbackRequests).toBe(0);
+  await root.getByRole("region", { name: "Agent task" }).screenshot({
+    path: test.info().outputPath("live-rollback-review.png"),
+    animations: "disabled",
+  });
+  await root.getByRole("button", { name: "Confirm rollback to live-7" }).click();
+  await expect.poll(() => rollbackRequests).toBe(1);
+  expect(rollbackBody).toEqual({
+    versionFingerprint: "version-8",
+    targetVersionFingerprint: "live-7",
+  });
+  await expect(root.getByText(/Google restored prior live version live-7/i)).toBeVisible();
+});
+
+test("reviews a bounded draft repair and requires a new exact preview", async ({ context, page }) => {
+  const journey = await openExtensionJourney(context, page, "confirmed_success", "GTM-TEST123");
+  let repairRequests = 0;
+  let applyRepairRequests = 0;
+  let repairBody: unknown;
+  let applyRepairBody: unknown;
+  await routeWriteAccess(journey, true);
+  await routeReadyPlan(journey);
+  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/*/resume", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      result: {
+        status: "awaiting_preview",
+        nextStep: "run_tag_assistant_preview",
+        preview: {
+          setupFingerprint: "setup_form_contact",
+          workspaceFingerprint: "workspace-final",
+          previewVersionFingerprint: "preview-8",
+        },
+        operation: {
+          id: "operation_spec_form_contact",
+          status: "validated",
+          validation: { status: "passed" },
+        },
+      },
+    }),
+  }));
+  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/*/repair-draft", async (route) => {
+    repairRequests += 1;
+    repairBody = route.request().postDataJSON();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        result: {
+          status: "repair_ready",
+          nextStep: "review_repair",
+          repair: {
+            planFingerprint: "plan_repair_form_contact",
+            reasonCode: "workspace_entity_drift",
+            attempt: 1,
+            maximumAttempts: 2,
+          },
+          operation: {
+            id: "operation_spec_form_contact",
+            status: "validated",
+            draftRepair: {
+              status: "review_required",
+              plan: {
+                status: "ready",
+                fingerprint: "plan_repair_form_contact",
+                actions: [{
+                  kind: "tag",
+                  action: "update",
+                  generatedName: "GTM Observability - generate_lead - GA4",
+                }],
+              },
+            },
+          },
+        },
+      }),
+    });
+  });
+  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/*/apply-repair", async (route) => {
+    applyRepairRequests += 1;
+    applyRepairBody = route.request().postDataJSON();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        result: {
+          status: "awaiting_preview",
+          nextStep: "run_tag_assistant_preview",
+          preview: {
+            setupFingerprint: "setup_form_contact",
+            workspaceFingerprint: "workspace-repaired",
+            previewVersionFingerprint: "preview-9",
+          },
+          operation: {
+            id: "operation_spec_form_contact",
+            status: "validated",
+            validation: { status: "passed" },
+          },
+        },
+      }),
+    });
+  });
+
+  const { root } = journey;
+  await approveLeadSetup(journey);
+  await root.getByRole("button", { name: "Prepare workspace & plan" }).click();
+  await root.getByRole("button", { name: "Apply & validate draft" }).click();
+  await root.getByRole("button", { name: "Confirm apply & validate" }).click();
+  await page.evaluate(() => {
+    const fixture = (window as Window & { __formFixture?: { ga4RequestCount: number } }).__formFixture;
+    if (fixture) fixture.ga4RequestCount = 0;
+  });
+  await page.locator("form#contact").evaluate((form) => {
+    form.setAttribute("data-hostile-repair", "<img src=x onerror=alert(1)>");
+  });
+  await root.getByRole("button", { name: "Start exact browser run" }).click();
+  await page.locator("form#contact input[name='email']").fill("repair-private@example.test");
+  await page.locator("form#contact button[type='submit']").click();
+
+  await expect.poll(() => repairRequests).toBe(1);
+  expect(repairBody).toMatchObject({
+    operationId: "operation_spec_form_contact",
+    setupFingerprint: "setup_form_contact",
+    workspaceFingerprint: "workspace-final",
+    previewVersionFingerprint: "preview-8",
+    evidence: { verdict: { code: "tag_fired_request_missing", browserVerification: "failed" } },
+  });
+  expect(JSON.stringify(repairBody)).not.toContain("repair-private@example.test");
+  expect(JSON.stringify(repairBody)).not.toContain("<img src=x onerror=alert(1)>");
+  await expect(root.getByText(/bounded repair 1 of 2/i)).toBeVisible();
+  await expect(root.getByRole("region", { name: "Tracking change plan" }))
+    .toContainText("GTM Observability - generate_lead - GA4");
+  expect(applyRepairRequests).toBe(0);
+  const repairPlan = root.getByRole("region", { name: "Tracking change plan" });
+  await repairPlan.scrollIntoViewIfNeeded();
+  await expect(repairPlan).toBeInViewport();
+  await root.getByRole("region", { name: "Agent task" }).screenshot({
+    path: test.info().outputPath("bounded-draft-repair-review.png"),
+    animations: "disabled",
+  });
+
+  await root.getByRole("button", { name: "Approve repair & revalidate" }).click();
+  await expect.poll(() => applyRepairRequests).toBe(1);
+  expect(applyRepairBody).toEqual({ planFingerprint: "plan_repair_form_contact" });
+  await expect(root.getByRole("region", { name: "Exact preview binding" })).toContainText("preview-9");
+  await expect(root.getByRole("region", { name: "Exact preview binding" })).toContainText("workspace-repaired");
+  await expect(root.getByText(/No immutable version exists yet/i)).toBeVisible();
+  const previewBinding = root.getByRole("region", { name: "Exact preview binding" });
+  await previewBinding.scrollIntoViewIfNeeded();
+  await expect(previewBinding).toBeInViewport();
+  await root.getByRole("region", { name: "Agent task" }).screenshot({
+    path: test.info().outputPath("bounded-draft-repair-preview.png"),
     animations: "disabled",
   });
 });
@@ -400,8 +878,8 @@ test("rejects an authority-escalating workflow response", async ({ context, page
   const { root } = journey;
   await approveLeadSetup(journey);
   await root.getByRole("button", { name: "Prepare workspace & plan" }).click();
-  await root.getByRole("button", { name: "Apply, validate & create version" }).click();
-  await root.getByRole("button", { name: "Confirm apply & create version" }).click();
+  await root.getByRole("button", { name: "Apply & validate draft" }).click();
+  await root.getByRole("button", { name: "Confirm apply & validate" }).click();
 
   await expect(root.getByText(/could not be applied.*Nothing was published/i)).toBeVisible();
   await expect(root.getByText(/privateSentinel|published successfully/i)).toHaveCount(0);

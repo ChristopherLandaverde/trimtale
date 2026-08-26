@@ -6,6 +6,13 @@ import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const oauthCallback = "http://127.0.0.1:8787/api/google/oauth/callback";
+const publicContainerIdPattern = /^GTM-[A-Z0-9]+$/i;
+
+export const GoogleSessionMode = Object.freeze({
+  Standard: "standard",
+  Stage1: "stage1",
+});
+
 const commands = {
   api: ["run", "dev:api"],
   preflight: ["run", "preflight:google"],
@@ -35,7 +42,18 @@ function parseJson(value, label) {
 export async function loadGoogleEnvironment(
   configDirectory = join(homedir(), ".config", "gtm-observability"),
   baseEnvironment = process.env,
+  mode = GoogleSessionMode.Standard,
+  writeTargetPublicId,
 ) {
+  if (!Object.values(GoogleSessionMode).includes(mode)) {
+    throw new Error("Google session mode is invalid.");
+  }
+  const normalizedWriteTarget = writeTargetPublicId?.trim().toUpperCase();
+  if (mode === GoogleSessionMode.Stage1
+    && (!normalizedWriteTarget || !publicContainerIdPattern.test(normalizedWriteTarget))) {
+    throw new Error("Stage 1 requires one valid GTM public container ID write target.");
+  }
+
   const clientPath = join(configDirectory, "google-client.json");
   const tokenPath = join(configDirectory, "google-token.json");
   const originPath = join(configDirectory, "extension-origin");
@@ -78,8 +96,13 @@ export async function loadGoogleEnvironment(
     GOOGLE_GTM_CONTAINER_WRITES_ENABLED: "true",
     GOOGLE_OAUTH_TOKEN_STORE: tokenPath,
     GOOGLE_ANALYTICS_READS_ENABLED: "true",
-    GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED: "false",
-    GOOGLE_GTM_PUBLICATION_ENABLED: "false",
+    GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED:
+      mode === GoogleSessionMode.Stage1 ? "true" : "false",
+    GOOGLE_GTM_PUBLICATION_ENABLED:
+      mode === GoogleSessionMode.Stage1 ? "true" : "false",
+    ...(normalizedWriteTarget
+      ? { GOOGLE_GTM_WRITE_TARGET_PUBLIC_ID: normalizedWriteTarget }
+      : {}),
   };
 }
 

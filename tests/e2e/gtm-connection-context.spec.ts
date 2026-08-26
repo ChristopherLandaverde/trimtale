@@ -234,6 +234,12 @@ test("reports automatic download coverage without GTM generation", async ({ cont
   }));
 
   await page.goto("http://127.0.0.1:4173/?gtm=GTM-TEST123");
+  await page.evaluate(() => {
+    const download = document.createElement("a");
+    download.href = "/resources/guide.pdf";
+    download.textContent = "Download guide";
+    document.body.append(download);
+  });
   const root = page.locator("#gtm-observability-root");
   await root.getByRole("button", { name: "Open tracking agent" }).click();
   await root.getByLabel("Tracking request").fill("Track downloads");

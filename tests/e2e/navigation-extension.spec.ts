@@ -36,14 +36,13 @@ test("mounts the floating tracking agent", async ({ page: site }) => {
   await expect(assistant).toHaveScreenshot("assistant-navigation-scope.png", screenshotOptions);
   await root.getByRole("button", { name: "Confirm selection" }).click();
   await expect(root.getByText("5 navigation links selected and highlighted on the page.")).toBeVisible();
-  await expect(root.getByRole("region", { name: "Tracking evidence path" })).toBeVisible();
-  await expect(root.getByText("Navigation clicks → navigation_click")).toBeVisible();
-  await expect(root.getByText("Reviewable navigation_click setup generated")).toBeVisible();
-  await expect(root.getByText("No GTM container detected on this page")).toBeVisible();
-  await expect(root.getByText("Analytics reads are not enabled on this backend")).toBeVisible();
+  await expect(root.getByRole("region", { name: "Tracking evidence path" })).toHaveCount(0);
+  await expect(root.getByText("Evidence path", { exact: true })).toHaveCount(0);
+  await expect(root.getByText("Platform confirmation", { exact: true })).toHaveCount(0);
+  await expect(root.getByRole("button", { name: "Download GTM setup" })).toBeVisible();
   await expect(site.locator("#gtm-observability-targets")).toBeAttached();
   await expect(site.locator("#gtm-observability-targets").locator(".target.confirmed")).toHaveCount(5);
-  await expect(assistant).toHaveScreenshot("assistant-evidence-path.png", screenshotOptions);
+  await expect(assistant).toHaveScreenshot("assistant-navigation-confirmed.png", screenshotOptions);
 
   const downloadPromise = site.waitForEvent("download");
   await root.getByRole("button", { name: "Download GTM setup" }).click();
@@ -58,7 +57,7 @@ test("mounts the floating tracking agent", async ({ page: site }) => {
   };
   expect(generated.containerVersion?.tag).toHaveLength(1);
   expect(generated.containerVersion?.trigger).toHaveLength(1);
-  await expect(root.getByText(/Nothing was applied or published/)).toBeVisible();
+  await expect(root.getByText(/Nothing was applied or published/).last()).toBeVisible();
 
   const setupResponse = await site.request.post("http://127.0.0.1:8787/api/setups", {
     data: {
@@ -104,8 +103,9 @@ test("reports an observed GTM public container ID separately from setup generati
   await root.getByLabel("Tracking request").fill("navigation");
   await root.getByRole("button", { name: "Send request" }).click();
   await root.getByRole("button", { name: "Track all" }).click();
-  await expect(root.getByText("Detected GTM-TEST123")).toBeVisible();
+  await expect(root.getByRole("region", { name: "GTM connection" })).toContainText("GTM-TEST123");
   await expect(root.getByText("Reviewable navigation_click setup generated")).toBeVisible();
+  await expect(root.getByRole("region", { name: "Tracking evidence path" })).toHaveCount(0);
 });
 
 test("does not claim setup generation without measurement context", async ({ page: site }) => {
@@ -121,39 +121,7 @@ test("does not claim setup generation without measurement context", async ({ pag
   await expect(root.getByRole("button", { name: "Download GTM setup" })).toHaveCount(0);
 });
 
-test("matches the observed container and explicitly prepares one managed workspace", async ({ context, page: site }) => {
-  let preparationCount = 0;
-  await context.route("http://127.0.0.1:8787/api/google/containers/**", async (route) => {
-    const request = route.request();
-    const preparing = request.method() === "POST";
-    if (preparing) {
-      preparationCount += 1;
-    }
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        ...(preparing ? {} : { containerWritesEnabled: true }),
-        result: {
-          status: "recognized",
-          publicId: "GTM-TEST123",
-          container: { name: "Lead site", publicId: "GTM-TEST123" },
-          workspace: preparing
-            ? {
-              status: "created",
-              workspaceCount: 2,
-              workspace: { name: "GTM Observability", workspaceId: "99" },
-            }
-            : {
-              status: "available",
-              action: "create",
-              workspaceCount: 1,
-              remainingSlots: 2,
-            },
-        },
-      }),
-    });
-  });
+test("keeps GTM access in the connection card after navigation confirmation", async ({ page: site }) => {
   await site.goto("http://127.0.0.1:4173/?gtm=GTM-TEST123");
   const root = site.locator("#gtm-observability-root");
   await root.getByRole("button", { name: "Open tracking agent" }).click();
@@ -161,18 +129,11 @@ test("matches the observed container and explicitly prepares one managed workspa
   await root.getByRole("button", { name: "Send request" }).click();
   await root.getByRole("button", { name: "Track all" }).click();
 
-  await root.getByRole("button", { name: "Check GTM access" }).click();
-  await expect(root.getByText(/Recognized Lead site.*Managed workspace can be prepared/)).toBeVisible();
-  expect(preparationCount).toBe(0);
-
-  await root.getByRole("button", { name: "Prepare managed workspace" }).click();
-  await expect(root.getByText(/Recognized Lead site.*GTM Observability prepared \(2\/3 slots occupied\)/)).toBeVisible();
-  expect(preparationCount).toBe(1);
-  await expect(root.getByText(/published/i)).toHaveCount(0);
-  await expect(root.locator("section.assistant")).toHaveScreenshot(
-    "assistant-managed-workspace.png",
-    screenshotOptions,
-  );
+  await expect(root.getByRole("region", { name: "GTM connection" })).toContainText("GTM-TEST123");
+  await expect(root.getByRole("region", { name: "Tracking evidence path" })).toHaveCount(0);
+  await expect(root.getByRole("button", { name: "Check GTM access" })).toHaveCount(0);
+  await expect(root.getByRole("button", { name: "Prepare managed workspace" })).toHaveCount(0);
+  await expect(root.getByRole("button", { name: "Download GTM setup" })).toBeVisible();
 });
 
 test("renders page-controlled target labels as inert text", async ({ page: site }) => {

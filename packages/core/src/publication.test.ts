@@ -64,5 +64,18 @@ describe("publication approval and post-publication evidence", () => {
       status: "rollback_required",
       rollback: { targetVersionFingerprint: "live-7", status: "required" },
     });
+    const inconclusive = evidence(approved, false);
+    inconclusive.runId = "run_inconclusive";
+    inconclusive.verdict = {
+      code: "insufficient_observable_evidence",
+      browserVerification: "inconclusive",
+      platformConfirmation: "unverified",
+      nextAction: "Retry the live browser run.",
+    };
+    expect(recordPostPublicationEvidence(approved, inconclusive)).toMatchObject({
+      status: "published",
+      postPublicationEvidenceId: "run_inconclusive",
+    });
+    expect(recordPostPublicationEvidence(approved, inconclusive).rollback).toBeUndefined();
   });
 });

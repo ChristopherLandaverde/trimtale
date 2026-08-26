@@ -1,0 +1,186 @@
+[
+  {
+    "id": "ordinary-phone-click",
+    "input": {
+      "schemaVersion": 1,
+      "requestId": "author_phone_click",
+      "intent": "Track clicks on phone links",
+      "businessOutcome": "Measure call intent",
+      "existingEventNames": [],
+      "firingPolicyCandidates": [{
+        "id": "phone-links",
+        "label": "Phone links on this page",
+        "sourceType": "click"
+      }],
+      "valueCandidates": [],
+      "privacy": { "redactedValueCount": 2, "truncatedLabelIds": [] }
+    },
+    "grounding": {
+      "setupId": "setup_authored_phone_click",
+      "measurementId": "G-TEST123456",
+      "firingPolicies": [{
+        "candidateId": "phone-links",
+        "policy": {
+          "id": "policy_phone_links",
+          "source": { "type": "click", "clickMode": "links", "selector": "a[href^='tel:']" },
+          "include": [{
+            "variable": { "type": "built_in_variable", "name": "Click URL" },
+            "operator": "starts_with",
+            "value": "tel:"
+          }],
+          "exclude": [],
+          "frequency": "once_per_event",
+          "consent": { "required": ["analytics_storage"], "whenDenied": "block" }
+        }
+      }],
+      "values": [],
+      "verification": {
+        "positive": [{ "type": "network_request", "destination": "google_analytics_4", "eventName": "phone_click" }],
+        "negative": [{ "type": "tag_fired", "tagActionId": "tag_phone_click", "scenario": "ordinary_link" }]
+      },
+      "prohibitedOutputValues": ["private-person@example.test"]
+    },
+    "proposal": {
+      "schemaVersion": 1,
+      "status": "ready",
+      "eventName": "phone_click",
+      "firingPolicyCandidateIds": ["phone-links"],
+      "parameters": [
+        {
+          "name": "phone_number",
+          "classification": "prohibited",
+          "requirement": "optional",
+          "valueCandidateId": null,
+          "rationale": "Do not send a person's phone number to Analytics"
+        },
+        {
+          "name": "link_url",
+          "classification": "prohibited",
+          "requirement": "optional",
+          "valueCandidateId": null,
+          "rationale": "A tel URL contains the phone number"
+        },
+        {
+          "name": "link_text",
+          "classification": "prohibited",
+          "requirement": "optional",
+          "valueCandidateId": null,
+          "rationale": "Visible phone-link text can contain the phone number"
+        }
+      ],
+      "clarification": null,
+      "rationale": "Use one event for confirmed phone-link clicks",
+      "authority": {
+        "canSupplySelectors": false,
+        "canSupplyEvidence": false,
+        "canWriteGtm": false,
+        "canApprove": false,
+        "canPublish": false
+      }
+    },
+    "expected": {
+      "status": "ready",
+      "setupCreated": true,
+      "suggestionClasses": ["prohibited", "prohibited", "prohibited"]
+    }
+  },
+  {
+    "id": "ambiguous-business-outcome",
+    "input": {
+      "schemaVersion": 1,
+      "requestId": "author_ambiguous",
+      "intent": "Track the important button",
+      "businessOutcome": null,
+      "existingEventNames": [],
+      "firingPolicyCandidates": [
+        { "id": "pricing-cta", "label": "Pricing call to action", "sourceType": "click" },
+        { "id": "contact-cta", "label": "Contact call to action", "sourceType": "click" }
+      ],
+      "valueCandidates": [],
+      "privacy": { "redactedValueCount": 0, "truncatedLabelIds": [] }
+    },
+    "grounding": {
+      "setupId": "setup_authored_ambiguous",
+      "measurementId": "G-TEST123456",
+      "firingPolicies": [],
+      "values": [],
+      "verification": { "positive": [], "negative": [] },
+      "prohibitedOutputValues": []
+    },
+    "proposal": {
+      "schemaVersion": 1,
+      "status": "needs_clarification",
+      "eventName": null,
+      "firingPolicyCandidateIds": [],
+      "parameters": [{
+        "name": "cta_location",
+        "classification": "requires_clarification",
+        "requirement": "optional",
+        "valueCandidateId": null,
+        "rationale": "The intended button is ambiguous"
+      }],
+      "clarification": "Should the pricing button, contact button, or both count as the important action?",
+      "rationale": "The business outcome and target are not yet grounded",
+      "authority": {
+        "canSupplySelectors": false,
+        "canSupplyEvidence": false,
+        "canWriteGtm": false,
+        "canApprove": false,
+        "canPublish": false
+      }
+    },
+    "expected": {
+      "status": "needs_clarification",
+      "setupCreated": false,
+      "suggestionClasses": ["requires_clarification"]
+    }
+  },
+  {
+    "id": "unsupported-ad-platform",
+    "input": {
+      "schemaVersion": 1,
+      "requestId": "author_ads",
+      "intent": "Create a Meta Ads campaign",
+      "businessOutcome": "Acquire customers",
+      "existingEventNames": [],
+      "firingPolicyCandidates": [],
+      "valueCandidates": [],
+      "privacy": { "redactedValueCount": 0, "truncatedLabelIds": [] }
+    },
+    "grounding": {
+      "setupId": "setup_authored_ads",
+      "measurementId": "G-TEST123456",
+      "firingPolicies": [],
+      "values": [],
+      "verification": { "positive": [], "negative": [] },
+      "prohibitedOutputValues": []
+    },
+    "proposal": {
+      "schemaVersion": 1,
+      "status": "unsupported",
+      "eventName": null,
+      "firingPolicyCandidateIds": [],
+      "parameters": [{
+        "name": "campaign_configuration",
+        "classification": "unavailable",
+        "requirement": "optional",
+        "valueCandidateId": null,
+        "rationale": "Ad campaign creation is outside GTM and GA4 setup"
+      }],
+      "clarification": null,
+      "rationale": "Stage 1 supports GTM web containers and GA4 only",
+      "authority": {
+        "canSupplySelectors": false,
+        "canSupplyEvidence": false,
+        "canWriteGtm": false,
+        "canApprove": false,
+        "canPublish": false
+      }
+    },
+    "expected": {
+      "status": "unsupported",
+      "setupCreated": false,
+      "suggestionClasses": ["unavailable"]
+    }
+  }
+]

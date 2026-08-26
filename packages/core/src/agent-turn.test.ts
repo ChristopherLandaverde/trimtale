@@ -4,7 +4,7 @@ import {
   isAgentTurnV1,
   type FormCandidate,
 } from "./index.js";
-import { interpretConversationIntent, selectConversationTarget } from "./conversation.js";
+import { interpretConversationIntent, selectConversationScope, selectConversationTarget } from "./conversation.js";
 
 function form(id: string, label: string): FormCandidate {
   return {
@@ -129,10 +129,107 @@ describe("provider-neutral agent turns", () => {
     });
   });
 
-  it("decides automatic file-download coverage without generating GTM", () => {
+  it("reports automatic-only interactions without offering setup", () => {
+    const automaticCoverage = {
+      enabled: true,
+      pageViews: true,
+      scrolls: true,
+      outboundClicks: true,
+      siteSearch: true,
+      videoEngagement: true,
+      fileDownloads: true,
+      formInteractions: true,
+    };
+    const cases = [
+      ["Track page views", "Already covered · Page views", "automatically measures page views"],
+      ["Track scroll depth", "Already covered · Scrolls", "automatically measures scrolls"],
+      ["Track internal site search", "Already covered · Site search", "automatically measures site search"],
+      ["Track video engagement", "Already covered · Video engagement", "automatically measures video engagement"],
+    ] as const;
+
+    for (const [message, goal, summary] of cases) {
+      const turn = agentTurnForIntake(
+        interpretConversationIntent(message, { navigationCount: 0, forms: [] }),
+        {
+          formCount: 0,
+          navigationCount: 0,
+          connection: { publicId: "GTM-TEST123", measurementId: "G-TEST123456" },
+          automaticCoverage,
+        },
+      );
+
+      expect(turn.task).toMatchObject({ goal, status: "completed", summary: expect.stringContaining(summary) });
+      expect(turn.actions).toEqual([]);
+      expect(turn.plan.map(({ label }) => label)).toEqual([
+        "Understand the outcome",
+        "Inspect this page",
+        "Check automatic coverage",
+        "Avoid duplicate setup",
+        "Verify measurement",
+      ]);
+      expect(turn.plan.find(({ id }) => id === "verify")?.status).toBe("pending");
+      expect(isAgentTurnV1(turn)).toBe(true);
+    }
+  });
+
+  it("names automatic-coverage gaps without creating fallback setup", () => {
+    const automaticCoverage = {
+      enabled: true,
+      pageViews: true,
+      scrolls: false,
+      outboundClicks: true,
+      siteSearch: true,
+      videoEngagement: true,
+      fileDownloads: true,
+      formInteractions: true,
+    };
+    const intake = interpretConversationIntent("Track scroll depth", {
+      navigationCount: 0,
+      forms: [],
+    });
+    const gap = agentTurnForIntake(intake, {
+      formCount: 0,
+      navigationCount: 0,
+      connection: { publicId: "GTM-TEST123", measurementId: "G-TEST123456" },
+      automaticCoverage,
+    });
+    const masterOff = agentTurnForIntake(intake, {
+      formCount: 0,
+      navigationCount: 0,
+      connection: { publicId: "GTM-TEST123", measurementId: "G-TEST123456" },
+      automaticCoverage: { ...automaticCoverage, enabled: false, scrolls: true },
+    });
+    const unavailable = agentTurnForIntake(intake, {
+      formCount: 0,
+      navigationCount: 0,
+      connection: { publicId: "GTM-TEST123" },
+    });
+
+    expect(gap.task).toEqual({
+      goal: "Coverage gap · Scrolls",
+      status: "blocked",
+      summary: "GA4 automatic scroll measurement is off for G-TEST123456. No GTM setup was generated.",
+    });
+    expect(masterOff.task).toEqual({
+      goal: "Coverage gap · Scrolls",
+      status: "blocked",
+      summary: "GA4 automatic measurement is off for G-TEST123456. No GTM setup was generated.",
+    });
+    expect(unavailable.task).toEqual({
+      goal: "Check automatic coverage · Scrolls",
+      status: "blocked",
+      summary: "I need one exact GA4 web stream and its Enhanced Measurement settings to check scroll coverage. No setup was generated.",
+    });
+    expect(gap.actions).toEqual([]);
+    expect(masterOff.actions).toEqual([]);
+    expect(unavailable.actions).toEqual([]);
+  });
+
+  it("uses automatic file-download coverage and offers setup only for a gap", () => {
     const intake = interpretConversationIntent("Track downloads", {
       navigationCount: 0,
       forms: [],
+      interactionCounts: { file_download: 2 },
     });
     const connection = {
       publicId: "GTM-TEST123",
@@ -141,6 +238,7 @@ describe("provider-neutral agent turns", () => {
     const covered = agentTurnForIntake(intake, {
       formCount: 0,
       navigationCount: 0,
+      interactionCounts: { file_download: 2 },
       connection,
       automaticCoverage: {
         enabled: true,
@@ -152,6 +250,7 @@ describe("provider-neutral agent turns", () => {
     const masterOff = agentTurnForIntake(intake, {
       formCount: 0,
       navigationCount: 0,
+      interactionCounts: { file_download: 2 },
       connection,
       automaticCoverage: {
         enabled: false,
@@ -163,6 +262,7 @@ describe("provider-neutral agent turns", () => {
     const downloadsOff = agentTurnForIntake(intake, {
       formCount: 0,
       navigationCount: 0,
+      interactionCounts: { file_download: 2 },
       connection,
       automaticCoverage: {
         enabled: true,
@@ -174,6 +274,7 @@ describe("provider-neutral agent turns", () => {
     const missingStream = agentTurnForIntake(intake, {
       formCount: 0,
       navigationCount: 0,
+      interactionCounts: { file_download: 2 },
       connection: { publicId: "GTM-TEST123" },
       automaticCoverage: {
         enabled: true,
@@ -190,24 +291,127 @@ describe("provider-neutral agent turns", () => {
     });
     expect(covered.actions).toEqual([]);
     expect(masterOff.task).toEqual({
-      goal: "Coverage gap · File downloads",
-      status: "blocked",
-      summary: "GA4 automatic measurement is off for G-TEST123456. File downloads are not automatically covered. No GTM setup was generated.",
+      goal: "Set up file-download tracking",
+      status: "needs_input",
+      summary: "GA4 automatic measurement is off. I found 2 downloadable file links. The event can cover matching downloadable file links sitewide or only this page.",
     });
     expect(downloadsOff.task).toEqual({
-      goal: "Coverage gap · File downloads",
-      status: "blocked",
-      summary: "GA4 automatic file downloads are off for G-TEST123456. No GTM setup was generated.",
+      goal: "Set up file-download tracking",
+      status: "needs_input",
+      summary: "GA4 automatic file-download measurement is off. I found 2 downloadable file links. The event can cover matching downloadable file links sitewide or only this page.",
     });
-    expect(missingStream.task).toEqual({
-      goal: "Coverage unknown · File downloads",
-      status: "blocked",
-      summary: "Connect one exact GA4 stream before deciding download coverage. No GTM setup was generated.",
+    expect(masterOff.actions.map(({ id }) => id)).toEqual([
+      "scope:sitewide",
+      "scope:current_page",
+      "cancel",
+    ]);
+    expect(missingStream.task.status).toBe("needs_input");
+  });
+
+  it("avoids duplicate outbound setup when exact-stream coverage is on", () => {
+    const intake = interpretConversationIntent("Track external links", {
+      navigationCount: 0,
+      forms: [],
+      interactionCounts: { outbound_click: 2 },
     });
+    const context = {
+      formCount: 0,
+      navigationCount: 0,
+      interactionCounts: { outbound_click: 2 },
+      connection: { publicId: "GTM-TEST123", measurementId: "G-TEST123456" },
+    };
+    const covered = agentTurnForIntake(intake, {
+      ...context,
+      automaticCoverage: {
+        enabled: true,
+        outboundClicks: true,
+        fileDownloads: true,
+        formInteractions: true,
+      },
+    });
+    const uncovered = agentTurnForIntake(intake, {
+      ...context,
+      automaticCoverage: {
+        enabled: true,
+        outboundClicks: false,
+        fileDownloads: true,
+        formInteractions: true,
+      },
+    });
+
+    expect(covered.task).toEqual({
+      goal: "Already covered · Outbound links",
+      status: "completed",
+      summary: "GA4 G-TEST123456 automatically measures outbound link clicks. No GTM setup is needed. Next: verify a real outbound link in the browser.",
+    });
+    expect(covered.actions).toEqual([]);
+    expect(uncovered.task).toMatchObject({
+      goal: "Set up outbound-link tracking",
+      status: "needs_input",
+      summary: expect.stringContaining("automatic outbound-click measurement is off"),
+    });
+  });
+
+  it("grounds phone-click scope without exposing contact data", () => {
+    const intake = interpretConversationIntent("Track phone calls", {
+      navigationCount: 0,
+      forms: [],
+      interactionCounts: { phone_click: 1 },
+    });
+    const scoped = selectConversationScope(intake, "sitewide");
+    const turn = agentTurnForIntake(scoped, {
+      formCount: 0,
+      navigationCount: 0,
+      interactionCounts: { phone_click: 1 },
+    });
+
+    expect(turn).toMatchObject({
+      task: {
+        status: "ready_for_review",
+        summary: expect.stringContaining("Phone number, tel URL, and visible link text are excluded"),
+      },
+      actions: [{ id: "confirm-interaction-specification", label: "Review setup" }],
+    });
+    expect(JSON.stringify(turn)).not.toContain("tel:+");
+  });
+
+  it("grounds email-link scope without exposing email data", () => {
+    const intake = interpretConversationIntent("Track email links", {
+      navigationCount: 0,
+      forms: [],
+      interactionCounts: { email_click: 1 },
+    });
+    const scoped = selectConversationScope(intake, "current_page");
+    const turn = agentTurnForIntake(scoped, {
+      formCount: 0,
+      navigationCount: 0,
+      interactionCounts: { email_click: 1 },
+    });
+    const missing = agentTurnForIntake(
+      interpretConversationIntent("Track email links", { navigationCount: 0, forms: [] }),
+      { formCount: 0, navigationCount: 0 },
+    );
+
+    expect(turn).toMatchObject({
+      task: {
+        status: "ready_for_review",
+        summary: expect.stringContaining("Email address, mailto URL, subject/body values, and visible link text are excluded"),
+      },
+      actions: [{ id: "confirm-interaction-specification", label: "Review setup" }],
+    });
+    expect(missing.task).toMatchObject({
+      status: "blocked",
+      summary: "I could not find an observable email link on this page. No setup was generated.",
+    });
+    expect(JSON.stringify(turn)).not.toContain("private@example.test");
   });
 
   it("represents unsupported and insufficient work as honest blockers", () => {
     const unsupported = agentTurnForIntake(
+      interpretConversationIntent("Track CTA buttons", { navigationCount: 0, forms: [] }),
+      { formCount: 0, navigationCount: 0 },
+    );
+    const missingPhone = agentTurnForIntake(
       interpretConversationIntent("Track phone calls", { navigationCount: 0, forms: [] }),
       { formCount: 0, navigationCount: 0 },
     );
@@ -218,6 +422,7 @@ describe("provider-neutral agent turns", () => {
 
     expect(unsupported.task.status).toBe("unsupported");
     expect(unsupported.plan.some((stage) => stage.status === "blocked")).toBe(true);
+    expect(missingPhone.task.status).toBe("blocked");
     expect(insufficient.task.status).toBe("blocked");
     expect(insufficient.task.summary).toMatch(/could not find an observable form/i);
     expect(isAgentTurnV1({ ...unsupported, schemaVersion: 2 })).toBe(false);

@@ -438,6 +438,8 @@ A verified resolution records normalized symptoms, relevant environment attribut
 - [x] All sixteen initial scenarios produce their expected deterministic verdicts.
 - [x] Every run produces versioned, redacted run evidence.
 - [x] Browser verification remains distinct from platform confirmation.
+- [x] The customer surface shows concise action receipts and final verification results
+  without exposing an internal multi-stage evidence path.
 - [x] One exactly connected GTM/GA4 page can carry authenticated context through setup
   generation, browser verification, and optional aggregate Realtime confirmation.
 - [x] A confirmed connected lead-form setup can explicitly prepare its managed
@@ -447,6 +449,8 @@ A verified resolution records normalized symptoms, relevant environment attribut
 - [x] The unchanged extension completes the supported form path on a real
   React-rendered SPA form.
 - [x] Unsupported or unobservable forms produce a diagnostic handoff.
+- [x] Compact action receipts keep labels readable while long evidence details wrap.
+- [x] Long in-place review tasks open with their heading and context visible.
 - [x] A download-tracking request reports exact automatic GA4 coverage and never
   generates duplicate GTM setup.
 - [x] The intake acceptance corpus runs through a provider-neutral shadow harness.

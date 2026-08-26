@@ -54,7 +54,7 @@ describe("tracking setup operation", () => {
     ["applying", "reconcile_application"],
     ["applied", "validate"],
     ["validation_failed", "revise_plan"],
-    ["validated", "create_version"],
+    ["validated", "run_preview"],
     ["versioned", "await_approval"],
     ["approved", "publish"],
     ["published", "verify_publication"],

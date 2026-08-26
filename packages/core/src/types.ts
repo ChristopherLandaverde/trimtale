@@ -57,6 +57,11 @@ export interface FormSetupProposal {
   containerFile: GtmContainerExport;
 }
 
+export interface GenericTrackingSetupRequest {
+  setup: import("./setup-contract.js").TrackingSetupV1;
+  container: ContainerContext;
+}
+
 export interface BrowserEvidence {
   navigationId: string;
   clickedAt: string;

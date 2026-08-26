@@ -1,5 +1,10 @@
 # MVP pause handoff
 
+> Superseded on 2026-08-24 by
+> `docs/product-plan/2026-08-24-stage-1-current-handoff.md`. Retained as historical
+> context for the earlier Enhanced Measurement checkpoint; do not use it as the
+> current resume point.
+
 Status date: 2026-08-24
 
 ## Current outcome

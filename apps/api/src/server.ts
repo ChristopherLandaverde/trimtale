@@ -1,5 +1,13 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { createSetupProposal, type SetupRequest } from "@gtm-observability/core";
+import {
+  authorTrackingSetup,
+  createSetupProposal,
+  type TrackingRunEvidenceV1,
+  type SetupAuthoringGroundingV1,
+  type SetupAuthoringInputV1,
+  type ExactDraftBrowserRunV1,
+  type SetupRequest,
+} from "@gtm-observability/core";
 import { resolve } from "node:path";
 import { corsDecision } from "./cors.js";
 import { intakeEvaluationApiResponse } from "./intake-evaluation-api.js";
@@ -10,6 +18,7 @@ import {
   FileGoogleOAuthTokenStore,
   googleGtmPublicationEnabled,
   googleGtmPublicationScopeRequested,
+  googleGtmWriteTargetPublicId,
   googleGtmWritesEnabled,
   googleOAuthConfig,
 } from "./google.js";
@@ -23,6 +32,10 @@ import {
   googleAnalyticsReadsEnabled,
   googleAnalyticsWritesEnabled,
 } from "./analytics.js";
+import {
+  OpenAISetupAuthoringProvider,
+  openAISetupAuthoringConfig,
+} from "./openai-setup-authoring-provider.js";
 
 const port = Number.parseInt(process.env.PORT ?? "8787", 10);
 const configuredExtensionOrigin = process.env.EXTENSION_ORIGIN;
@@ -31,8 +44,13 @@ const oauthConfig = googleOAuthConfig();
 const containerWritesEnabled = googleGtmWritesEnabled();
 const publicationEnabled = googleGtmPublicationEnabled();
 const publicationScopeRequested = googleGtmPublicationScopeRequested();
+const writeTargetPublicId = googleGtmWriteTargetPublicId();
 const analyticsWriteEnabled = googleAnalyticsWritesEnabled();
 const analyticsReadEnabled = googleAnalyticsReadsEnabled() || analyticsWriteEnabled;
+const setupAuthoringConfig = openAISetupAuthoringConfig();
+const setupAuthoringProvider = setupAuthoringConfig
+  ? new OpenAISetupAuthoringProvider(setupAuthoringConfig)
+  : undefined;
 const analyticsAccess = analyticsWriteEnabled
   ? AnalyticsAccess.Edit
   : analyticsReadEnabled ? AnalyticsAccess.Read : AnalyticsAccess.None;
@@ -52,7 +70,15 @@ const oauthSession = oauthConfig
     )
   : undefined;
 const discoveryClient = oauthSession
-  ? new GtmDiscoveryClient(() => oauthSession.accessToken(), fetch, containerWritesEnabled, publicationEnabled)
+  ? new GtmDiscoveryClient(
+      () => oauthSession.accessToken(),
+      fetch,
+      containerWritesEnabled,
+      publicationEnabled,
+      Date.now,
+      undefined,
+      writeTargetPublicId,
+    )
   : undefined;
 const analyticsClient = oauthSession
   ? new GoogleAnalyticsReadClient(() => oauthSession.accessToken(), fetch, analyticsReadEnabled)
@@ -124,6 +150,40 @@ const server = createServer(async (request, response) => {
 
   if (request.method === "GET" && request.url === "/health") {
     sendJson(response, 200, { status: "ok", service: "gtm-observability-api" });
+    return;
+  }
+
+  if (request.method === "POST" && requestUrl.pathname === "/api/setup-authoring") {
+    if (!setupAuthoringProvider) {
+      sendJson(response, 503, { error: "Setup authoring is not configured on this backend." });
+      return;
+    }
+    try {
+      const body = await readJson(request);
+      const record = typeof body === "object" && body !== null && !Array.isArray(body)
+        ? body as Record<string, unknown>
+        : undefined;
+      if (!record) {
+        sendJson(response, 400, { error: "Setup authoring input and grounding are required." });
+        return;
+      }
+      const result = await authorTrackingSetup(
+        setupAuthoringProvider,
+        record.input as SetupAuthoringInputV1,
+        record.grounding as SetupAuthoringGroundingV1,
+        { signal: AbortSignal.timeout(30_000) },
+      );
+      sendJson(response, 200, { result });
+    } catch (authoringError) {
+      const invalid = authoringError instanceof Error
+        && (authoringError.message.includes("input is invalid")
+          || authoringError.message.includes("output is invalid"));
+      sendJson(response, invalid ? 400 : 502, {
+        error: invalid
+          ? "Setup authoring request is invalid."
+          : "Setup authoring provider is unavailable.",
+      });
+    }
     return;
   }
 
@@ -417,6 +477,107 @@ const server = createServer(async (request, response) => {
   const resumeMatch = requestUrl.pathname.match(
     /^\/api\/google\/workflows\/([A-Za-z0-9_-]+)\/resume$/,
   );
+  const verifyDraftMatch = requestUrl.pathname.match(
+    /^\/api\/google\/workflows\/([A-Za-z0-9_-]+)\/verify-draft$/,
+  );
+  const repairDraftMatch = requestUrl.pathname.match(
+    /^\/api\/google\/workflows\/([A-Za-z0-9_-]+)\/repair-draft$/,
+  );
+  const applyRepairMatch = requestUrl.pathname.match(
+    /^\/api\/google\/workflows\/([A-Za-z0-9_-]+)\/apply-repair$/,
+  );
+  const approvePublicationMatch = requestUrl.pathname.match(
+    /^\/api\/google\/workflows\/([A-Za-z0-9_-]+)\/approve-publication$/,
+  );
+  const publishMatch = requestUrl.pathname.match(
+    /^\/api\/google\/workflows\/([A-Za-z0-9_-]+)\/publish$/,
+  );
+  const verifyPublicationMatch = requestUrl.pathname.match(
+    /^\/api\/google\/workflows\/([A-Za-z0-9_-]+)\/verify-publication$/,
+  );
+  const rollbackMatch = requestUrl.pathname.match(
+    /^\/api\/google\/workflows\/([A-Za-z0-9_-]+)\/rollback$/,
+  );
+  if (request.method === "POST" && verifyDraftMatch) {
+    if (!workflowRunner) {
+      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
+      return;
+    }
+    try {
+      const run = (await readJson(request)) as ExactDraftBrowserRunV1;
+      sendJson(response, 200, {
+        result: workflowRunner.verifyDraft(verifyDraftMatch[1] ?? "", run),
+      });
+    } catch (workflowError) {
+      const status = workflowError instanceof SyntaxError
+        ? 400
+        : workflowError instanceof Error && workflowError.message.includes("not found")
+          ? 404
+          : 409;
+      const message = workflowError instanceof Error
+        ? workflowError.message
+        : "Unable to bind exact draft evidence.";
+      sendJson(response, status, { error: message });
+    }
+    return;
+  }
+  if (request.method === "POST" && repairDraftMatch) {
+    if (!workflowRunner) {
+      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
+      return;
+    }
+    try {
+      const run = (await readJson(request)) as ExactDraftBrowserRunV1;
+      const result = await workflowRunner.proposeDraftRepair(repairDraftMatch[1] ?? "", run);
+      sendJson(response, result.status === "repair_ready" ? 200 : 409, { result });
+    } catch (workflowError) {
+      const status = workflowError instanceof GoogleIntegrationError
+        ? workflowError.status
+        : workflowError instanceof SyntaxError
+          ? 400
+          : workflowError instanceof Error && workflowError.message.includes("not found")
+            ? 404
+            : 409;
+      sendJson(response, status, {
+        error: workflowError instanceof Error
+          ? workflowError.message
+          : "Unable to propose a bounded draft repair.",
+      });
+    }
+    return;
+  }
+  if (request.method === "POST" && applyRepairMatch) {
+    if (!workflowRunner) {
+      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
+      return;
+    }
+    try {
+      const body = await readJson(request);
+      const planFingerprint = typeof body === "object" && body !== null && !Array.isArray(body)
+        ? (body as Record<string, unknown>).planFingerprint
+        : undefined;
+      if (typeof planFingerprint !== "string") {
+        sendJson(response, 400, { error: "The reviewed repair plan fingerprint is required." });
+        return;
+      }
+      const result = await workflowRunner.applyDraftRepair(applyRepairMatch[1] ?? "", planFingerprint);
+      sendJson(response, result.status === "awaiting_preview" ? 200 : 409, { result });
+    } catch (workflowError) {
+      const status = workflowError instanceof GoogleIntegrationError
+        ? workflowError.status
+        : workflowError instanceof SyntaxError
+          ? 400
+          : workflowError instanceof Error && workflowError.message.includes("not found")
+            ? 404
+            : 409;
+      sendJson(response, status, {
+        error: workflowError instanceof Error
+          ? workflowError.message
+          : "Unable to apply the reviewed draft repair.",
+      });
+    }
+    return;
+  }
   if (request.method === "POST" && resumeMatch) {
     if (!workflowRunner) {
       sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
@@ -434,6 +595,139 @@ const server = createServer(async (request, response) => {
         ? workflowError.message
         : "Unable to resume the tracking workflow.";
       sendJson(response, status, { error: message });
+    }
+    return;
+  }
+  if (request.method === "POST" && approvePublicationMatch) {
+    if (!workflowRunner) {
+      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
+      return;
+    }
+    try {
+      const body = await readJson(request);
+      const versionFingerprint = typeof body === "object" && body !== null && !Array.isArray(body)
+        ? (body as Record<string, unknown>).versionFingerprint
+        : undefined;
+      if (typeof versionFingerprint !== "string") {
+        sendJson(response, 400, { error: "The reviewed version fingerprint is required." });
+        return;
+      }
+      sendJson(response, 200, {
+        result: workflowRunner.approvePublication(
+          approvePublicationMatch[1] ?? "",
+          versionFingerprint,
+          "website_chat_human",
+        ),
+      });
+    } catch (workflowError) {
+      const status = workflowError instanceof Error && workflowError.message.includes("not found")
+        ? 404
+        : 409;
+      sendJson(response, status, {
+        error: workflowError instanceof Error
+          ? workflowError.message
+          : "Unable to approve publication.",
+      });
+    }
+    return;
+  }
+  if (request.method === "POST" && publishMatch) {
+    if (!workflowRunner) {
+      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
+      return;
+    }
+    try {
+      const body = await readJson(request);
+      const versionFingerprint = typeof body === "object" && body !== null && !Array.isArray(body)
+        ? (body as Record<string, unknown>).versionFingerprint
+        : undefined;
+      if (typeof versionFingerprint !== "string") {
+        sendJson(response, 400, { error: "The approved version fingerprint is required." });
+        return;
+      }
+      sendJson(response, 200, {
+        result: await workflowRunner.publish(publishMatch[1] ?? "", versionFingerprint),
+      });
+    } catch (workflowError) {
+      const status = workflowError instanceof GoogleIntegrationError
+        ? workflowError.status
+        : workflowError instanceof Error && workflowError.message.includes("not found")
+          ? 404
+          : 409;
+      sendJson(response, status, {
+        error: workflowError instanceof Error
+          ? workflowError.message
+          : "Unable to publish the approved version.",
+      });
+    }
+    return;
+  }
+  if (request.method === "POST" && verifyPublicationMatch) {
+    if (!workflowRunner) {
+      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
+      return;
+    }
+    try {
+      const body = await readJson(request);
+      const values = typeof body === "object" && body !== null && !Array.isArray(body)
+        ? body as Record<string, unknown>
+        : {};
+      if (typeof values.versionFingerprint !== "string" || values.evidence === undefined) {
+        sendJson(response, 400, { error: "The published fingerprint and live evidence are required." });
+        return;
+      }
+      sendJson(response, 200, {
+        result: workflowRunner.verifyPublication(
+          verifyPublicationMatch[1] ?? "",
+          values.versionFingerprint,
+          values.evidence as TrackingRunEvidenceV1,
+        ),
+      });
+    } catch (workflowError) {
+      const status = workflowError instanceof Error && workflowError.message.includes("not found")
+        ? 404
+        : 409;
+      sendJson(response, status, {
+        error: workflowError instanceof Error
+          ? workflowError.message
+          : "Unable to record live publication evidence.",
+      });
+    }
+    return;
+  }
+  if (request.method === "POST" && rollbackMatch) {
+    if (!workflowRunner) {
+      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
+      return;
+    }
+    try {
+      const body = await readJson(request);
+      const values = typeof body === "object" && body !== null && !Array.isArray(body)
+        ? body as Record<string, unknown>
+        : {};
+      if (typeof values.versionFingerprint !== "string"
+        || typeof values.targetVersionFingerprint !== "string") {
+        sendJson(response, 400, { error: "The failed and rollback fingerprints are required." });
+        return;
+      }
+      sendJson(response, 200, {
+        result: await workflowRunner.rollback(
+          rollbackMatch[1] ?? "",
+          values.versionFingerprint,
+          values.targetVersionFingerprint,
+        ),
+      });
+    } catch (workflowError) {
+      const status = workflowError instanceof GoogleIntegrationError
+        ? workflowError.status
+        : workflowError instanceof Error && workflowError.message.includes("not found")
+          ? 404
+          : 409;
+      sendJson(response, status, {
+        error: workflowError instanceof Error
+          ? workflowError.message
+          : "Unable to roll back the failed publication.",
+      });
     }
     return;
   }
