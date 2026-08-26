@@ -76,5 +76,15 @@ portal, build the workflow, and start implementation on 2026-08-25.
   needs explicit replacement approval, and `Page URL` needs no change. The session
   closed without a Google write. Issue 17 proposes the required separately authorized
   replacement-review slice.
-- Remaining: complete the current website-agent and human Tag Assistant handoff,
-  publish the reviewed immutable version, and record live verification or rollback.
+- 2026-08-26: Issue 17 added the exact managed-replacement review. Its live review
+  showed that tag `7` already matched the proposed behavior; Google's current entity
+  omitted only the generated empty `blockingTriggerId` list. No replacement was
+  approved. Issue 18 now normalizes that provider default.
+- 2026-08-26: A fresh credentialed plan `plan_2467c6743d5e` reported zero changes:
+  reuse trigger `9`, reuse tag `7`, and no change to Page URL. Application completed
+  with no entity writes, provider validation passed, and the durable operation reached
+  `validated` with setup `setup_7573af95969d`, workspace `1787767985454`, and exact
+  GTM preview `1787786615309`.
+- Remaining: sign into Google Tag Manager in the managed Chromium profile, connect
+  workspace `7` through the supported human Tag Assistant handoff, run the form, then
+  review/version/publish and record live verification or rollback.

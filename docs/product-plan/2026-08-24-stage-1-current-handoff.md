@@ -198,8 +198,11 @@ is about product state and authority checkpoints rather than external availabili
 
 ## What has not been proven
 
-- The supported handoff has not been exercised end to end against a real authenticated
-  GTM workspace and Tag Assistant browser session.
+- Real authenticated GTM planning and provider validation reached exact preview
+  fingerprint `1787786615309` with a zero-change plan. The supported human Tag
+  Assistant browser handoff remains incomplete because the managed Chromium profile
+  is not signed into the Google web UI; the saved API grant cannot create browser
+  session cookies.
 - No real Google container version was published during controlled Chromium review.
 - Chat publication currently records the actor class `website_chat_human`, not a
   signed-in product user or verified organization membership.
@@ -218,9 +221,9 @@ attribution.
 Current working-tree baseline:
 
 - `npm run verify` passes.
-- 412 deterministic tests pass across 51 test files.
+- 418 deterministic tests pass across 51 test files.
 - 70 Playwright Chromium journeys pass.
-- All workspace typechecks and preflight checks pass; 80 change records validate.
+- All workspace typechecks and preflight checks pass; 85 change records validate.
 
 ## Recommended next implementation order
 
