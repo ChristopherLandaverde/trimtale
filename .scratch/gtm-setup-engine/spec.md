@@ -289,7 +289,7 @@ Latency targets remain product hypotheses until measured in representative workf
 - [ ] The exact workspace draft is exercised in a real browser before version approval.
 - [x] Failed verification may cause bounded repair without widening the confirmed
   tracking intent or publication authority.
-- [ ] GA4 custom definitions and key events use separate explicit provider actions.
+- [x] GA4 custom definitions and key events use separate explicit provider actions.
 - [ ] The portal lists accessible containers and effective access and identifies a
   newly observed version or workspace change.
 - [ ] Tag creation and editing remain absent from the portal.

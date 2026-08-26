@@ -1,7 +1,10 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import {
+  approveGa4ConfigurationPlan,
   authorTrackingSetup,
   createSetupProposal,
+  type Ga4ConfigurationActionV1,
+  type Ga4ConfigurationPlanV1,
   type TrackingRunEvidenceV1,
   type SetupAuthoringGroundingV1,
   type SetupAuthoringInputV1,
@@ -40,6 +43,7 @@ import {
 const port = Number.parseInt(process.env.PORT ?? "8787", 10);
 const configuredExtensionOrigin = process.env.EXTENSION_ORIGIN;
 const maximumBodyBytes = 256_000;
+const websiteChatActor = "website_chat_human";
 const oauthConfig = googleOAuthConfig();
 const containerWritesEnabled = googleGtmWritesEnabled();
 const publicationEnabled = googleGtmPublicationEnabled();
@@ -263,6 +267,72 @@ const server = createServer(async (request, response) => {
       const code = integrationError instanceof AnalyticsIntegrationError
         ? integrationError.code
         : "provider_unavailable";
+      sendJson(response, status, { error: message, code });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && requestUrl.pathname === "/api/google/analytics/configuration/plan") {
+    if (!analyticsWriter) {
+      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
+      return;
+    }
+    try {
+      const body = await readJson(request);
+      const record = typeof body === "object" && body !== null && !Array.isArray(body)
+        ? body as Record<string, unknown>
+        : undefined;
+      if (typeof record?.id !== "string"
+        || typeof record.measurementId !== "string"
+        || !Array.isArray(record.actions)) {
+        sendJson(response, 400, { error: "A GA4 plan ID, measurement ID, and actions are required." });
+        return;
+      }
+      sendJson(response, 200, await analyticsWriter.planConfiguration({
+        id: record.id,
+        measurementId: record.measurementId,
+        actions: record.actions as Ga4ConfigurationActionV1[],
+      }));
+    } catch (integrationError) {
+      const status = integrationError instanceof AnalyticsIntegrationError
+        ? integrationError.status
+        : 400;
+      const message = integrationError instanceof AnalyticsIntegrationError
+        ? integrationError.message
+        : "Unable to plan GA4 configuration.";
+      const code = integrationError instanceof AnalyticsIntegrationError
+        ? integrationError.code
+        : "invalid_request";
+      sendJson(response, status, { error: message, code });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && requestUrl.pathname === "/api/google/analytics/configuration/apply") {
+    if (!analyticsWriter) {
+      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
+      return;
+    }
+    try {
+      const body = await readJson(request);
+      const plan = typeof body === "object" && body !== null && !Array.isArray(body)
+        ? (body as Record<string, unknown>).plan
+        : undefined;
+      const approved = approveGa4ConfigurationPlan(
+        plan as Ga4ConfigurationPlanV1,
+        websiteChatActor,
+      );
+      sendJson(response, 200, await analyticsWriter.applyConfiguration(approved));
+    } catch (integrationError) {
+      const status = integrationError instanceof AnalyticsIntegrationError
+        ? integrationError.status
+        : 400;
+      const message = integrationError instanceof AnalyticsIntegrationError
+        ? integrationError.message
+        : "Unable to apply GA4 configuration.";
+      const code = integrationError instanceof AnalyticsIntegrationError
+        ? integrationError.code
+        : "invalid_request";
       sendJson(response, status, { error: message, code });
     }
     return;
@@ -616,7 +686,7 @@ const server = createServer(async (request, response) => {
         result: workflowRunner.approvePublication(
           approvePublicationMatch[1] ?? "",
           versionFingerprint,
-          "website_chat_human",
+          websiteChatActor,
         ),
       });
     } catch (workflowError) {

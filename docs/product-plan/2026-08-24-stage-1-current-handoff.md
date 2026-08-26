@@ -126,8 +126,11 @@ planned
 
 - Enhanced Measurement audit and enablement preserve GA4 stream ownership separately
   from GTM state.
-- Event-scoped custom definitions, metrics, and key events have separate exact plans,
-  approvals, fresh-state checks, actions, and receipts at the core/provider boundary.
+- A confirmed lead setup can separately review and approve an exact `form_name`
+  custom dimension and `generate_lead` key event. Fresh-state checks, action receipts,
+  and failure states remain independent from every GTM action.
+- Custom metrics retain their core/provider plan and action contracts but do not yet
+  have a visible authoring example.
 - Organization-scoped GTM web-container snapshots and configuration-change comparison
   exist as foundations; they do not infer website impact or unverified ACLs. Portal
   product work is deferred until the real setup journey is easy and complete.
@@ -199,8 +202,8 @@ is about product state and authority checkpoints rather than external availabili
 - Portal identity, tenancy, inventory UI, and durable cross-surface history do not yet
   exist.
 - No authoritative third-party Custom HTML integration has completed the full path.
-- GA4 custom-definition and key-event actions are not exposed through authenticated
-  chat.
+- The visible GA4 action path has not been exercised against a disposable authenticated
+  Analytics property, and chat still records an actor class rather than product identity.
 
 Controlled provider responses prove product sequencing and fail-closed behavior. They
 are not evidence of real Google interoperability, personal identity, GA4 reporting, or
@@ -212,8 +215,8 @@ Current working-tree baseline:
 
 - `npm run verify` passes.
 - 411 deterministic tests pass across 51 test files.
-- 64 Playwright Chromium journeys pass.
-- All workspace typechecks and preflight checks pass; 74 change records validate.
+- 66 Playwright Chromium journeys pass.
+- All workspace typechecks and preflight checks pass; 75 change records validate.
 
 ## Recommended next implementation order
 

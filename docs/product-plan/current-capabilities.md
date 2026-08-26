@@ -69,6 +69,9 @@ The agent currently supports:
   setup approval and deterministic planning.
 - Explicit managed-workspace preparation and safe change-plan review for a confirmed
   lead-form setup when connected GTM edit access is available.
+- Separate review and approval of the exact `form_name` custom dimension and
+  `generate_lead` key event for a confirmed lead setup when Analytics writes are
+  enabled, with fresh-state rejection and independent receipts.
 - Exact confirmation before applying and validating the reviewed plan, followed by
   fingerprint-bound draft verification before immutable version creation.
 - A two-attempt, intent-preserving repair review for failed exact-draft evidence when
@@ -164,7 +167,7 @@ Account and container names are strictly decoded and rendered as inert text. Ope
 refreshing the card performs read-only requests only; it never prepares a workspace,
 applies a change, or publishes.
 
-## Read-only GA4 platform correlation
+## GA4 configuration and platform correlation
 
 Analytics access is separately gated by `GOOGLE_ANALYTICS_READS_ENABLED=true` and the
 least-privilege `analytics.readonly` OAuth scope. The backend uses Analytics Admin
@@ -178,8 +181,16 @@ features as coverage gaps without changing GA4 or creating duplicate GTM tags.
 
 The GA4 stream settings are authoritative for Enhanced Measurement. Pausing, removing,
 or changing a GTM tag does not imply a GA4 setting change, and a GA4 feature setting
-does not imply a GTM edit. Any future GA4 setting change requires an explicit request,
-an exact reviewed stream and setting, and separate approval.
+does not imply a GTM edit. Every GA4 setting change requires an explicit request, an
+exact reviewed stream and setting, and separate approval.
+
+With `GOOGLE_ANALYTICS_WRITES_ENABLED=true` and the Analytics edit grant, a confirmed
+lead setup can separately plan the event-scoped `form_name` custom dimension and the
+`generate_lead` key event. The website agent displays the exact property, stream, and
+actions before approval. Application fresh-reads Analytics state and returns one
+validated receipt per action. Planning or applying these actions does not invoke GTM,
+and provider drift produces no success claim. Custom metrics have the same protected
+backend contract but no visible authoring example yet.
 
 The main agent task uses that result before generation. Automatic outbound clicks make
 navigation `Partially covered` and require intentional link selection. Confirmed leads
@@ -207,7 +218,7 @@ the same property/event is greater than the baseline. Equal counts remain pendin
 can be retried. The state is non-durable and contains no browser cookies, form values,
 submitted personal data, or event/user identity. Analytics disabled, provider access
 denied, inaccessible or ambiguous destinations, expiry, and local-service failure are
-distinct visible states. No Analytics or GTM write is used.
+distinct visible states. Realtime correlation itself uses no Analytics or GTM write.
 
 ## Managed GTM workspace
 

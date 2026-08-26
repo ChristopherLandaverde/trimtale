@@ -28,8 +28,36 @@ definitions and key events, and authorized continuous Stage 1 implementation on
 - `packages/core/src/ga4-configuration.test.ts` proves custom-definition and key-event
   writes require exact property targets, fresh-state fingerprints, explicit approval,
   and independent action receipts.
+- `tests/e2e/ga4-configuration.spec.ts` proves a confirmed lead setup can separately
+  review and approve the exact GA4 property actions, makes no GTM workflow request,
+  renders validated receipts, and fails closed on fresh-state drift.
 - GTM changes never infer GA4 changes and GA4 changes never infer GTM changes.
 
 ## Dependencies
 
 - Issues 01 and 04.
+
+## Implemented checkpoint
+
+- A confirmed `generate_lead` setup can request a separate plan for the `form_name`
+  event-scoped custom dimension and `generate_lead` key event when Analytics writes
+  are explicitly enabled for the exact connected stream.
+- Chat displays the exact property, stream, measurement ID, and actions before one
+  explicit apply approval. The backend creates the approval, fresh-reads provider
+  state, and validates every returned action receipt against the reviewed plan.
+- Planning and application make no GTM workflow request. Stale provider state,
+  disabled writes, malformed responses, and provider failures make no success claim.
+
+## Remaining work
+
+- Expose a representative custom-metric suggestion through visible authoring.
+- Replace the actor class `website_chat_human` with signed-in organization identity.
+- Exercise the exact actions against a disposable authenticated GA4 property.
+
+## Comments
+
+- 2026-08-26: Added the visible confirmed-lead GA4 plan and apply path with separate
+  approval, fresh-state enforcement, validated receipts, and continuation back to the
+  GTM workflow. Chromium covers passing, stale, and attacker-shaped page input. The
+  issue remains open for visible custom-metric authoring, product identity, and a real
+  disposable-property exercise.

@@ -1,6 +1,8 @@
 import {
   agentTurnForIntake,
   interpretConversationIntent,
+  validateGa4ActionReceipt,
+  validateGa4ConfigurationPlan,
   validateTrackingSetup,
   validateExactDraftBrowserRun,
   validateTrackingRunEvidence,
@@ -11,6 +13,8 @@ import {
   type ExactDraftBrowserRunV1,
   type FormSetupRequest,
   type GenericTrackingSetupRequest,
+  type Ga4ActionReceiptV1,
+  type Ga4ConfigurationPlanV1,
   type FormCandidate,
   type KnownInteractionTypeV1,
   type NavigationElement,
@@ -110,6 +114,36 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function validGa4Plan(value: unknown): value is Ga4ConfigurationPlanV1 {
+  return validateGa4ConfigurationPlan(value).length === 0;
+}
+
+function validGa4Result(
+  value: unknown,
+  plan: Ga4ConfigurationPlanV1,
+): value is {
+  status: "applied";
+  receipts: Ga4ActionReceiptV1[];
+  providerStateFingerprint: string;
+} {
+  if (!isRecord(value)
+    || value.status !== "applied"
+    || !Array.isArray(value.receipts)
+    || value.receipts.length !== plan.actions.length
+    || typeof value.providerStateFingerprint !== "string") {
+    return false;
+  }
+
+  const actionIds = new Set(plan.actions.map(({ id }) => id));
+  return value.receipts.every((receipt) => validateGa4ActionReceipt(receipt).length === 0
+    && isRecord(receipt)
+    && receipt.planId === plan.id
+    && receipt.planFingerprint === plan.planFingerprint
+    && receipt.propertyId === plan.target.propertyId
+    && typeof receipt.actionId === "string"
+    && actionIds.has(receipt.actionId));
+}
+
 function validConnectionStatus(value: unknown): value is {
   configured: boolean;
   connected: boolean;
@@ -204,6 +238,63 @@ chrome.runtime.onMessage.addListener(
           setup,
         },
       });
+    }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
+    return true;
+  },
+);
+
+chrome.runtime.onMessage.addListener(
+  (message: unknown, _sender, sendResponse) => {
+    if (!isRecord(message) || message.type !== "GA4_CONFIGURATION_REQUEST") {
+      return undefined;
+    }
+
+    let endpoint: "plan" | "apply";
+    let body: Record<string, unknown>;
+    let reviewedPlan: Ga4ConfigurationPlanV1 | undefined;
+    if (message.operation === "plan"
+      && typeof message.id === "string"
+      && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(message.id)
+      && typeof message.measurementId === "string"
+      && /^G-[A-Z0-9]{4,20}$/.test(message.measurementId)
+      && Array.isArray(message.actions)
+      && message.actions.length > 0
+      && message.actions.length <= 50) {
+      endpoint = "plan";
+      body = {
+        id: message.id,
+        measurementId: message.measurementId,
+        actions: message.actions,
+      };
+    } else if (message.operation === "apply" && validGa4Plan(message.plan)) {
+      endpoint = "apply";
+      reviewedPlan = message.plan;
+      body = { plan: reviewedPlan };
+    } else {
+      sendResponse({ ok: false, error: "invalid_request" });
+      return undefined;
+    }
+
+    void fetch(`http://127.0.0.1:8787/api/google/analytics/configuration/${endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then(async (response) => {
+      if (!response.ok) {
+        const error = response.status === 409
+          ? "configuration_stale"
+          : response.status === 403
+            ? "writes_disabled"
+            : "configuration_unavailable";
+        sendResponse({ ok: false, error });
+        return;
+      }
+      const result: unknown = await response.json();
+      if (endpoint === "plan" ? !validGa4Plan(result) : !reviewedPlan || !validGa4Result(result, reviewedPlan)) {
+        sendResponse({ ok: false, error: "invalid_response" });
+        return;
+      }
+      sendResponse({ ok: true, result });
     }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
     return true;
   },

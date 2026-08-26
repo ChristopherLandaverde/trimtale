@@ -19,6 +19,9 @@ import {
   type ConversationIntakeResult,
   type ExactDraftBrowserRunV1,
   type FormCandidate,
+  type Ga4ActionReceiptV1,
+  type Ga4ConfigurationActionV1,
+  type Ga4ConfigurationPlanV1,
   type KnownInteractionSetupProposalV1,
   type KnownInteractionTypeV1,
   type NavigationArea,
@@ -184,6 +187,16 @@ interface SetupAuthoringResponse {
   };
 }
 
+interface Ga4ConfigurationResponse {
+  ok: boolean;
+  error?: "invalid_request" | "configuration_stale" | "writes_disabled" | "configuration_unavailable" | "invalid_response" | "service_offline";
+  result?: Ga4ConfigurationPlanV1 | {
+    status: "applied";
+    receipts: Ga4ActionReceiptV1[];
+    providerStateFingerprint: string;
+  };
+}
+
 interface GtmConnectionStatus {
   configured: boolean;
   connected: boolean;
@@ -310,6 +323,7 @@ let activeFormVerification: { requestId: string; intake: ConversationIntakeResul
 const ga4VerificationByRequest = new Map<string, Ga4VerificationStarted>();
 const ga4ConfirmationAttempts = new Map<string, number>();
 const ga4FailuresByRequest = new Map<string, string>();
+const ga4PlansByRequest = new Map<string, Ga4ConfigurationPlanV1>();
 const workflowPlansByRequest = new Map<string, WorkflowPlanSummary>();
 const workflowRepairsByRequest = new Map<string, WorkflowRepairSummary>();
 const workflowPreviewByRequest = new Map<string, {
@@ -618,6 +632,42 @@ async function requestSetupAuthoring(
     type: "SETUP_AUTHORING_REQUEST",
     ...request,
   }) as Promise<SetupAuthoringResponse>;
+}
+
+function leadGa4Actions(): Ga4ConfigurationActionV1[] {
+  return [
+    {
+      id: "dimension_form_name",
+      type: "custom_dimension",
+      parameterName: "form_name",
+      displayName: "Form name",
+      description: "Name of the submitted lead form",
+      scope: "EVENT",
+    },
+    {
+      id: "key_event_generate_lead",
+      type: "key_event",
+      eventName: "generate_lead",
+      countingMethod: "ONCE_PER_EVENT",
+    },
+  ];
+}
+
+async function requestGa4Configuration(
+  operation: "plan" | "apply",
+  input: { measurementId: string } | { plan: Ga4ConfigurationPlanV1 },
+): Promise<Ga4ConfigurationResponse> {
+  return chrome.runtime.sendMessage({
+    type: "GA4_CONFIGURATION_REQUEST",
+    operation,
+    ...(operation === "plan"
+      ? {
+          id: "ga4_generate_lead_configuration",
+          measurementId: "measurementId" in input ? input.measurementId : "",
+          actions: leadGa4Actions(),
+        }
+      : { plan: "plan" in input ? input.plan : undefined }),
+  }) as Promise<Ga4ConfigurationResponse>;
 }
 
 function interactionSetupDownloadHref(result: ConversationIntakeResult): string | undefined {
@@ -2368,6 +2418,215 @@ function renderFormTaskState(
   return task;
 }
 
+function canConfigureLeadGa4(): boolean {
+  return recognizedGtmContext?.enhancedMeasurement?.canEnable === true;
+}
+
+function approvedFormActions(): Array<{ id: string; label: string }> {
+  const canPlan = recognizedGtmContext?.status.containerWritesEnabled === true;
+  return [
+    ...(canPlan ? [{ id: "plan-form-workflow", label: "Prepare workspace & plan" }] : []),
+    ...(canConfigureLeadGa4()
+      ? [{ id: "review-ga4-configuration", label: "Review GA4 configuration" }]
+      : []),
+    { id: "download-form-setup", label: "Download GTM setup" },
+    ...(!canPlan
+      ? [{ id: "start-form-verification", label: "Verify already-installed setup" }]
+      : []),
+  ];
+}
+
+function renderApprovedFormSetup(
+  requestId: string,
+  intake: ConversationIntakeResult,
+): void {
+  const proposal = formSetupProposal(intake);
+  renderFormTaskState(requestId, intake, {
+    status: "working",
+    summary: proposal
+      ? "Setup approved and generated. The next step is one guided browser verification."
+      : "Setup approved, but generation still needs one exact GTM container and GA4 destination.",
+    question: proposal
+      ? "Review the separate GTM or GA4 change, download the setup, or continue verification."
+      : "Connect one exact GTM container and GA4 destination to continue.",
+    verifyStatus: proposal ? "active" : "pending",
+    actions: proposal ? approvedFormActions() : [],
+  });
+}
+
+function ga4PlanActionLabel(action: Ga4ConfigurationActionV1): string {
+  if (action.type === "custom_dimension") {
+    return `Create custom dimension ${action.displayName}`;
+  }
+  if (action.type === "custom_metric") {
+    return `Create custom metric ${action.displayName}`;
+  }
+  if (action.type === "key_event") {
+    return `Mark ${action.eventName} as a key event`;
+  }
+
+  return `${action.enabled ? "Enable" : "Disable"} ${action.feature.replaceAll("_", " ")}`;
+}
+
+function isGa4PlanResult(
+  value: Ga4ConfigurationResponse["result"],
+): value is Ga4ConfigurationPlanV1 {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const record = value as unknown as Record<string, unknown>;
+  return typeof record.planFingerprint === "string" && Array.isArray(record.actions);
+}
+
+function isGa4ApplyResult(
+  value: Ga4ConfigurationResponse["result"],
+): value is Exclude<Ga4ConfigurationResponse["result"], Ga4ConfigurationPlanV1 | undefined> {
+  return isRecord(value) && value.status === "applied" && Array.isArray(value.receipts);
+}
+
+async function planLeadGa4(
+  requestId: string,
+  intake: ConversationIntakeResult,
+): Promise<void> {
+  const measurementId = formSetupProposal(intake)?.measurementId;
+  if (!measurementId || !canConfigureLeadGa4()) {
+    renderFormTaskState(requestId, intake, {
+      status: "blocked",
+      summary: "GA4 configuration requires one exact writable property and web stream. No GA4 change was made.",
+      verifyStatus: "active",
+      actions: [{ id: "return-to-approved-setup", label: "Return to setup" }],
+    });
+    return;
+  }
+
+  renderFormTaskState(requestId, intake, {
+    status: "working",
+    summary: "Reading the exact GA4 property state and preparing a separate configuration plan.",
+    verifyStatus: "active",
+  });
+  let response: Ga4ConfigurationResponse;
+  try {
+    response = await requestGa4Configuration("plan", { measurementId });
+  } catch {
+    response = { ok: false, error: "service_offline" };
+  }
+  if (!response.ok || !isGa4PlanResult(response.result)) {
+    renderFormTaskState(requestId, intake, {
+      status: "blocked",
+      summary: "The GA4 configuration plan is unavailable. No GA4 or GTM change was made.",
+      verifyStatus: "active",
+      actions: [
+        { id: "review-ga4-configuration", label: "Retry GA4 review" },
+        { id: "return-to-approved-setup", label: "Return to setup" },
+      ],
+    });
+    return;
+  }
+
+  const plan = response.result;
+  ga4PlansByRequest.set(requestId, plan);
+  const task = renderFormTaskState(requestId, intake, {
+    status: "ready_for_review",
+    summary: "The GA4 plan is separate from the approved GTM setup and has not been applied.",
+    verifyStatus: "active",
+    question: "Approve these exact GA4 property changes after reviewing their target and effect.",
+  });
+  const review = document.createElement("div");
+  review.className = "agent-specification ga4-configuration-review";
+  review.setAttribute("role", "region");
+  review.setAttribute("aria-label", "GA4 configuration review");
+  appendAgentText(review, "agent-receipt-heading", "GA4 configuration review");
+  appendSpecificationRows(review, [
+    ["Property", plan.target.propertyName],
+    ["Stream", plan.target.streamName],
+    ["GA4", plan.target.measurementId],
+  ]);
+  for (const action of plan.actions) {
+    appendAgentText(review, "agent-specification-value", ga4PlanActionLabel(action));
+  }
+  appendAgentText(
+    review,
+    "agent-verification-explanation explanation",
+    "GTM will not change. Fresh GA4 state must still match this plan when approval is applied.",
+  );
+  task.append(review);
+  renderQuickActions(requestId, [
+    { id: "apply-ga4-configuration", label: "Approve & apply GA4 changes" },
+    { id: "return-to-approved-setup", label: "Return to setup" },
+  ], task);
+}
+
+function ga4ReceiptLabel(
+  receipt: Ga4ActionReceiptV1,
+  plan: Ga4ConfigurationPlanV1,
+): string {
+  const action = plan.actions.find(({ id }) => id === receipt.actionId);
+  const effect = action?.type === "custom_dimension"
+    ? `custom dimension ${action.displayName}`
+    : action?.type === "custom_metric"
+      ? `custom metric ${action.displayName}`
+      : action?.type === "key_event"
+        ? `key event ${action.eventName}`
+        : action?.type === "enhanced_measurement"
+          ? `${action.feature.replaceAll("_", " ")} setting`
+          : "GA4 resource";
+  const status = receipt.status === "created"
+    ? "Created"
+    : receipt.status === "updated" ? "Updated" : "Already current";
+  return `${status} ${effect}`;
+}
+
+async function applyLeadGa4(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  plan: Ga4ConfigurationPlanV1,
+): Promise<void> {
+  renderFormTaskState(requestId, intake, {
+    status: "working",
+    summary: "Applying approval only if the exact GA4 property state still matches the reviewed plan.",
+    verifyStatus: "active",
+  });
+  let response: Ga4ConfigurationResponse;
+  try {
+    response = await requestGa4Configuration("apply", { plan });
+  } catch {
+    response = { ok: false, error: "service_offline" };
+  }
+  if (!response.ok || !isGa4ApplyResult(response.result)) {
+    renderFormTaskState(requestId, intake, {
+      status: "blocked",
+      summary: response.error === "configuration_stale"
+        ? "GA4 configuration approval is stale or the provider state changed. No GA4 changes were claimed."
+        : "The GA4 configuration could not be verified as applied. No success was claimed.",
+      verifyStatus: "active",
+      actions: [
+        { id: "review-ga4-configuration", label: "Review fresh GA4 state" },
+        { id: "return-to-approved-setup", label: "Return to setup" },
+      ],
+    });
+    return;
+  }
+
+  ga4PlansByRequest.delete(requestId);
+  const task = renderFormTaskState(requestId, intake, {
+    status: "completed",
+    summary: "Google confirmed the separately approved GA4 configuration actions.",
+    verifyStatus: "active",
+    question: "GTM setup and publication remain unchanged. Continue the GTM workflow or download the setup.",
+    actions: approvedFormActions(),
+  });
+  const result = document.createElement("div");
+  result.className = "agent-specification ga4-configuration-result";
+  result.setAttribute("role", "region");
+  result.setAttribute("aria-label", "GA4 configuration result");
+  appendAgentText(result, "agent-receipt-heading", "GA4 configuration result");
+  for (const receipt of response.result.receipts) {
+    appendAgentText(result, "agent-specification-value", ga4ReceiptLabel(receipt, plan));
+  }
+  task.append(result);
+}
+
 const planActionLabels: Record<PlanActionSummary["action"], string> = {
   create: "Create",
   reuse: "Reuse",
@@ -3152,25 +3411,21 @@ function handleAssistantAction(actionId: string, requestId: string): void {
     return;
   }
   if (actionId === "confirm-form-specification" && intake?.canConfirm) {
-    const proposal = formSetupProposal(intake);
-    const canPlan = recognizedGtmContext?.status.containerWritesEnabled === true;
-    renderFormTaskState(requestId, intake, {
-      status: "working",
-      summary: proposal
-        ? "Setup approved and generated. The next step is one guided browser verification."
-        : "Setup approved, but generation still needs one exact GTM container and GA4 destination.",
-      question: proposal
-        ? "Download the reviewable setup or start verification if it is already installed."
-        : "Connect one exact GTM container and GA4 destination to continue.",
-      verifyStatus: proposal ? "active" : "pending",
-      actions: proposal
-        ? [
-            ...(canPlan ? [{ id: "plan-form-workflow", label: "Prepare workspace & plan" }] : []),
-            { id: "download-form-setup", label: "Download GTM setup" },
-            ...(!canPlan ? [{ id: "start-form-verification", label: "Verify already-installed setup" }] : []),
-          ]
-        : [],
-    });
+    renderApprovedFormSetup(requestId, intake);
+    return;
+  }
+  if (actionId === "review-ga4-configuration" && intake?.canConfirm) {
+    void planLeadGa4(requestId, intake);
+    return;
+  }
+  const ga4Plan = ga4PlansByRequest.get(requestId);
+  if (actionId === "apply-ga4-configuration" && intake?.canConfirm && ga4Plan) {
+    void applyLeadGa4(requestId, intake, ga4Plan);
+    return;
+  }
+  if (actionId === "return-to-approved-setup" && intake?.canConfirm) {
+    ga4PlansByRequest.delete(requestId);
+    renderApprovedFormSetup(requestId, intake);
     return;
   }
   if (actionId === "plan-form-workflow" && intake?.canConfirm) {
