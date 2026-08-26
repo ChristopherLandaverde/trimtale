@@ -71,5 +71,10 @@ portal, build the workflow, and start implementation on 2026-08-25.
 - 2026-08-26: Restricted observed container evidence to the official HTTPS Google Tag
   Manager loader origin and exact `/gtm.js` path. Attacker-owned lookalike script URLs
   no longer satisfy the launcher gate.
+- 2026-08-26: An authorized fresh session reached the exact target and confirmed the
+  persisted plan is blocked before mutation: trigger `9` is reusable, managed tag `7`
+  needs explicit replacement approval, and `Page URL` needs no change. The session
+  closed without a Google write. Issue 17 proposes the required separately authorized
+  replacement-review slice.
 - Remaining: complete the current website-agent and human Tag Assistant handoff,
   publish the reviewed immutable version, and record live verification or rollback.
