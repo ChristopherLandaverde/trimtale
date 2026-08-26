@@ -107,6 +107,7 @@ const workflowPlanUrl = `${workflowBaseUrl}/plan`;
 const maxPlanActions = 64;
 const maxGeneratedNameLength = 256;
 const maxFingerprintLength = 256;
+const maxSemanticsLength = 32_000;
 
 const gtmPublicIdPattern = /^GTM-[A-Z0-9]+$/;
 
@@ -496,6 +497,13 @@ interface PlanActionSummary {
   action: "create" | "reuse" | "no_op" | "update" | "conflict";
   generatedName: string;
   reason?: "managed_change_requires_approval";
+  entitySignature?: string;
+  existingId?: string;
+  replacement?: {
+    currentFingerprint: string;
+    currentSemantics: string;
+    proposedSemantics: string;
+  };
 }
 
 interface WorkflowPlanSummary {
@@ -504,6 +512,7 @@ interface WorkflowPlanSummary {
   planStatus: "ready" | "conflict";
   fingerprint: string;
   actions: PlanActionSummary[];
+  replacementApproved?: boolean;
 }
 
 interface WorkflowResumeSummary {
@@ -555,7 +564,7 @@ function trackingWorkflowRequest(value: unknown): FormSetupRequest | GenericTrac
 
 function planSummary(value: unknown): WorkflowPlanSummary | undefined {
   if (!isRecord(value)
-    || (value.status !== "planned" && value.status !== "reused")
+    || !["planned", "reused", "replacement_approved"].includes(String(value.status))
     || !isRecord(value.operation)
     || typeof value.operation.id !== "string"
     || !/^operation_[A-Za-z0-9_-]+$/.test(value.operation.id)
@@ -581,12 +590,34 @@ function planSummary(value: unknown): WorkflowPlanSummary | undefined {
       || action.generatedName.length > maxGeneratedNameLength) {
       return undefined;
     }
+    const managedConflict = action.action === "conflict"
+      && action.reason === "managed_change_requires_approval";
+    const replacement = isRecord(action.replacement) ? action.replacement : undefined;
+    if (managedConflict && (
+      typeof action.entitySignature !== "string"
+      || !validFingerprint(action.entitySignature)
+      || typeof action.existingId !== "string"
+      || !validFingerprint(action.existingId)
+      || !replacement
+      || !validFingerprint(replacement.currentFingerprint)
+      || typeof replacement.currentSemantics !== "string"
+      || replacement.currentSemantics.length > maxSemanticsLength
+      || typeof replacement.proposedSemantics !== "string"
+      || replacement.proposedSemantics.length > maxSemanticsLength
+    )) {
+      return undefined;
+    }
     actions.push({
       kind: action.kind as PlanActionSummary["kind"],
       action: action.action as PlanActionSummary["action"],
       generatedName: action.generatedName,
       ...(action.action === "conflict" && action.reason === "managed_change_requires_approval"
-        ? { reason: action.reason }
+        ? {
+          reason: action.reason,
+          entitySignature: action.entitySignature as string,
+          existingId: action.existingId as string,
+          replacement: replacement as NonNullable<PlanActionSummary["replacement"]>,
+        }
         : {}),
     });
   }
@@ -596,7 +627,22 @@ function planSummary(value: unknown): WorkflowPlanSummary | undefined {
     planStatus: plan.status,
     fingerprint: plan.fingerprint,
     actions,
+    ...(value.status === "replacement_approved" ? { replacementApproved: true } : {}),
   };
+}
+
+function replacementRefs(value: unknown): value is Array<{
+  kind: PlanActionSummary["kind"];
+  entitySignature: string;
+  existingId: string;
+  currentFingerprint: string;
+}> {
+  if (!Array.isArray(value) || value.length === 0 || value.length > maxPlanActions) return false;
+  return value.every((entity) => isRecord(entity)
+    && ["tag", "trigger", "variable", "builtInVariable"].includes(String(entity.kind))
+    && validFingerprint(entity.entitySignature)
+    && validFingerprint(entity.existingId)
+    && validFingerprint(entity.currentFingerprint));
 }
 
 function validFingerprint(value: unknown): value is string {
@@ -865,6 +911,40 @@ chrome.runtime.onMessage.addListener(
           ok: false,
           error: response.status === 409 ? "planning_blocked" : "planning_unavailable",
         });
+        return;
+      }
+      const body: unknown = await response.json();
+      const summary = isRecord(body) ? planSummary(body.result) : undefined;
+      sendResponse(summary
+        ? { ok: true, result: summary }
+        : { ok: false, error: "invalid_response" });
+    }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
+    return true;
+  },
+);
+
+chrome.runtime.onMessage.addListener(
+  (message: unknown, _sender, sendResponse) => {
+    if (!isRecord(message) || message.type !== "GTM_WORKFLOW_APPROVE_REPLACEMENT_REQUEST") {
+      return undefined;
+    }
+    const operationId = message.operationId;
+    const planFingerprint = message.planFingerprint;
+    const entities = message.entities;
+    if (typeof operationId !== "string"
+      || !/^operation_[A-Za-z0-9_-]+$/.test(operationId)
+      || !validFingerprint(planFingerprint)
+      || !replacementRefs(entities)) {
+      sendResponse({ ok: false, error: "invalid_request" });
+      return undefined;
+    }
+    void fetch(`${workflowBaseUrl}/${encodeURIComponent(operationId)}/approve-replacement`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ planFingerprint, entities }),
+    }).then(async (response) => {
+      if (!response.ok) {
+        sendResponse({ ok: false, error: "replacement_rejected" });
         return;
       }
       const body: unknown = await response.json();

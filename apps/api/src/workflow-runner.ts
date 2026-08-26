@@ -1,4 +1,5 @@
 import {
+  approveManagedReplacement as bindManagedReplacement,
   approveTrackingVersion,
   createFormSetupProposal,
   createSetupProposal,
@@ -19,6 +20,7 @@ import {
   type ExactDraftBrowserRunV1,
   type FormSetupRequest,
   type GenericTrackingSetupRequest,
+  type ManagedReplacementRefV1,
   type SetupRequest,
   type TrackingSetupOperationV1,
   type TrackingRunEvidenceV1,
@@ -61,6 +63,12 @@ export type WorkflowResumeResult =
     reason: string;
     details?: unknown;
   };
+
+export type WorkflowReplacementApprovalResult = {
+  status: "replacement_approved";
+  operation: TrackingSetupOperationV1;
+  nextStep: "review_application";
+};
 
 export type WorkflowDraftVerificationResult = {
   status: "draft_verified";
@@ -350,6 +358,34 @@ export class TrackingWorkflowRunner {
       version: version.version,
     });
     return { status: "versioned", operation, nextStep: "await_approval" };
+  }
+
+  approveManagedReplacement(
+    id: string,
+    expectedPlanFingerprint: string,
+    reviewedEntities: ManagedReplacementRefV1[],
+    approvedBy: string,
+  ): WorkflowReplacementApprovalResult {
+    const operation = this.requiredOperation(id);
+    const approved = bindManagedReplacement(
+      operation,
+      expectedPlanFingerprint,
+      reviewedEntities,
+      approvedBy,
+      this.now().toISOString(),
+    );
+    if (!approved.managedReplacement) {
+      throw new Error("Managed replacement approval was not recorded.");
+    }
+    const updated = this.save(operation, {
+      plan: approved.plan,
+      managedReplacement: approved.managedReplacement,
+    });
+    return {
+      status: "replacement_approved",
+      operation: updated,
+      nextStep: "review_application",
+    };
   }
 
   verifyDraft(id: string, run: ExactDraftBrowserRunV1): WorkflowDraftVerificationResult {

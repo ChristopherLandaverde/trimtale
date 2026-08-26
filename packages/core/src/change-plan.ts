@@ -11,6 +11,12 @@ export interface GtmEntitySet {
   builtInVariable?: unknown[];
 }
 
+export interface ManagedReplacementReviewV1 {
+  currentFingerprint: string;
+  currentSemantics: string;
+  proposedSemantics: string;
+}
+
 export type TrackingChangeAction = {
   kind: GtmEntityKind;
   generatedName: string;
@@ -18,7 +24,7 @@ export type TrackingChangeAction = {
   existingId?: string;
 } & (
   | { action: "create" | "reuse" | "no_op" }
-  | { action: "update"; existingId: string }
+  | { action: "update"; existingId: string; expectedFingerprint?: string }
   | {
     action: "conflict";
     reason:
@@ -26,6 +32,7 @@ export type TrackingChangeAction = {
       | "name_collision"
       | "malformed_generated_entity"
       | "managed_change_requires_approval";
+    replacement?: ManagedReplacementReviewV1;
   }
 );
 
@@ -218,12 +225,18 @@ function actionForEntity(
   if (sameName.length === 1 && kind !== "builtInVariable"
     && sameName[0]?.notes === GTM_MANAGED_ENTITY_NOTE) {
     const existingId = entityId(kind, sameName[0]);
-    if (existingId) {
+    const currentFingerprint = sameName[0]?.fingerprint;
+    if (existingId && typeof currentFingerprint === "string" && currentFingerprint) {
       return {
         ...common,
         action: "conflict",
         reason: "managed_change_requires_approval",
         existingId,
+        replacement: {
+          currentFingerprint,
+          currentSemantics: signature(sameName[0], "semantic", currentTriggers),
+          proposedSemantics: semantic,
+        },
       };
     }
   }

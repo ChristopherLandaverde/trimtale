@@ -4,6 +4,7 @@ import {
   createSetupProposal,
   createTrackingChangePlan,
   fingerprintTrackingChangeActions,
+  GTM_MANAGED_ENTITY_NOTE,
   setupArtifactFingerprint,
   type ExactDraftBrowserRunV1,
   type FormSetupRequest,
@@ -56,6 +57,18 @@ const workspace = {
 const generated = createSetupProposal(request);
 const readyPlan = createTrackingChangePlan(generated.containerFile, {});
 const completed = readyPlan.actions.map(({ entitySignature }) => entitySignature);
+
+function managedConflictPlan() {
+  const current = structuredClone(generated.containerFile.containerVersion);
+  const tag = current.tag[0] as Record<string, unknown> & {
+    parameter?: Array<{ key?: string; value?: string }>;
+  };
+  tag.tagId = "7";
+  tag.fingerprint = "tag-current";
+  tag.notes = GTM_MANAGED_ENTITY_NOTE;
+  tag.type = "changed-managed-type";
+  return createTrackingChangePlan(generated.containerFile, current);
+}
 
 async function repository() {
   const directory = await mkdtemp(join(tmpdir(), "workflow-runner-"));
@@ -179,6 +192,70 @@ function failedDraftRun(operation: TrackingSetupOperationV1): ExactDraftBrowserR
 }
 
 describe("resumable non-publishing tracking workflow", () => {
+  it("requires exact replacement review before provider application", async () => {
+    const plan = managedConflictPlan();
+    const client = google({
+      planManagedWorkspace: vi.fn().mockResolvedValue({
+        status: "planned",
+        publicId: container.publicId,
+        container,
+        workspace,
+        workspaceFingerprint: workspace.fingerprint,
+        plan,
+      }),
+    });
+    const runner = new TrackingWorkflowRunner(await repository(), client);
+    const planned = await runner.plan(request);
+    if (planned.status === "blocked") throw new Error(planned.reason);
+    const conflict = planned.operation.plan.actions.find((action) => action.action === "conflict"
+      && action.reason === "managed_change_requires_approval");
+    if (conflict?.action !== "conflict" || !conflict.existingId || !conflict.replacement) {
+      throw new Error("Expected a reviewable conflict.");
+    }
+    const entities = [{
+      kind: conflict.kind,
+      entitySignature: conflict.entitySignature,
+      existingId: conflict.existingId,
+      currentFingerprint: conflict.replacement.currentFingerprint,
+    }];
+
+    expect(await runner.resume(planned.operation.id)).toMatchObject({
+      status: "blocked",
+      reason: "plan_conflict",
+    });
+    expect(client.applyManagedWorkspace).not.toHaveBeenCalled();
+    expect(() => runner.approveManagedReplacement(
+      planned.operation.id,
+      "plan_stale",
+      entities,
+      "practitioner@example.test",
+    )).toThrow("plan fingerprint");
+    expect(() => runner.approveManagedReplacement(
+      planned.operation.id,
+      plan.fingerprint,
+      [{ ...entities[0]!, existingId: "8" }],
+      "practitioner@example.test",
+    )).toThrow("reviewed managed entities");
+
+    const approval = runner.approveManagedReplacement(
+      planned.operation.id,
+      plan.fingerprint,
+      entities,
+      "practitioner@example.test",
+    );
+
+    expect(approval).toMatchObject({
+      status: "replacement_approved",
+      nextStep: "review_application",
+      operation: {
+        status: "planned",
+        plan: { status: "ready" },
+        managedReplacement: { entities },
+      },
+    });
+    expect(client.applyManagedWorkspace).not.toHaveBeenCalled();
+  });
+
   it("prepares, plans, applies, validates, versions, persists, and replays without duplicate writes", async () => {
     const store = await repository();
     const client = google();

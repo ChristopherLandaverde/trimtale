@@ -761,7 +761,11 @@ export class GtmDiscoveryClient {
       if (fresh.status !== "planned" || fresh.workspace.path !== operation.workspace.path) {
         return blocked(fresh.status === "workspace_unavailable" ? "ownership_conflict" : "stale_workspace");
       }
-      const current = fresh.plan.actions.find((candidate) => sameActionIdentity(candidate, expected));
+      const observed = fresh.plan.actions.find((candidate) => sameActionIdentity(candidate, expected));
+      if (!observed) return blocked("stale_plan");
+      const current = observed.action === "conflict" && expected.action === "update"
+        ? approvedFreshAction(operation, observed, expected)
+        : observed;
       if (!current) return blocked("stale_plan");
       if (current.action === "conflict") return blocked("ownership_conflict");
 
@@ -1143,6 +1147,9 @@ export class GtmDiscoveryClient {
       || typeof existing.fingerprint !== "string" || !existing.fingerprint) {
       throw new GoogleIntegrationError("The update target is not a fingerprinted product-owned entity.", 409);
     }
+    if (action.expectedFingerprint && existing.fingerprint !== action.expectedFingerprint) {
+      throw new GoogleIntegrationError("The reviewed update target fingerprint changed.", 409);
+    }
     const path = `/${fresh.workspace.path}/${collection}/${action.existingId}`;
     await this.put(`${path}?fingerprint=${encodeURIComponent(existing.fingerprint)}`, body);
   }
@@ -1267,6 +1274,37 @@ function sameActionIdentity(left: TrackingChangeAction, right: TrackingChangeAct
   return left.kind === right.kind
     && left.generatedName === right.generatedName
     && left.entitySignature === right.entitySignature;
+}
+
+function approvedFreshAction(
+  operation: TrackingSetupOperationV1,
+  current: TrackingChangeAction & { action: "conflict" },
+  expected: TrackingChangeAction & { action: "update" },
+): TrackingChangeAction | undefined {
+  if (current.reason !== "managed_change_requires_approval"
+    || !current.existingId
+    || !current.replacement
+    || current.existingId !== expected.existingId
+    || current.replacement.currentFingerprint !== expected.expectedFingerprint) {
+    return undefined;
+  }
+  const reviewed = operation.managedReplacement?.entities.find((entity) =>
+    entity.kind === current.kind
+    && entity.entitySignature === current.entitySignature
+    && entity.existingId === current.existingId
+    && entity.currentFingerprint === current.replacement?.currentFingerprint);
+  if (!reviewed
+    || operation.managedReplacement?.approvedPlanFingerprint !== operation.plan.fingerprint) {
+    return undefined;
+  }
+  return {
+    kind: current.kind,
+    generatedName: current.generatedName,
+    entitySignature: current.entitySignature,
+    action: "update",
+    existingId: current.existingId,
+    expectedFingerprint: current.replacement.currentFingerprint,
+  };
 }
 
 function generatedEntity(

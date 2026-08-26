@@ -184,6 +184,7 @@ describe("tracking change plan", () => {
       parameter?: Array<{ key?: string; value?: string }>;
     };
     const existingId = String(tag.tagId);
+    tag.fingerprint = "tag-current";
     const measurement = tag.parameter?.find((item) => item.key === "measurementId");
     if (measurement) measurement.value = "G-OLDVALUE1";
     tag.notes = GTM_MANAGED_ENTITY_NOTE;
@@ -196,6 +197,11 @@ describe("tracking change plan", () => {
       action: "conflict",
       reason: "managed_change_requires_approval",
       existingId,
+      replacement: {
+        currentFingerprint: "tag-current",
+        currentSemantics: expect.stringContaining("G-OLDVALUE1"),
+        proposedSemantics: expect.stringContaining("G-TEST123456"),
+      },
     }));
   });
 
@@ -205,9 +211,11 @@ describe("tracking change plan", () => {
     const trigger = current.trigger?.[0] as Record<string, unknown>;
     const tag = current.tag?.[0] as Record<string, unknown>;
     trigger.triggerId = "6";
+    trigger.fingerprint = "trigger-6";
     trigger.name = "Form success - data_layer_event";
     trigger.type = "customEvent";
     tag.tagId = "7";
+    tag.fingerprint = "tag-7";
     tag.firingTriggerId = ["6"];
     tag.notes = GTM_MANAGED_ENTITY_NOTE;
 
@@ -217,6 +225,7 @@ describe("tracking change plan", () => {
         action: "conflict",
         reason: "managed_change_requires_approval",
         existingId: "7",
+        replacement: expect.objectContaining({ currentFingerprint: "tag-7" }),
       }),
     );
   });

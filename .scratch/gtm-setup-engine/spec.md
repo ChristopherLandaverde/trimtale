@@ -235,6 +235,11 @@ approval. Rollback retains the recorded prior-live version and remains a separat
 approved action. The portal shows these actions and their results without being a
 required stop in the setup workflow.
 
+A same-name semantic change to a product-owned managed entity requires a separate
+review of the exact current and proposed semantics. Approval binds the plan, entity
+kind, entity ID, and current Google fingerprint. A fresh mismatch blocks application;
+human-owned and unmarked entities remain in conflict.
+
 ## Container inventory and change awareness
 
 For every connected organization, the portal lists accessible GTM accounts and web
@@ -289,6 +294,8 @@ Latency targets remain product hypotheses until measured in representative workf
 - [ ] The exact workspace draft is exercised in a real browser before version approval.
 - [x] Failed verification may cause bounded repair without widening the confirmed
   tracking intent or publication authority.
+- [x] A same-name product-owned entity can be replaced only after exact semantic
+  review bound to its entity ID, current fingerprint, and durable plan.
 - [x] GA4 custom definitions and key events use separate explicit provider actions.
 - [ ] The portal lists accessible containers and effective access and identifies a
   newly observed version or workspace change.

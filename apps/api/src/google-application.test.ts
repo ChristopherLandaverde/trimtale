@@ -1,4 +1,5 @@
 import {
+  approveManagedReplacement,
   createSetupProposal,
   createTrackingChangePlan,
   GTM_MANAGED_ENTITY_NOTE,
@@ -245,6 +246,54 @@ describe("idempotent managed-workspace application", () => {
     expect(result).toMatchObject({ status: "blocked", reason: "ownership_conflict" });
     expect(fake.entityWriteCount()).toBe(0);
     expect(fake.fetcher).not.toHaveBeenCalled();
+  });
+
+  it("updates only the approved fresh product-owned entity", async () => {
+    const current = equivalentEntities();
+    const tag = current.tag?.[0] as Record<string, unknown> & {
+      parameter?: Array<{ key?: string; value?: string }>;
+    };
+    const measurement = tag.parameter?.find(({ key }) => key === "measurementId");
+    if (measurement) measurement.value = "G-OLDVALUE1";
+    tag.notes = GTM_MANAGED_ENTITY_NOTE;
+    const pending = operation(current);
+    const conflict = pending.plan.actions.find((action) => action.action === "conflict"
+      && action.reason === "managed_change_requires_approval");
+    if (conflict?.action !== "conflict" || !conflict.existingId || !conflict.replacement) {
+      throw new Error("Expected a reviewable managed conflict.");
+    }
+    const entities = [{
+      kind: conflict.kind,
+      entitySignature: conflict.entitySignature,
+      existingId: conflict.existingId,
+      currentFingerprint: conflict.replacement.currentFingerprint,
+    }];
+    const approved = approveManagedReplacement(
+      pending,
+      pending.plan.fingerprint,
+      entities,
+      "practitioner@example.test",
+      "2026-08-22T12:01:00.000Z",
+    );
+    const fake = applicationFetch(current);
+    const client = new GtmDiscoveryClient(async () => "token", fake.fetcher, true);
+
+    expect(await client.applyManagedWorkspace(approved)).toMatchObject({ status: "applied" });
+    expect(fake.entityWriteCount()).toBe(1);
+    expect(fake.fetcher.mock.calls.find(([input, init]) =>
+      input.toString().includes("/tags/43?fingerprint=tag-43") && init?.method === "PUT"))
+      .toBeDefined();
+
+    const changed = structuredClone(current);
+    const changedTag = changed.tag?.[0] as Record<string, unknown>;
+    changedTag.fingerprint = "tag-changed-after-review";
+    const staleFake = applicationFetch(changed);
+    const staleClient = new GtmDiscoveryClient(async () => "token", staleFake.fetcher, true);
+    expect(await staleClient.applyManagedWorkspace(approved)).toMatchObject({
+      status: "blocked",
+      reason: "stale_plan",
+    });
+    expect(staleFake.entityWriteCount()).toBe(0);
   });
 
   it("blocks unowned collisions and stale plan or workspace state without entity writes", async () => {

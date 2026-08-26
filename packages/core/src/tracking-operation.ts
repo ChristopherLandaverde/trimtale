@@ -5,7 +5,12 @@ import {
   verifiedDraftBindingCurrent,
   type DraftRepairLedgerV1,
 } from "./draft-verification.js";
-import type { TrackingChangePlan } from "./change-plan.js";
+import {
+  fingerprintTrackingChangeActions,
+  type GtmEntityKind,
+  type TrackingChangeAction,
+  type TrackingChangePlan,
+} from "./change-plan.js";
 import type { GtmContainerExport } from "./types.js";
 
 export const TRACKING_OPERATION_SCHEMA_VERSION = 1 as const;
@@ -62,6 +67,22 @@ export interface TrackingDraftRepairV1 {
   ledger: DraftRepairLedgerV1;
 }
 
+export interface ManagedReplacementRefV1 {
+  kind: GtmEntityKind;
+  entitySignature: string;
+  existingId: string;
+  currentFingerprint: string;
+}
+
+export interface ManagedReplacementApprovalV1 {
+  schemaVersion: 1;
+  approvedAt: string;
+  approvedBy: string;
+  sourcePlanFingerprint: string;
+  approvedPlanFingerprint: string;
+  entities: ManagedReplacementRefV1[];
+}
+
 export interface TrackingSetupOperationV1 {
   schemaVersion: typeof TRACKING_OPERATION_SCHEMA_VERSION;
   id: string;
@@ -75,6 +96,7 @@ export interface TrackingSetupOperationV1 {
   plan: TrackingChangePlan;
   completedActionSignatures: string[];
   previewPolicy?: "legacy_pre_checkpoint" | "exact_draft_required";
+  managedReplacement?: ManagedReplacementApprovalV1;
   validation?: {
     status: "passed" | "failed";
     checkedAt: string;
@@ -144,6 +166,14 @@ function requires(status: TrackingOperationStatus, candidates: TrackingOperation
   return candidates.includes(status);
 }
 
+function validReplacementRef(value: unknown): value is ManagedReplacementRefV1 {
+  if (!isRecord(value)) return false;
+  return ["tag", "trigger", "variable", "builtInVariable"].includes(String(value.kind))
+    && nonempty(value.entitySignature)
+    && nonempty(value.existingId)
+    && nonempty(value.currentFingerprint);
+}
+
 export function validateTrackingOperation(value: unknown): string[] {
   if (!isRecord(value)) return ["tracking operation must be an object"];
   const errors: string[] = [];
@@ -193,7 +223,8 @@ export function validateTrackingOperation(value: unknown): string[] {
     || !["create", "reuse", "no_op", "update", "conflict"].includes(String(action.action))
     || !nonempty(action.generatedName)
     || !nonempty(action.entitySignature)
-    || (action.action === "update" && !nonempty(action.existingId)));
+    || (action.action === "update" && (!nonempty(action.existingId)
+      || (action.expectedFingerprint !== undefined && !nonempty(action.expectedFingerprint)))));
   if (malformedPlanAction) errors.push("plan.actions contains an invalid action");
   if (plan && Array.isArray(plan.actions)) {
     const hasConflict = planActions.some((action) => isRecord(action) && action.action === "conflict");
@@ -203,6 +234,38 @@ export function validateTrackingOperation(value: unknown): string[] {
     isRecord(action) && nonempty(action.entitySignature) ? [action.entitySignature] : []);
   if (new Set(actionSignatures).size !== actionSignatures.length) {
     errors.push("plan action signatures must be unique");
+  }
+
+  const managedReplacement = isRecord(value.managedReplacement)
+    ? value.managedReplacement
+    : undefined;
+  if (value.managedReplacement !== undefined && !managedReplacement) {
+    errors.push("managedReplacement is invalid");
+  }
+  if (managedReplacement) {
+    const entities = Array.isArray(managedReplacement.entities)
+      ? managedReplacement.entities
+      : [];
+    const valid = managedReplacement.schemaVersion === 1
+      && validTimestamp(managedReplacement.approvedAt)
+      && nonempty(managedReplacement.approvedBy)
+      && nonempty(managedReplacement.sourcePlanFingerprint)
+      && nonempty(managedReplacement.approvedPlanFingerprint)
+      && managedReplacement.approvedPlanFingerprint === plan?.fingerprint
+      && entities.length > 0
+      && entities.every(validReplacementRef);
+    if (!valid) errors.push("managedReplacement is invalid");
+
+    const updates = planActions.filter((action): action is JsonRecord => isRecord(action)
+      && action.action === "update");
+    const allBound = entities.every((entity) => updates.some((action) =>
+      action.kind === entity.kind
+      && action.entitySignature === entity.entitySignature
+      && action.existingId === entity.existingId
+      && action.expectedFingerprint === entity.currentFingerprint));
+    if (!allBound || updates.length !== entities.length) {
+      errors.push("managedReplacement must match every approved update action");
+    }
   }
   if (!Array.isArray(value.completedActionSignatures)
     || value.completedActionSignatures.some((item) => !nonempty(item))) {
@@ -420,6 +483,77 @@ export function validateTrackingOperation(value: unknown): string[] {
 export function assertTrackingOperation(value: unknown): asserts value is TrackingSetupOperationV1 {
   const errors = validateTrackingOperation(value);
   if (errors.length > 0) throw new Error(errors.join(" "));
+}
+
+export function approveManagedReplacement(
+  operation: TrackingSetupOperationV1,
+  expectedPlanFingerprint: string,
+  reviewedEntities: ManagedReplacementRefV1[],
+  approvedBy: string,
+  approvedAt: string,
+): TrackingSetupOperationV1 {
+  assertTrackingOperation(operation);
+  if (operation.status !== "planned" || operation.plan.status !== "conflict") {
+    throw new Error("Managed replacement requires a conflicting planned operation.");
+  }
+  if (operation.plan.fingerprint !== expectedPlanFingerprint) {
+    throw new Error("Managed replacement does not match the reviewed plan fingerprint.");
+  }
+  if (!nonempty(approvedBy) || !validTimestamp(approvedAt)) {
+    throw new Error("Managed replacement approval identity is invalid.");
+  }
+
+  const replacements = operation.plan.actions.filter((action) => action.action === "conflict");
+  const expectedEntities = replacements.flatMap((action): ManagedReplacementRefV1[] => {
+    if (action.reason !== "managed_change_requires_approval"
+      || !action.existingId
+      || !action.replacement) {
+      return [];
+    }
+    return [{
+      kind: action.kind,
+      entitySignature: action.entitySignature,
+      existingId: action.existingId,
+      currentFingerprint: action.replacement.currentFingerprint,
+    }];
+  });
+  if (expectedEntities.length !== replacements.length
+    || JSON.stringify(reviewedEntities) !== JSON.stringify(expectedEntities)) {
+    throw new Error("Approval does not match the reviewed managed entities.");
+  }
+
+  const actions = operation.plan.actions.map((action): TrackingChangeAction => {
+    if (action.action !== "conflict") return action;
+    return {
+      kind: action.kind,
+      generatedName: action.generatedName,
+      entitySignature: action.entitySignature,
+      action: "update",
+      existingId: action.existingId!,
+      expectedFingerprint: action.replacement!.currentFingerprint,
+    };
+  });
+  const approvedPlan: TrackingChangePlan = {
+    schemaVersion: 1,
+    status: "ready",
+    fingerprint: fingerprintTrackingChangeActions(actions),
+    actions,
+  };
+  const approved: TrackingSetupOperationV1 = {
+    ...structuredClone(operation),
+    updatedAt: approvedAt,
+    plan: approvedPlan,
+    managedReplacement: {
+      schemaVersion: 1,
+      approvedAt,
+      approvedBy,
+      sourcePlanFingerprint: expectedPlanFingerprint,
+      approvedPlanFingerprint: approvedPlan.fingerprint,
+      entities: structuredClone(reviewedEntities),
+    },
+  };
+  assertTrackingOperation(approved);
+  return approved;
 }
 
 export function nextTrackingOperationStep(

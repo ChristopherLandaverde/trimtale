@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { createTrackingChangePlan } from "./change-plan.js";
+import { createTrackingChangePlan, GTM_MANAGED_ENTITY_NOTE } from "./change-plan.js";
 import { createSetupProposal } from "./generator.js";
 import {
   migrateTrackingOperation,
   nextTrackingOperationStep,
+  approveManagedReplacement,
   validateTrackingOperation,
   type TrackingSetupOperationV1,
 } from "./tracking-operation.js";
@@ -98,6 +99,59 @@ describe("tracking setup operation", () => {
     expect(nextTrackingOperationStep(operation, freshStateFor(operation))).toBe("revise_plan");
   });
 
+  it("binds managed replacement approval to the reviewed entity and fingerprints", () => {
+    const operation = managedConflictOperation();
+    const sourceFingerprint = operation.plan.fingerprint;
+    const conflict = operation.plan.actions.find(({ action }) => action === "conflict");
+    if (conflict?.action !== "conflict" || !conflict.existingId || !conflict.replacement) {
+      throw new Error("Expected a reviewable managed conflict.");
+    }
+    const entities = [{
+      kind: conflict.kind,
+      entitySignature: conflict.entitySignature,
+      existingId: conflict.existingId,
+      currentFingerprint: conflict.replacement.currentFingerprint,
+    }];
+
+    const approved = approveManagedReplacement(
+      operation,
+      sourceFingerprint,
+      entities,
+      "practitioner@example.test",
+      "2026-08-22T12:01:00.000Z",
+    );
+
+    expect(approved.plan.status).toBe("ready");
+    expect(approved.plan.actions).toContainEqual(expect.objectContaining({
+      kind: "tag",
+      action: "update",
+      existingId: conflict.existingId,
+      expectedFingerprint: conflict.replacement.currentFingerprint,
+    }));
+    expect(approved.managedReplacement).toMatchObject({
+      sourcePlanFingerprint: sourceFingerprint,
+      approvedPlanFingerprint: approved.plan.fingerprint,
+      approvedBy: "practitioner@example.test",
+      entities,
+    });
+    expect(validateTrackingOperation(approved)).toEqual([]);
+
+    expect(() => approveManagedReplacement(
+      operation,
+      sourceFingerprint,
+      [{ ...entities[0]!, currentFingerprint: "stale-tag" }],
+      "practitioner@example.test",
+      "2026-08-22T12:01:00.000Z",
+    )).toThrow("reviewed managed entities");
+    expect(() => approveManagedReplacement(
+      operation,
+      "plan_stale",
+      entities,
+      "practitioner@example.test",
+      "2026-08-22T12:01:00.000Z",
+    )).toThrow("plan fingerprint");
+  });
+
   it("requires every planned action before application can be declared complete", () => {
     const operation = operationAt("applied");
     operation.completedActionSignatures = [];
@@ -144,6 +198,21 @@ describe("tracking setup operation", () => {
     expect(() => migrateTrackingOperation({ schemaVersion: 99 })).toThrow("Unsupported tracking operation schema");
   });
 });
+
+function managedConflictOperation(): TrackingSetupOperationV1 {
+  const operation = plannedOperation();
+  const current = structuredClone(operation.generatedSetup.containerVersion);
+  const tag = current.tag[0] as Record<string, unknown> & {
+    parameter?: Array<{ key?: string; value?: string }>;
+  };
+  tag.tagId = "7";
+  tag.fingerprint = "tag-current";
+  tag.notes = GTM_MANAGED_ENTITY_NOTE;
+  const measurement = tag.parameter?.find(({ key }) => key === "measurementId");
+  if (measurement) measurement.value = "G-OLDVALUE1";
+  operation.plan = createTrackingChangePlan(operation.generatedSetup, current);
+  return operation;
+}
 
 function operationAt(status: TrackingSetupOperationV1["status"]): TrackingSetupOperationV1 {
   const operation = plannedOperation();

@@ -9,6 +9,7 @@ import {
   type SetupAuthoringGroundingV1,
   type SetupAuthoringInputV1,
   type ExactDraftBrowserRunV1,
+  type ManagedReplacementRefV1,
   type SetupRequest,
 } from "@gtm-observability/core";
 import { resolve } from "node:path";
@@ -561,6 +562,9 @@ const server = createServer(async (request, response) => {
   const applyRepairMatch = requestUrl.pathname.match(
     /^\/api\/google\/workflows\/([A-Za-z0-9_-]+)\/apply-repair$/,
   );
+  const approveReplacementMatch = requestUrl.pathname.match(
+    /^\/api\/google\/workflows\/([A-Za-z0-9_-]+)\/approve-replacement$/,
+  );
   const approvePublicationMatch = requestUrl.pathname.match(
     /^\/api\/google\/workflows\/([A-Za-z0-9_-]+)\/approve-publication$/,
   );
@@ -649,6 +653,42 @@ const server = createServer(async (request, response) => {
         error: workflowError instanceof Error
           ? workflowError.message
           : "Unable to apply the reviewed draft repair.",
+      });
+    }
+    return;
+  }
+  if (request.method === "POST" && approveReplacementMatch) {
+    if (!workflowRunner) {
+      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
+      return;
+    }
+    try {
+      const body = await readJson(request);
+      const record = typeof body === "object" && body !== null && !Array.isArray(body)
+        ? body as Record<string, unknown>
+        : undefined;
+      if (typeof record?.planFingerprint !== "string" || !Array.isArray(record.entities)) {
+        sendJson(response, 400, { error: "The exact managed replacement review is required." });
+        return;
+      }
+      sendJson(response, 200, {
+        result: workflowRunner.approveManagedReplacement(
+          approveReplacementMatch[1] ?? "",
+          record.planFingerprint,
+          record.entities as ManagedReplacementRefV1[],
+          websiteChatActor,
+        ),
+      });
+    } catch (workflowError) {
+      const status = workflowError instanceof SyntaxError
+        ? 400
+        : workflowError instanceof Error && workflowError.message.includes("not found")
+          ? 404
+          : 409;
+      sendJson(response, status, {
+        error: workflowError instanceof Error
+          ? workflowError.message
+          : "Unable to approve managed replacement.",
       });
     }
     return;

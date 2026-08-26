@@ -304,9 +304,20 @@ test("reviews a durable form plan without applying it", async ({ context, page }
   });
 });
 
-test("blocks silent replacement of an existing managed setup", async ({ context, page }) => {
+test("reviews exact replacement of an existing managed setup", async ({ context, page }) => {
   const journey = await openExtensionJourney(context, page, "confirmed_success", "GTM-TEST123");
   let resumeRequests = 0;
+  let approvalRequests = 0;
+  let approvalBody: unknown;
+  const currentSemantics = JSON.stringify({
+    type: "gaawe",
+    measurementId: "G-OLDVALUE1",
+    attackerLabel: "</pre><img src=x onerror=alert(1)>",
+  });
+  const proposedSemantics = JSON.stringify({
+    type: "gaawe",
+    measurementId: "G-TEST123456",
+  });
   await routeWriteAccess(journey);
   await journey.context.route("http://127.0.0.1:8787/api/google/workflows/plan", (route) => route.fulfill({
     status: 201,
@@ -325,12 +336,52 @@ test("blocks silent replacement of an existing managed setup", async ({ context,
               action: "conflict",
               reason: "managed_change_requires_approval",
               generatedName: "GA4 Event - generate_lead",
+              entitySignature: "tag_signature_7",
+              existingId: "7",
+              replacement: {
+                currentFingerprint: "tag-current-7",
+                currentSemantics,
+                proposedSemantics,
+              },
             }],
           },
         },
       },
     }),
   }));
+  await journey.context.route(
+    "http://127.0.0.1:8787/api/google/workflows/*/approve-replacement",
+    async (route) => {
+      approvalRequests += 1;
+      approvalBody = route.request().postDataJSON();
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          result: {
+            status: "replacement_approved",
+            nextStep: "review_application",
+            operation: {
+              id: "operation_spec_form_contact",
+              status: "planned",
+              plan: {
+                status: "ready",
+                fingerprint: "plan_form_contact_approved",
+                actions: [{
+                  kind: "tag",
+                  action: "update",
+                  generatedName: "GA4 Event - generate_lead",
+                  entitySignature: "tag_signature_7",
+                  existingId: "7",
+                  expectedFingerprint: "tag-current-7",
+                }],
+              },
+            },
+          },
+        }),
+      });
+    },
+  );
   await journey.context.route("http://127.0.0.1:8787/api/google/workflows/*/resume", (route) => {
     resumeRequests += 1;
     return route.abort();
@@ -346,6 +397,36 @@ test("blocks silent replacement of an existing managed setup", async ({ context,
     { exact: true },
   )).toBeVisible();
   await expect(root.getByRole("button", { name: "Apply & validate draft" })).toHaveCount(0);
+  expect(resumeRequests).toBe(0);
+  await root.getByRole("button", { name: "Review managed replacement" }).click();
+  const review = root.getByRole("region", { name: "Managed replacement review" });
+  await expect(review.getByText("Plan plan_form_contact_conflict", { exact: true })).toBeVisible();
+  await expect(review.getByText("tag 7 · GA4 Event - generate_lead", { exact: true })).toBeVisible();
+  await expect(review.getByText("Current fingerprint tag-current-7", { exact: true })).toBeVisible();
+  await expect(review.getByText("G-OLDVALUE1", { exact: false })).toBeVisible();
+  await expect(review.getByText("G-TEST123456", { exact: false })).toBeVisible();
+  await expect(review.getByText("</pre><img src=x onerror=alert(1)>", { exact: false })).toBeVisible();
+  await expect(review.locator("img")).toHaveCount(0);
+  await review.screenshot({
+    path: test.info().outputPath("managed-replacement-review.png"),
+    animations: "disabled",
+  });
+  await root.getByRole("button", { name: "Approve managed replacement" }).click();
+  await expect(root.getByText(/exact managed replacement is approved/i)).toBeVisible();
+  await expect(root.getByRole("button", { name: "Apply & validate draft" })).toBeVisible();
+  expect(approvalRequests).toBe(1);
+  expect(approvalBody).toEqual({
+    planFingerprint: "plan_form_contact_conflict",
+    entities: [{
+      kind: "tag",
+      entitySignature: "tag_signature_7",
+      existingId: "7",
+      currentFingerprint: "tag-current-7",
+    }],
+  });
+  expect(resumeRequests).toBe(0);
+  await root.getByRole("button", { name: "Apply & validate draft" }).click();
+  await expect(root.getByRole("button", { name: "Confirm apply & validate" })).toBeVisible();
   expect(resumeRequests).toBe(0);
   await root.getByRole("region", { name: "Agent task" }).screenshot({
     path: test.info().outputPath("managed-replacement-blocked.png"),

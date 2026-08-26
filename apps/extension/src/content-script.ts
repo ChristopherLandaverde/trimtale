@@ -81,6 +81,13 @@ interface PlanActionSummary {
   action: "create" | "reuse" | "no_op" | "update" | "conflict";
   generatedName: string;
   reason?: "managed_change_requires_approval";
+  entitySignature?: string;
+  existingId?: string;
+  replacement?: {
+    currentFingerprint: string;
+    currentSemantics: string;
+    proposedSemantics: string;
+  };
 }
 
 interface WorkflowPlanSummary {
@@ -89,6 +96,7 @@ interface WorkflowPlanSummary {
   planStatus: "ready" | "conflict";
   fingerprint: string;
   actions: PlanActionSummary[];
+  replacementApproved?: boolean;
 }
 
 interface WorkflowPlanResponse {
@@ -463,6 +471,29 @@ async function requestWorkflowResume(
     type: "GTM_WORKFLOW_RESUME_REQUEST",
     operationId,
   }) as Promise<WorkflowResumeResponse>;
+}
+
+async function requestReplacementApproval(
+  plan: WorkflowPlanSummary,
+): Promise<WorkflowPlanResponse> {
+  const entities = plan.actions.flatMap((action) => action.action === "conflict"
+    && action.reason === "managed_change_requires_approval"
+    && action.entitySignature
+    && action.existingId
+    && action.replacement
+    ? [{
+      kind: action.kind,
+      entitySignature: action.entitySignature,
+      existingId: action.existingId,
+      currentFingerprint: action.replacement.currentFingerprint,
+    }]
+    : []);
+  return chrome.runtime.sendMessage({
+    type: "GTM_WORKFLOW_APPROVE_REPLACEMENT_REQUEST",
+    operationId: plan.operationId,
+    planFingerprint: plan.fingerprint,
+    entities,
+  }) as Promise<WorkflowPlanResponse>;
 }
 
 async function requestWorkflowDraftVerification(
@@ -2672,6 +2703,52 @@ function renderWorkflowPlan(task: HTMLElement, plan: WorkflowPlanSummary): void 
   task.append(view);
 }
 
+function semanticText(value: string): string {
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2);
+  } catch {
+    return value;
+  }
+}
+
+function renderReplacementReview(task: HTMLElement, plan: WorkflowPlanSummary): void {
+  const view = document.createElement("div");
+  view.className = "agent-specification managed-replacement-review";
+  view.setAttribute("role", "region");
+  view.setAttribute("aria-label", "Managed replacement review");
+  appendAgentText(view, "agent-receipt-heading", "Managed replacement review");
+  appendAgentText(view, "agent-specification-value", `Plan ${plan.fingerprint}`);
+  for (const action of plan.actions) {
+    if (action.action !== "conflict" || !action.existingId || !action.replacement) continue;
+    appendAgentText(
+      view,
+      "agent-specification-value",
+      `${action.kind} ${action.existingId} · ${action.generatedName}`,
+    );
+    appendAgentText(
+      view,
+      "agent-specification-value",
+      `Current fingerprint ${action.replacement.currentFingerprint}`,
+    );
+    appendAgentText(view, "agent-specification-label", "Current semantics");
+    const current = document.createElement("pre");
+    current.className = "agent-semantics";
+    current.textContent = semanticText(action.replacement.currentSemantics);
+    view.append(current);
+    appendAgentText(view, "agent-specification-label", "Proposed semantics");
+    const proposed = document.createElement("pre");
+    proposed.className = "agent-semantics";
+    proposed.textContent = semanticText(action.replacement.proposedSemantics);
+    view.append(proposed);
+  }
+  const actions = task.querySelector(".quick-actions");
+  if (actions) {
+    actions.before(view);
+  } else {
+    task.append(view);
+  }
+}
+
 function renderWorkflowResult(task: HTMLElement, result: WorkflowResumeSummary): void {
   const view = document.createElement("div");
   view.className = "agent-specification operation-result";
@@ -3057,10 +3134,15 @@ function showWorkflowPlan(
   const managedChange = plan.actions.some(
     ({ action, reason }) => action === "conflict" && reason === "managed_change_requires_approval",
   );
+  const reviewable = managedChange && plan.actions.filter(({ action }) => action === "conflict")
+    .every((action) => action.reason === "managed_change_requires_approval"
+      && Boolean(action.entitySignature && action.existingId && action.replacement));
   const task = renderFormTaskState(requestId, intake, {
     status: ready ? "ready_for_review" : "blocked",
     summary: ready
-      ? "The durable change plan is ready. Nothing was applied or published."
+      ? plan.replacementApproved
+        ? "The exact managed replacement is approved. Nothing was applied or published."
+        : "The durable change plan is ready. Nothing was applied or published."
       : managedChange
         ? "Existing managed setup differs. Explicit replacement approval is required. Nothing was applied or published."
         : "The plan contains a conflict. Nothing was applied or published.",
@@ -3070,9 +3152,62 @@ function showWorkflowPlan(
       : managedChange
         ? "Existing managed setup differs. Keep it or begin an explicit replacement review."
         : "Resolve the conflict before application.",
-    actions: workflowReviewActions(requestId, intake, ready),
+    actions: ready
+      ? workflowReviewActions(requestId, intake, true)
+      : reviewable
+        ? [{ id: "review-managed-replacement", label: "Review managed replacement" }]
+        : [],
   });
   renderWorkflowPlan(task, plan);
+}
+
+function showReplacementReview(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  plan: WorkflowPlanSummary,
+): void {
+  const task = renderFormTaskState(requestId, intake, {
+    status: "ready_for_review",
+    summary: "Review the exact current and proposed managed GTM behavior. Nothing has been applied or published.",
+    verifyStatus: "pending",
+    question: "Approve replacement only if the entity ID, current fingerprint, and semantic change are expected.",
+    actions: [
+      { id: "approve-managed-replacement", label: "Approve managed replacement" },
+      { id: "return-to-form-plan", label: "Return to plan" },
+    ],
+  });
+  renderReplacementReview(task, plan);
+  responseList?.scrollTo({ top: responseList.scrollHeight });
+}
+
+async function approveManagedReplacement(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  plan: WorkflowPlanSummary,
+): Promise<void> {
+  renderFormTaskState(requestId, intake, {
+    status: "working",
+    summary: "Recording the exact managed replacement approval. No GTM write or publication is authorized yet.",
+    verifyStatus: "pending",
+  });
+  let response: WorkflowPlanResponse;
+  try {
+    response = await requestReplacementApproval(plan);
+  } catch {
+    response = { ok: false, error: "service_offline" };
+  }
+  if (!response.ok || !response.result) {
+    const task = renderFormTaskState(requestId, intake, {
+      status: "blocked",
+      summary: "The managed replacement approval was rejected or became stale. Nothing was applied or published.",
+      verifyStatus: "pending",
+      question: "Return to the exact review or create a fresh plan.",
+      actions: [{ id: "return-to-form-plan", label: "Return to plan" }],
+    });
+    renderReplacementReview(task, plan);
+    return;
+  }
+  showWorkflowPlan(requestId, intake, response.result);
 }
 
 function confirmWorkflowApply(
@@ -3448,6 +3583,14 @@ function handleAssistantAction(actionId: string, requestId: string): void {
     return;
   }
   const workflowPlan = workflowPlansByRequest.get(requestId);
+  if (actionId === "review-managed-replacement" && intake?.canConfirm && workflowPlan) {
+    showReplacementReview(requestId, intake, workflowPlan);
+    return;
+  }
+  if (actionId === "approve-managed-replacement" && intake?.canConfirm && workflowPlan) {
+    void approveManagedReplacement(requestId, intake, workflowPlan);
+    return;
+  }
   if (actionId === "apply-form-workflow" && intake?.canConfirm && workflowPlan) {
     confirmWorkflowApply(requestId, intake, workflowPlan);
     return;
@@ -3816,6 +3959,7 @@ async function mountOverlay(): Promise<void> {
       .agent-specification-row { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 7px; font-size: 9px; }
       .agent-specification-label { color: #7f8d92; text-transform: uppercase; }
       .agent-specification-value { color: #dbe5e1; overflow-wrap: anywhere; }
+      .agent-semantics { max-height: 150px; margin: 0; padding: 7px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: #c8d7d1; background: rgba(0,0,0,.22); border-radius: 7px; font: 8px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; }
       .agent-verification-explanation { padding-top: 4px; color: #9fadaa; font-size: 9px; line-height: 1.45; overflow-wrap: anywhere; }
       .agent-loading { min-height: 70px; background: linear-gradient(100deg, rgba(24,37,36,.9) 20%, rgba(70,105,94,.35) 45%, rgba(21,29,34,.9) 70%); background-size: 220% 100%; animation: shimmer 1.15s linear infinite; }
       .agent-turn > .quick-actions { margin-top: 1px; }
