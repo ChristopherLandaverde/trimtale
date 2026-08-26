@@ -68,5 +68,8 @@ portal, build the workflow, and start implementation on 2026-08-25.
   stale service on the local port can no longer satisfy the launcher health gate.
 - 2026-08-26: Completed the exact website target comparison by rejecting unexpected
   URL fragments as well as origin, path, and query mismatches.
+- 2026-08-26: Restricted observed container evidence to the official HTTPS Google Tag
+  Manager loader origin and exact `/gtm.js` path. Attacker-owned lookalike script URLs
+  no longer satisfy the launcher gate.
 - Remaining: complete the current website-agent and human Tag Assistant handoff,
   publish the reviewed immutable version, and record live verification or rollback.

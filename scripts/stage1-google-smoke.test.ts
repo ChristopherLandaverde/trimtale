@@ -4,6 +4,7 @@ import {
   assertSmokeApi,
   assertSmokeExtension,
   assertSmokePage,
+  containerIdFromScript,
   stage1SmokeEnvironment,
   verifySmokeRecognition,
 } from "./stage1-google-smoke.mjs";
@@ -11,6 +12,25 @@ import {
 const extensionId = "a".repeat(32);
 
 describe("credentialed Stage 1 workflow", () => {
+  it("recognizes container IDs only from the official GTM loader", () => {
+    expect(containerIdFromScript(
+      "https://www.googletagmanager.com/gtm.js?id=GTM-PCJ3Q5RK",
+      STAGE1_GOOGLE_TARGET.url,
+    )).toBe("GTM-PCJ3Q5RK");
+    expect(containerIdFromScript(
+      "https://attacker.example/?next=googletagmanager.com/gtm.js&id=GTM-PCJ3Q5RK",
+      STAGE1_GOOGLE_TARGET.url,
+    )).toBeUndefined();
+    expect(containerIdFromScript(
+      "http://www.googletagmanager.com/gtm.js?id=GTM-PCJ3Q5RK",
+      STAGE1_GOOGLE_TARGET.url,
+    )).toBeUndefined();
+    expect(containerIdFromScript(
+      "https://www.googletagmanager.com/alternate.js?id=GTM-PCJ3Q5RK",
+      STAGE1_GOOGLE_TARGET.url,
+    )).toBeUndefined();
+  });
+
   it("accepts readiness only from the launched API session", () => {
     expect(() => assertSmokeApi({
       status: "ok",

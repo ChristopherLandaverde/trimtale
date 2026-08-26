@@ -18,6 +18,8 @@ const healthUrl = "http://127.0.0.1:8787/health";
 const healthAttempts = 40;
 const healthDelayMs = 250;
 const publicContainerIdPattern = /^GTM-[A-Z0-9]+$/i;
+const gtmScriptOrigin = "https://www.googletagmanager.com";
+const gtmScriptPath = "/gtm.js";
 
 export const STAGE1_GOOGLE_TARGET = Object.freeze({
   url: "https://consentflow-psi.vercel.app/",
@@ -134,15 +136,25 @@ async function waitForApi(expectedSessionId, fetcher = fetch) {
 }
 
 async function observedContainerIds(page) {
-  return page.locator("script[src*='googletagmanager.com/gtm.js']").evaluateAll((scripts) =>
-    scripts.flatMap((script) => {
-      const source = script.getAttribute("src");
-      if (!source) {
-        return [];
-      }
-      const publicId = new URL(source, window.location.href).searchParams.get("id");
-      return publicId ? [publicId] : [];
-    }));
+  const sources = await page.locator("script[src*='googletagmanager.com/gtm.js']")
+    .evaluateAll((scripts) => scripts.flatMap((script) => script.getAttribute("src") ?? []));
+  return sources.flatMap((source) => {
+    const publicId = containerIdFromScript(source, page.url());
+    return publicId ? [publicId] : [];
+  });
+}
+
+export function containerIdFromScript(source, pageUrl) {
+  let scriptUrl;
+  try {
+    scriptUrl = new URL(source, pageUrl);
+  } catch {
+    return undefined;
+  }
+  if (scriptUrl.origin !== gtmScriptOrigin || scriptUrl.pathname !== gtmScriptPath) {
+    return undefined;
+  }
+  return scriptUrl.searchParams.get("id") ?? undefined;
 }
 
 async function stopProcess(child) {
