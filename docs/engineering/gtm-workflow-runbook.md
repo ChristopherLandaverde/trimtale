@@ -54,8 +54,8 @@ npm run smoke:google:stage1
 This explicit command builds the product, starts the saved authenticated backend,
 loads the production extension in a persistent headed Chromium profile, and opens the
 ConsentFlow target. It enables publication only for that process, locks all GTM
-mutations to `GTM-PCJ3Q5RK`, and stops unless the extension origin, website origin, and
-sole observed GTM ID match. The profile is retained under
+mutations to `GTM-PCJ3Q5RK`, and stops unless the extension origin, exact website
+origin/path/query, and sole observed GTM ID match. The profile is retained under
 `.data/stage1-google-smoke-profile` so the supported human Google and Tag Assistant
 session can survive restarts. Closing Chromium stops the backend.
 

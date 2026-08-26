@@ -46,7 +46,9 @@ export function assertSmokeExtension(configuredOrigin, serviceWorkerUrl) {
 export function assertSmokePage(pageUrl, observedPublicIds) {
   const expectedUrl = new URL(STAGE1_GOOGLE_TARGET.url);
   const actualUrl = new URL(pageUrl);
-  if (actualUrl.origin !== expectedUrl.origin) {
+  if (actualUrl.origin !== expectedUrl.origin
+    || actualUrl.pathname !== expectedUrl.pathname
+    || actualUrl.search !== expectedUrl.search) {
     throw new Error("The browser did not load the exact Stage 1 website target.");
   }
 

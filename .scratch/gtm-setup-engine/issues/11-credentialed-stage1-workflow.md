@@ -51,5 +51,8 @@ portal, build the workflow, and start implementation on 2026-08-25.
   container, live version, GA4 destination, and available workspace capacity.
 - 2026-08-25: The headed launcher matched the configured extension, website origin,
   and sole observed GTM ID without making a Google mutation.
+- 2026-08-26: Tightened the credentialed launcher from an origin-only page check to
+  the exact ConsentFlow path and query. Same-origin alternate and attacker-query URLs
+  now stop before the session reaches its ready state.
 - Remaining: complete the current website-agent and human Tag Assistant handoff,
   publish the reviewed immutable version, and record live verification or rollback.
