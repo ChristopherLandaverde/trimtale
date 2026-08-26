@@ -35,3 +35,20 @@ recorded visual review; retry success alone is not approval.
   isolated cold-cache launches, and the full 25-workflow Chromium gate. `npm run
   verify` also passed all 202 deterministic tests across 29 files. No snapshot was
   updated.
+- 2026-08-25: Reopened after the full 55-journey gate and a focused retry both produced
+  the same 13,911-pixel difference for `form-confirmed-highlight.png`. The behavioral
+  assertions passed, and no baseline was updated. Reinspect the accumulated Stage 1 UI
+  changes against the expected image before deciding whether this is intentional or a
+  rendering regression.
+- 2026-08-25: Expected, actual, and diff inspection found no form-highlight change. The
+  full-page snapshot coupled the page target to a 16px assistant scroll difference; a
+  five-run diagnostic also exposed an independent one-pixel shell drift. The two
+  baselines now hide the assistant only during capture, show both page forms without
+  occlusion, and restore the assistant for the remaining workflow assertions. The
+  isolated contract passed ten consecutive fresh-profile runs. Visual review:
+  `docs/reviews/2026-08-25-form-highlight-visual-isolation.md`.
+- 2026-08-25: The full gate exposed the same one-pixel parent-width toggle in two
+  element-level Enhanced Measurement screenshots. Their test surfaces now use the
+  approved 348px border-box width before capture; both unchanged baselines passed 20
+  consecutive fresh-profile runs. Final `npm run verify` passed all 392 deterministic
+  tests and 55 Chromium journeys.

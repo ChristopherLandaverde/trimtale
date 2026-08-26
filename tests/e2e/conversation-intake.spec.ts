@@ -29,6 +29,15 @@ async function stabilizeShadowRoot(host: Locator): Promise<void> {
   }, visualStabilityCss);
 }
 
+async function setAssistantVisibility(
+  host: Locator,
+  visibility: "hidden" | "visible",
+): Promise<void> {
+  await host.locator(".assistant").evaluate((element, value) => {
+    (element as HTMLElement).style.visibility = value;
+  }, visibility);
+}
+
 function acceptanceCase(id: string): IntakeCase {
   const contract = JSON.parse(readFileSync(
     resolve("tests/acceptance/conversation-intake.json"),
@@ -64,14 +73,18 @@ test("clarifies a form intent and requires explicit specification confirmation",
   await expect(targets.locator(".target.candidate[data-target-id='newsletter']")).toHaveCount(1);
   await stabilizeShadowRoot(targets);
   await expect(targets.locator(".target span").first()).toHaveCSS("font-family", /Arial/);
+  await setAssistantVisibility(root, "hidden");
   await expect(site).toHaveScreenshot("form-candidate-highlights.png", screenshotOptions);
+  await setAssistantVisibility(root, "visible");
   await expect(root.getByRole("button", { name: "Approve setup" })).toHaveCount(0);
 
   await root.getByRole("button", { name: "Contact sales" }).click();
   await expect(task).toHaveCount(1);
   await expect(targets.locator(".target.candidate")).toHaveCount(0);
   await expect(targets.locator(".target.confirmed[data-target-id='contact']")).toHaveCount(1);
+  await setAssistantVisibility(root, "hidden");
   await expect(site).toHaveScreenshot("form-confirmed-highlight.png", screenshotOptions);
+  await setAssistantVisibility(root, "visible");
   await expect(root.getByText(/successful Contact sales submissions as generate_lead/)).toBeVisible();
   await expect(root.getByText(/without counting submit attempts or validation errors/)).toBeVisible();
   await root.getByRole("button", { name: "Review setup" }).click();

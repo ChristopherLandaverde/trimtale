@@ -1,10 +1,21 @@
 import { resolve } from "node:path";
+import { type Locator } from "@playwright/test";
 import { expect, test } from "./helpers/extension-test.js";
 
+const visualSurfaceWidth = 348;
 const screenshotOptions = {
   animations: "disabled" as const,
   stylePath: resolve("tests/e2e/visual-stability.css"),
 };
+
+async function stabilizeSurface(surface: Locator): Promise<void> {
+  await surface.evaluate((element, width) => {
+    const target = element as HTMLElement;
+    target.style.boxSizing = "border-box";
+    target.style.width = `${width}px`;
+  }, visualSurfaceWidth);
+  await expect(surface).toHaveCSS("width", `${visualSurfaceWidth}px`);
+}
 
 const connectedReadOnlyStatus = {
   configured: true,
@@ -176,6 +187,7 @@ for (const scenario of enhancedMeasurementScenarios) {
     await expect(task.getByText(scenario.taskGoal, { exact: true })).toBeVisible();
     await expect(task.getByText(scenario.taskSummary)).toBeVisible();
     if (scenario.taskSnapshot) {
+      await stabilizeSurface(task);
       await expect(task).toHaveScreenshot(scenario.taskSnapshot, screenshotOptions);
     }
     if (scenario.settings.stream && scenario.settings.outboundClicks) {
@@ -184,6 +196,7 @@ for (const scenario of enhancedMeasurementScenarios) {
       await expect(root.locator(".pick input:checked")).toHaveCount(0);
     }
     if (scenario.snapshot) {
+      await stabilizeSurface(card);
       await expect(card).toHaveScreenshot(scenario.snapshot, screenshotOptions);
     }
   });
