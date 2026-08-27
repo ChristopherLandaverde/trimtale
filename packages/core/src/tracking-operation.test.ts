@@ -73,6 +73,26 @@ describe("tracking setup operation", () => {
     expect(nextTrackingOperationStep(plannedOperation())).toBe("refresh_state");
   });
 
+  it("validates one safe durable provider attempt", () => {
+    const operation = plannedOperation();
+    operation.providerAttempt = {
+      schemaVersion: 1,
+      id: "attempt_application_1",
+      stage: "application",
+      status: "started",
+      startedAt: operation.updatedAt,
+      updatedAt: operation.updatedAt,
+    };
+    expect(validateTrackingOperation(operation)).toEqual([]);
+
+    operation.providerAttempt = {
+      ...operation.providerAttempt,
+      status: "failed",
+      failureCode: "Error: token=PRIVATE_TOKEN_SENTINEL" as "provider_forbidden",
+    };
+    expect(validateTrackingOperation(operation)).toContain("providerAttempt.failure code is unsafe");
+  });
+
   it("forces reconciliation when persisted fingerprints are stale", () => {
     const operation = plannedOperation();
     expect(nextTrackingOperationStep(operation, {

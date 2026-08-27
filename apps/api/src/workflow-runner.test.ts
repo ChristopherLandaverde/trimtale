@@ -365,6 +365,70 @@ describe("resumable non-publishing tracking workflow", () => {
     expect(client.applyManagedWorkspace).toHaveBeenCalledTimes(2);
   });
 
+  it("locks duplicate application and reconciles a durable attempt after restart", async () => {
+    let finishApplication!: (value: {
+      status: "applied";
+      completedActionSignatures: string[];
+      workspaceFingerprint: string;
+      plan: typeof readyPlan;
+    }) => void;
+    const application = new Promise<Parameters<typeof finishApplication>[0]>((resolve) => {
+      finishApplication = resolve;
+    });
+    const client = google({ applyManagedWorkspace: vi.fn().mockReturnValue(application) });
+    const store = await repository();
+    const runner = new TrackingWorkflowRunner(store, client);
+    const planned = await runner.plan(request);
+    if (planned.status === "blocked") throw new Error(planned.reason);
+
+    const first = runner.resume(planned.operation.id);
+    await vi.waitFor(() => expect(client.applyManagedWorkspace).toHaveBeenCalledTimes(1));
+    await expect(runner.resume(planned.operation.id)).resolves.toMatchObject({
+      status: "provider_progress",
+      progress: { stage: "application", state: "in_flight", retry: "locked" },
+    });
+    expect(client.applyManagedWorkspace).toHaveBeenCalledTimes(1);
+
+    const restartedClient = google();
+    const restarted = new TrackingWorkflowRunner(store, restartedClient);
+    await expect(restarted.resume(planned.operation.id)).resolves.toMatchObject({
+      status: "provider_progress",
+      progress: { stage: "application", state: "reconciling", retry: "locked" },
+    });
+    expect(restartedClient.applyManagedWorkspace).not.toHaveBeenCalled();
+
+    finishApplication({
+      status: "applied",
+      completedActionSignatures: completed,
+      workspaceFingerprint: "workspace-final",
+      plan: readyPlan,
+    });
+    await expect(first).resolves.toMatchObject({ status: "awaiting_preview" });
+  });
+
+  it("persists only a bounded failure code when a provider call throws", async () => {
+    const privateSentinel = "PRIVATE_TOKEN_SENTINEL";
+    const providerError = Object.assign(new Error(`token=${privateSentinel}`), { status: 403 });
+    const client = google({ applyManagedWorkspace: vi.fn().mockRejectedValue(providerError) });
+    const store = await repository();
+    const runner = new TrackingWorkflowRunner(store, client);
+    const planned = await runner.plan(request);
+    if (planned.status === "blocked") throw new Error(planned.reason);
+
+    await expect(runner.resume(planned.operation.id)).rejects.toThrow(privateSentinel);
+    expect(store.get(planned.operation.id)?.providerAttempt).toMatchObject({
+      stage: "application",
+      status: "failed",
+      failureCode: "provider_forbidden",
+    });
+    expect(JSON.stringify(store.get(planned.operation.id))).not.toContain(privateSentinel);
+    await expect(runner.resume(planned.operation.id)).resolves.toMatchObject({
+      status: "provider_progress",
+      progress: { state: "failed", retry: "conditional" },
+    });
+    expect(client.applyManagedWorkspace).toHaveBeenCalledTimes(1);
+  });
+
   it("reviews and applies one intent-preserving repair before requiring a new exact preview", async () => {
     const repairActions = readyPlan.actions.map((action, index) => index === 0
       ? { ...action, action: "update" as const, existingId: "managed-1" }

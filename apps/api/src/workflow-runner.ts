@@ -10,6 +10,7 @@ import {
   fingerprintDraftValue,
   markRepairPassedToVerification,
   publicationApprovalCurrent,
+  providerProgressFromAttempt,
   recordDraftRepairAttempt,
   recordPostPublicationEvidence,
   resumeDraftRepairAfterFailure,
@@ -21,6 +22,9 @@ import {
   type FormSetupRequest,
   type GenericTrackingSetupRequest,
   type ManagedReplacementRefV1,
+  type ProviderFailureCodeV1,
+  type ProviderProgressProjectionV1,
+  type ProviderStageV1,
   type SetupRequest,
   type TrackingSetupOperationV1,
   type TrackingRunEvidenceV1,
@@ -44,7 +48,14 @@ export type WorkflowPlanResult =
   | { status: "planned" | "reused"; operation: TrackingSetupOperationV1 }
   | { status: "blocked"; stage: "workspace" | "planning"; reason: string; details?: unknown };
 
+export type WorkflowProviderProgressResult = {
+  status: "provider_progress";
+  operation: TrackingSetupOperationV1;
+  progress: ProviderProgressProjectionV1;
+};
+
 export type WorkflowResumeResult =
+  | WorkflowProviderProgressResult
   | {
     status: "awaiting_preview";
     operation: TrackingSetupOperationV1;
@@ -78,6 +89,7 @@ export type WorkflowDraftVerificationResult = {
 };
 
 export type WorkflowDraftRepairResult =
+  | WorkflowProviderProgressResult
   | {
     status: "repair_ready";
     operation: TrackingSetupOperationV1;
@@ -97,6 +109,7 @@ export type WorkflowDraftRepairResult =
   };
 
 export type WorkflowDraftRepairApplyResult =
+  | WorkflowProviderProgressResult
   | Extract<WorkflowResumeResult, { status: "awaiting_preview" }>
   | {
     status: "blocked";
@@ -112,7 +125,7 @@ export type WorkflowPublicationApprovalResult = {
   nextStep: "publish";
 };
 
-export type WorkflowPublicationResult = {
+export type WorkflowPublicationResult = WorkflowProviderProgressResult | {
   status: "published";
   operation: TrackingSetupOperationV1;
   nextStep: "verify_publication";
@@ -124,7 +137,7 @@ export type WorkflowPublicationVerificationResult = {
   nextStep: "verify_publication" | "complete" | "rollback";
 };
 
-export type WorkflowRollbackResult = {
+export type WorkflowRollbackResult = WorkflowProviderProgressResult | {
   status: "rolled_back";
   operation: TrackingSetupOperationV1;
   nextStep: "complete";
@@ -136,6 +149,8 @@ function nextTimestamp(previous: string, now: () => Date): string {
 }
 
 export class TrackingWorkflowRunner {
+  private readonly liveProviderAttempts = new Set<string>();
+
   constructor(
     private readonly repository: TrackingOperationRepository,
     private readonly google: WorkflowGoogleClient,
@@ -144,6 +159,14 @@ export class TrackingWorkflowRunner {
 
   get(id: string): TrackingSetupOperationV1 | undefined {
     return this.repository.get(id);
+  }
+
+  progress(
+    id: string,
+    presentation: { displayTimedOut?: boolean; browserReloaded?: boolean; action?: string } = {},
+  ): ProviderProgressProjectionV1 {
+    const operation = this.requiredOperation(id);
+    return this.projectProgress(operation, presentation);
   }
 
   async plan(request: TrackingWorkflowRequest): Promise<WorkflowPlanResult> {
@@ -227,6 +250,13 @@ export class TrackingWorkflowRunner {
 
   async resume(id: string): Promise<WorkflowResumeResult> {
     let operation = this.requiredOperation(id);
+    if (this.providerAttemptBlocksMutation(operation)) {
+      return {
+        status: "provider_progress",
+        operation,
+        progress: this.projectProgress(operation, { action: "repeat_mutation" }),
+      };
+    }
     if (operation.status === "versioned") {
       return { status: "versioned", operation, nextStep: "await_approval" };
     }
@@ -255,9 +285,18 @@ export class TrackingWorkflowRunner {
       operation = this.save(operation, { status: "applying" });
     }
     if (operation.status === "applying") {
-      const application = await this.google.applyManagedWorkspace(operation);
+      operation = this.beginProviderAttempt(operation, "application");
+      let application: Awaited<ReturnType<WorkflowGoogleClient["applyManagedWorkspace"]>>;
+      try {
+        application = await this.google.applyManagedWorkspace(operation);
+      } catch (error) {
+        this.failProviderAttempt(operation, this.providerFailureCode(error));
+        throw error;
+      }
       if (application.status !== "applied") {
-        operation = this.save(operation, {
+        operation = this.failProviderAttempt(operation, application.status === "partial_failure"
+          ? "partial_failure"
+          : "provider_rejected", {
           completedActionSignatures: application.completedActionSignatures,
         });
         return {
@@ -268,7 +307,7 @@ export class TrackingWorkflowRunner {
           details: application,
         };
       }
-      operation = this.save(operation, {
+      operation = this.completeProviderAttempt(operation, {
         status: "applied",
         completedActionSignatures: application.completedActionSignatures,
         workspace: {
@@ -279,8 +318,15 @@ export class TrackingWorkflowRunner {
     }
 
     if (operation.status === "applied") {
-      const validation = await this.google.validateManagedWorkspace(operation);
-      operation = this.save(operation, {
+      operation = this.beginProviderAttempt(operation, "validation");
+      let validation: Awaited<ReturnType<WorkflowGoogleClient["validateManagedWorkspace"]>>;
+      try {
+        validation = await this.google.validateManagedWorkspace(operation);
+      } catch (error) {
+        this.failProviderAttempt(operation, this.providerFailureCode(error));
+        throw error;
+      }
+      operation = this.completeProviderAttempt(operation, {
         status: validation.status === "passed" ? "validated" : "validation_failed",
         validation,
       });
@@ -342,11 +388,18 @@ export class TrackingWorkflowRunner {
         reason: `operation_${operation.status}`,
       };
     }
-    const version = await this.google.createValidatedVersion(operation);
+    operation = this.beginProviderAttempt(operation, "versioning");
+    let version: Awaited<ReturnType<WorkflowGoogleClient["createValidatedVersion"]>>;
+    try {
+      version = await this.google.createValidatedVersion(operation);
+    } catch (error) {
+      this.failProviderAttempt(operation, this.providerFailureCode(error));
+      throw error;
+    }
     if (version.status !== "versioned") {
       const invalidated = structuredClone(operation);
       delete invalidated.draftVerification;
-      operation = this.save(invalidated, {
+      operation = this.failProviderAttempt(invalidated, "version_creation_blocked", {
         status: "validation_failed",
         validation: version.validation,
       });
@@ -358,7 +411,7 @@ export class TrackingWorkflowRunner {
         details: version,
       };
     }
-    operation = this.save(operation, {
+    operation = this.completeProviderAttempt(operation, {
       status: "versioned",
       validation: version.validation,
       version: version.version,
@@ -418,6 +471,9 @@ export class TrackingWorkflowRunner {
     run: ExactDraftBrowserRunV1,
   ): Promise<WorkflowDraftRepairResult> {
     let operation = this.requiredOperation(id);
+    if (this.providerAttemptBlocksMutation(operation)) {
+      return this.providerProgressResult(operation);
+    }
     assertExactDraftRunCurrent(operation, run);
     if (run.evidence.verdict.browserVerification !== "failed") {
       throw new Error("Only failed exact-draft evidence can enter bounded repair.");
@@ -453,16 +509,24 @@ export class TrackingWorkflowRunner {
       return { status: "blocked", operation, stage: "repair", reason: "repair_attempts_exhausted" };
     }
 
-    const planning = await this.google.planManagedWorkspace(
-      operation.container.publicId,
-      operation.generatedSetup,
-    );
-    const planned = planning.status === "planned"
-      && planning.workspace.path === operation.workspace.path
-      && Boolean(planning.workspaceFingerprint);
-    const hasKnownRepair = planned
-      && planning.plan.status === "ready"
-      && planning.plan.actions.some(({ action }) => action === "create" || action === "update");
+    operation = this.beginProviderAttempt(operation, "planning");
+    let planning: Awaited<ReturnType<WorkflowGoogleClient["planManagedWorkspace"]>>;
+    try {
+      planning = await this.google.planManagedWorkspace(
+        operation.container.publicId,
+        operation.generatedSetup,
+      );
+    } catch (error) {
+      this.failProviderAttempt(operation, this.providerFailureCode(error));
+      throw error;
+    }
+    const repairPlanning = planning.status === "planned" ? planning : undefined;
+    const planned = Boolean(repairPlanning
+      && repairPlanning.workspace.path === operation.workspace.path
+      && repairPlanning.workspaceFingerprint);
+    const hasKnownRepair = Boolean(planned
+      && repairPlanning?.plan.status === "ready"
+      && repairPlanning.plan.actions.some(({ action }) => action === "create" || action === "update"));
     if (!hasKnownRepair) {
       ledger = recordDraftRepairAttempt(ledger, {
         attemptedAt: this.now().toISOString(),
@@ -472,7 +536,7 @@ export class TrackingWorkflowRunner {
         reasonCode: "no_known_repair",
         result: "ambiguous",
       });
-      operation = this.save(operation, {
+      operation = this.completeProviderAttempt(operation, {
         draftRepair: {
           schemaVersion: 1,
           status: "stopped",
@@ -480,24 +544,24 @@ export class TrackingWorkflowRunner {
           failedEvidenceFingerprint: fingerprintDraftValue("evidence", run.evidence),
           reasonCode: "no_known_repair",
           workspaceFingerprint: planned
-            ? planning.workspaceFingerprint!
+            ? repairPlanning!.workspaceFingerprint!
             : operation.workspace.fingerprint,
-          ...(planned ? { plan: planning.plan } : {}),
+          ...(planned ? { plan: repairPlanning!.plan } : {}),
           ledger,
         },
       });
       return { status: "blocked", operation, stage: "repair", reason: "no_known_repair" };
     }
 
-    operation = this.save(operation, {
+    operation = this.completeProviderAttempt(operation, {
       draftRepair: {
         schemaVersion: 1,
         status: "review_required",
         failedEvidenceRunId: run.evidence.runId,
         failedEvidenceFingerprint: fingerprintDraftValue("evidence", run.evidence),
         reasonCode: "workspace_entity_drift",
-        workspaceFingerprint: planning.workspaceFingerprint!,
-        plan: planning.plan,
+        workspaceFingerprint: repairPlanning!.workspaceFingerprint!,
+        plan: repairPlanning!.plan,
         ledger,
       },
     });
@@ -509,6 +573,9 @@ export class TrackingWorkflowRunner {
     expectedPlanFingerprint: string,
   ): Promise<WorkflowDraftRepairApplyResult> {
     let operation = this.requiredOperation(id);
+    if (this.providerAttemptBlocksMutation(operation)) {
+      return this.providerProgressResult(operation);
+    }
     const repair = operation.draftRepair;
     if (operation.status !== "validated" || repair?.status !== "review_required" || !repair.plan) {
       throw new Error("Draft repair requires a validated operation and reviewed repair plan.");
@@ -533,7 +600,14 @@ export class TrackingWorkflowRunner {
       draftVerification: undefined,
       draftRepair: undefined,
     };
-    const application = await this.google.applyManagedWorkspace(repairOperation);
+    operation = this.beginProviderAttempt(repairOperation, "application");
+    let application: Awaited<ReturnType<WorkflowGoogleClient["applyManagedWorkspace"]>>;
+    try {
+      application = await this.google.applyManagedWorkspace(operation);
+    } catch (error) {
+      this.failProviderAttempt(operation, this.providerFailureCode(error), { draftRepair: repair });
+      throw error;
+    }
     if (application.status !== "applied") {
       const result = application.status === "partial_failure" ? "ambiguous" : "rejected";
       const ledger = recordDraftRepairAttempt(repair.ledger, {
@@ -544,7 +618,9 @@ export class TrackingWorkflowRunner {
         reasonCode: application.status === "partial_failure" ? "partial_repair" : "repair_rejected",
         result,
       });
-      operation = this.save(operation, {
+      operation = this.failProviderAttempt(operation, application.status === "partial_failure"
+        ? "partial_failure"
+        : "provider_rejected", {
         ...(application.status === "partial_failure" ? {
           status: "applying" as const,
           workspace: repairOperation.workspace,
@@ -561,16 +637,23 @@ export class TrackingWorkflowRunner {
       return { status: "blocked", operation, stage: "repair", reason: application.status, details: application };
     }
 
-    const appliedOperation: TrackingSetupOperationV1 = {
-      ...repairOperation,
+    operation = this.completeProviderAttempt(operation, {
       status: "applied",
       workspace: {
-        ...repairOperation.workspace,
-        fingerprint: application.workspaceFingerprint ?? repairOperation.workspace.fingerprint,
+        ...operation.workspace,
+        fingerprint: application.workspaceFingerprint ?? operation.workspace.fingerprint,
       },
       completedActionSignatures: application.completedActionSignatures,
-    };
-    const validation = await this.google.validateManagedWorkspace(appliedOperation);
+      draftRepair: repair,
+    });
+    operation = this.beginProviderAttempt(operation, "validation");
+    let validation: Awaited<ReturnType<WorkflowGoogleClient["validateManagedWorkspace"]>>;
+    try {
+      validation = await this.google.validateManagedWorkspace(operation);
+    } catch (error) {
+      this.failProviderAttempt(operation, this.providerFailureCode(error), { draftRepair: repair });
+      throw error;
+    }
     if (validation.status !== "passed" || !validation.previewVersionFingerprint) {
       const ledger = recordDraftRepairAttempt(repair.ledger, {
         attemptedAt: this.now().toISOString(),
@@ -580,9 +663,9 @@ export class TrackingWorkflowRunner {
         reasonCode: "repair_validation_failed",
         result: "ambiguous",
       });
-      operation = this.save(operation, {
+      operation = this.completeProviderAttempt(operation, {
         status: "validation_failed",
-        workspace: appliedOperation.workspace,
+        workspace: operation.workspace,
         plan: repair.plan,
         completedActionSignatures: application.completedActionSignatures,
         validation: validation.status === "failed"
@@ -603,9 +686,9 @@ export class TrackingWorkflowRunner {
       result: "applied",
     });
     ledger = markRepairPassedToVerification(ledger);
-    operation = this.save(operation, {
+    operation = this.completeProviderAttempt(operation, {
       status: "validated",
-      workspace: appliedOperation.workspace,
+      workspace: operation.workspace,
       plan: repair.plan,
       completedActionSignatures: application.completedActionSignatures,
       validation,
@@ -644,7 +727,7 @@ export class TrackingWorkflowRunner {
     const approved = approveTrackingVersion(
       operation,
       approvedBy,
-      this.now().toISOString(),
+      nextTimestamp(operation.updatedAt, this.now),
     );
     if (!approved.approval) throw new Error("Publication approval was not recorded.");
     const updated = this.save(operation, {
@@ -658,7 +741,10 @@ export class TrackingWorkflowRunner {
     id: string,
     expectedVersionFingerprint: string,
   ): Promise<WorkflowPublicationResult> {
-    const operation = this.requiredOperation(id);
+    let operation = this.requiredOperation(id);
+    if (this.providerAttemptBlocksMutation(operation)) {
+      return this.providerProgressResult(operation);
+    }
     if (operation.status === "published"
       && operation.version?.fingerprint === expectedVersionFingerprint
       && operation.publication?.versionFingerprint === expectedVersionFingerprint) {
@@ -671,11 +757,19 @@ export class TrackingWorkflowRunner {
       || operation.approval?.versionFingerprint !== expectedVersionFingerprint) {
       throw new Error("Publication does not match the approved version fingerprint.");
     }
-    const publication = await this.google.publishApprovedVersion(operation);
+    operation = this.beginProviderAttempt(operation, "publication");
+    let publication: Awaited<ReturnType<WorkflowGoogleClient["publishApprovedVersion"]>>;
+    try {
+      publication = await this.google.publishApprovedVersion(operation);
+    } catch (error) {
+      this.failProviderAttempt(operation, this.providerFailureCode(error));
+      throw error;
+    }
     if (publication.versionFingerprint !== expectedVersionFingerprint) {
+      this.failProviderAttempt(operation, "publication_mismatch");
       throw new Error("Google publication did not match the approved version fingerprint.");
     }
-    const updated = this.save(operation, {
+    const updated = this.completeProviderAttempt(operation, {
       status: "published",
       publication,
     });
@@ -705,7 +799,11 @@ export class TrackingWorkflowRunner {
     if (operation.status !== "published") {
       throw new Error("Only a published operation accepts live verification evidence.");
     }
-    const decision = recordPostPublicationEvidence(operation, evidence);
+    const decision = recordPostPublicationEvidence(
+      operation,
+      evidence,
+      nextTimestamp(operation.updatedAt, this.now),
+    );
     if (!decision.postPublicationEvidenceId) {
       throw new Error("Live verification evidence was not recorded.");
     }
@@ -728,7 +826,10 @@ export class TrackingWorkflowRunner {
     expectedPublishedFingerprint: string,
     expectedTargetFingerprint: string,
   ): Promise<WorkflowRollbackResult> {
-    const operation = this.requiredOperation(id);
+    let operation = this.requiredOperation(id);
+    if (this.providerAttemptBlocksMutation(operation)) {
+      return this.providerProgressResult(operation);
+    }
     if (operation.status === "rolled_back"
       && operation.publication?.versionFingerprint === expectedPublishedFingerprint
       && operation.rollback?.targetVersionFingerprint === expectedTargetFingerprint) {
@@ -745,11 +846,19 @@ export class TrackingWorkflowRunner {
       || operation.rollback.targetVersionFingerprint !== expectedTargetFingerprint) {
       throw new Error("Rollback does not match the recorded prior-live fingerprint.");
     }
-    const rollback = await this.google.rollbackPublishedVersion(operation);
+    operation = this.beginProviderAttempt(operation, "rollback");
+    let rollback: Awaited<ReturnType<WorkflowGoogleClient["rollbackPublishedVersion"]>>;
+    try {
+      rollback = await this.google.rollbackPublishedVersion(operation);
+    } catch (error) {
+      this.failProviderAttempt(operation, this.providerFailureCode(error));
+      throw error;
+    }
     if (rollback.targetVersionFingerprint !== expectedTargetFingerprint) {
+      this.failProviderAttempt(operation, "rollback_mismatch");
       throw new Error("Google rollback did not match the reviewed target fingerprint.");
     }
-    const updated = this.save(operation, {
+    const updated = this.completeProviderAttempt(operation, {
       status: "rolled_back",
       rollback,
     });
@@ -760,6 +869,102 @@ export class TrackingWorkflowRunner {
     const operation = this.repository.get(id);
     if (!operation) throw new Error("Tracking operation was not found.");
     return operation;
+  }
+
+  private projectProgress(
+    operation: TrackingSetupOperationV1,
+    presentation: { displayTimedOut?: boolean; browserReloaded?: boolean; action?: string } = {},
+  ): ProviderProgressProjectionV1 {
+    const attempt = operation.providerAttempt;
+    const checkpoint = operation.status === "versioned"
+      ? "await_approval"
+      : operation.status === "validated"
+        ? "run_preview"
+        : operation.status === "published"
+          ? "verify_publication"
+          : operation.status === "completed" || operation.status === "rolled_back"
+            ? "complete"
+            : operation.status;
+    return providerProgressFromAttempt(
+      attempt,
+      Boolean(attempt && this.liveProviderAttempts.has(attempt.id)),
+      checkpoint,
+      presentation,
+      this.now().getTime(),
+    );
+  }
+
+  private providerAttemptBlocksMutation(operation: TrackingSetupOperationV1): boolean {
+    const attempt = operation.providerAttempt;
+    return attempt?.status === "started"
+      || (attempt?.status === "failed" && attempt.failureCode !== "partial_failure");
+  }
+
+  private providerProgressResult(operation: TrackingSetupOperationV1): WorkflowProviderProgressResult {
+    return {
+      status: "provider_progress",
+      operation,
+      progress: this.projectProgress(operation, { action: "repeat_mutation" }),
+    };
+  }
+
+  private beginProviderAttempt(
+    operation: TrackingSetupOperationV1,
+    stage: ProviderStageV1,
+  ): TrackingSetupOperationV1 {
+    const startedAt = nextTimestamp(operation.updatedAt, this.now);
+    const started = this.save(operation, {
+      providerAttempt: {
+        schemaVersion: 1,
+        id: `attempt_${stage}_${Date.parse(startedAt)}`,
+        stage,
+        status: "started",
+        startedAt,
+        updatedAt: startedAt,
+      },
+    });
+    this.liveProviderAttempts.add(started.providerAttempt!.id);
+    return started;
+  }
+
+  private completeProviderAttempt(
+    operation: TrackingSetupOperationV1,
+    patch: Partial<TrackingSetupOperationV1> = {},
+  ): TrackingSetupOperationV1 {
+    const attempt = operation.providerAttempt;
+    if (!attempt || attempt.status !== "started") throw new Error("No provider attempt is active.");
+    const updatedAt = nextTimestamp(attempt.updatedAt, this.now);
+    const completed = this.save(operation, {
+      ...patch,
+      providerAttempt: { ...attempt, status: "completed", updatedAt },
+    });
+    this.liveProviderAttempts.delete(attempt.id);
+    return completed;
+  }
+
+  private failProviderAttempt(
+    operation: TrackingSetupOperationV1,
+    failureCode: ProviderFailureCodeV1,
+    patch: Partial<TrackingSetupOperationV1> = {},
+  ): TrackingSetupOperationV1 {
+    const attempt = operation.providerAttempt;
+    if (!attempt || attempt.status !== "started") throw new Error("No provider attempt is active.");
+    const updatedAt = nextTimestamp(attempt.updatedAt, this.now);
+    const failed = this.save(operation, {
+      ...patch,
+      providerAttempt: { ...attempt, status: "failed", updatedAt, failureCode },
+    });
+    this.liveProviderAttempts.delete(attempt.id);
+    return failed;
+  }
+
+  private providerFailureCode(error: unknown): ProviderFailureCodeV1 {
+    if (typeof error === "object" && error !== null && "status" in error) {
+      const status = Number((error as { status?: unknown }).status);
+      if (status === 401 || status === 403) return "provider_forbidden";
+      if (status === 409) return "provider_conflict";
+    }
+    return "provider_unavailable";
   }
 
   private repairReady(operation: TrackingSetupOperationV1): Extract<WorkflowDraftRepairResult, { status: "repair_ready" }> {

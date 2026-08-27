@@ -1,6 +1,6 @@
 # Report provider operation progress
 
-Delivery mode: specification
+Delivery mode: implementation
 Status: resolved
 
 ## Decision
@@ -54,18 +54,19 @@ email, raw exception, or private page data.
 
 - `tests/acceptance/provider-operation-progress.json` defines all six stages plus
   active, timed-out, reloaded, reconciling, failed, approval-wait, and completed cases.
-- `packages/core/src/provider-progress-acceptance.test.ts` validates the projection
-  invariants now. Future runtime coverage must consume this fixture in the operation
-  domain, API runner, and Chromium workflow.
+- `packages/core/src/provider-progress-acceptance.test.ts` validates the fixture shape,
+  while `packages/core/src/provider-progress.test.ts`, the operation and runner suites,
+  and the Chromium workflow consume its runtime invariants.
 - Reload, progress reads, and duplicate active actions must record zero additional
   provider calls. Unknown stages, malformed attempts, and raw provider errors fail
   schema validation.
 
 ## Authorization
 
-The user authorized completing the remaining automatable product slices on 2026-08-27.
-This issue remains specification-only under the repository delivery gate; it does not
-authorize operation-schema, API, or UI implementation.
+The user explicitly authorized production implementation on 2026-08-27. The authorized
+boundary is one attempt on the existing operation, a safe API projection, exact UI
+stages, and retry locking. It excludes background mutation, parallel provider calls,
+elapsed-time verdicts, and a second persistence store.
 
 ## Comments
 
@@ -74,3 +75,5 @@ authorize operation-schema, API, or UI implementation.
 - 2026-08-27: Resolved the durable attempt and visible projection model. ADR 0005 keeps
   provider progress on the tracking setup operation and requires reconciliation rather
   than retry after a process restart.
+- 2026-08-27: Implemented durable attempts for all six provider stages, the read-only
+  projection endpoint, duplicate/restart locking, and website-agent progress wording.

@@ -6,6 +6,7 @@ import {
   validateTrackingSetup,
   validateExactDraftBrowserRun,
   validateTrackingRunEvidence,
+  validateProviderProgressProjection,
   validateAuthoringInput,
   validateFormSetupRequest,
   type AgentTurnContext,
@@ -18,6 +19,7 @@ import {
   type FormCandidate,
   type KnownInteractionTypeV1,
   type NavigationElement,
+  type ProviderProgressProjectionV1,
   type TrackingRunEvidenceV1,
 } from "@gtm-observability/core";
 
@@ -517,7 +519,7 @@ interface WorkflowPlanSummary {
 
 interface WorkflowResumeSummary {
   operationId: string;
-  status: "awaiting_preview" | "versioned" | "published" | "blocked" | "paused";
+  status: "awaiting_preview" | "versioned" | "published" | "blocked" | "paused" | "provider_progress";
   stage?: "planning" | "application" | "validation" | "version";
   validationStatus?: "passed";
   versionFingerprint?: string;
@@ -526,6 +528,7 @@ interface WorkflowResumeSummary {
   workspaceFingerprint?: string;
   previewVersionFingerprint?: string;
   publishedAt?: string;
+  providerProgress?: ProviderProgressProjectionV1;
 }
 
 interface WorkflowRepairSummary {
@@ -540,10 +543,11 @@ interface WorkflowRepairSummary {
 
 interface WorkflowPublicationSummary {
   operationId: string;
-  status: "approved" | "published";
-  versionFingerprint: string;
+  status: "approved" | "published" | "provider_progress";
+  versionFingerprint?: string;
   approvedAt?: string;
   publishedAt?: string;
+  providerProgress?: ProviderProgressProjectionV1;
 }
 
 function trackingWorkflowRequest(value: unknown): FormSetupRequest | GenericTrackingSetupRequest | undefined {
@@ -636,7 +640,8 @@ function resumableOperationId(value: unknown): string | undefined {
   if (!isRecord(value)
     || value.status !== "reused"
     || !isRecord(value.operation)
-    || !["validated", "versioned", "published"].includes(String(value.operation.status))
+    || (!(["validated", "versioned", "published"].includes(String(value.operation.status)))
+      && !(isRecord(value.operation.providerAttempt) && value.operation.providerAttempt.status === "started"))
     || typeof value.operation.id !== "string"
     || !/^operation_[A-Za-z0-9_-]+$/.test(value.operation.id)) {
     return undefined;
@@ -671,10 +676,18 @@ function resumeSummary(
   operationId: string,
 ): WorkflowResumeSummary | undefined {
   if (!isRecord(value)
-    || !["awaiting_preview", "versioned", "published", "blocked", "paused"].includes(String(value.status))
+    || !["awaiting_preview", "versioned", "published", "blocked", "paused", "provider_progress"].includes(String(value.status))
     || !isRecord(value.operation)
     || value.operation.id !== operationId) {
     return undefined;
+  }
+  if (value.status === "provider_progress") {
+    if (validateProviderProgressProjection(value.progress).length > 0) return undefined;
+    return {
+      operationId,
+      status: "provider_progress",
+      providerProgress: value.progress as ProviderProgressProjectionV1,
+    };
   }
   if (value.status === "versioned") {
     if (value.nextStep !== "await_approval"
@@ -1125,6 +1138,7 @@ chrome.runtime.onMessage.addListener(
       const body: unknown = await response.json();
       const result = isRecord(body)
         ? rollbackSummary(body.result, operationId, versionFingerprint, targetVersionFingerprint)
+          ?? resumeSummary(body.result, operationId)
         : undefined;
       sendResponse(result
         ? { ok: true, result }
@@ -1172,8 +1186,9 @@ chrome.runtime.onMessage.addListener(
       const body: unknown = await response.json();
       const result = isRecord(body)
         ? publicationSummary(body.result, operationId, versionFingerprint)
+          ?? resumeSummary(body.result, operationId)
         : undefined;
-      sendResponse(result?.status === expectedStatus
+      sendResponse(result?.status === expectedStatus || result?.status === "provider_progress"
         ? { ok: true, result }
         : { ok: false, error: "invalid_response" });
     }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
@@ -1220,6 +1235,37 @@ chrome.runtime.onMessage.addListener(
     void chrome.tabs.create({ url: "https://tagmanager.google.com/" })
       .then(() => sendResponse({ ok: true }))
       .catch(() => sendResponse({ ok: false }));
+    return true;
+  },
+);
+
+chrome.runtime.onMessage.addListener(
+  (message: unknown, _sender, sendResponse) => {
+    if (!isRecord(message) || message.type !== "GTM_WORKFLOW_PROGRESS_REQUEST") {
+      return undefined;
+    }
+    const operationId = message.operationId;
+    if (typeof operationId !== "string" || !/^operation_[A-Za-z0-9_-]+$/.test(operationId)) {
+      sendResponse({ ok: false, error: "invalid_request" });
+      return undefined;
+    }
+    const parameters = new URLSearchParams();
+    if (message.displayTimedOut === true) parameters.set("displayTimedOut", "true");
+    if (message.browserReloaded === true) parameters.set("browserReloaded", "true");
+    const query = parameters.size > 0 ? `?${parameters.toString()}` : "";
+    void fetch(`${workflowBaseUrl}/${encodeURIComponent(operationId)}/progress${query}`)
+      .then(async (response) => {
+        if (!response.ok) {
+          sendResponse({ ok: false, error: "progress_unavailable" });
+          return;
+        }
+        const body: unknown = await response.json();
+        const progress = isRecord(body) ? body.progress : undefined;
+        sendResponse(validateProviderProgressProjection(progress).length === 0
+          ? { ok: true, result: progress }
+          : { ok: false, error: "invalid_response" });
+      })
+      .catch(() => sendResponse({ ok: false, error: "service_offline" }));
     return true;
   },
 );

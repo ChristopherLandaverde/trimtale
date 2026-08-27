@@ -13,6 +13,7 @@ export * from "./conversation.js";
 export * from "./agent-turn.js";
 export * from "./change-plan.js";
 export * from "./tracking-operation.js";
+export * from "./provider-progress.js";
 export * from "./publication.js";
 export * from "./generator.js";
 export * from "./form-evidence.js";

@@ -12,6 +12,10 @@ import {
   type TrackingChangePlan,
 } from "./change-plan.js";
 import type { GtmContainerExport } from "./types.js";
+import {
+  validateProviderAttempt,
+  type ProviderAttemptV1,
+} from "./provider-progress.js";
 
 export const TRACKING_OPERATION_SCHEMA_VERSION = 1 as const;
 
@@ -95,6 +99,7 @@ export interface TrackingSetupOperationV1 {
   workspace: { path: string; fingerprint: string };
   plan: TrackingChangePlan;
   completedActionSignatures: string[];
+  providerAttempt?: ProviderAttemptV1;
   previewPolicy?: "legacy_pre_checkpoint" | "exact_draft_required";
   managedReplacement?: ManagedReplacementApprovalV1;
   validation?: {
@@ -182,6 +187,15 @@ export function validateTrackingOperation(value: unknown): string[] {
   if (!statuses.has(value.status as TrackingOperationStatus)) errors.push("status is unsupported");
   if (!validTimestamp(value.createdAt)) errors.push("createdAt is invalid");
   if (!validTimestamp(value.updatedAt)) errors.push("updatedAt is invalid");
+  if (value.providerAttempt !== undefined) {
+    errors.push(...validateProviderAttempt(value.providerAttempt));
+    if (isRecord(value.providerAttempt)
+      && validTimestamp(value.providerAttempt.updatedAt)
+      && validTimestamp(value.updatedAt)
+      && Date.parse(value.providerAttempt.updatedAt) > Date.parse(value.updatedAt)) {
+      errors.push("providerAttempt.updatedAt exceeds operation.updatedAt");
+    }
+  }
   const genericSetup = isRecord(value.specification) && Array.isArray(value.specification.tagActions);
   const specificationErrors = genericSetup
     ? validateTrackingSetup(value.specification)

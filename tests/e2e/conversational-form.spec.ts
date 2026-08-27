@@ -593,6 +593,70 @@ test("reviews a durable form plan without applying it", async ({ context, page }
   });
 });
 
+test("shows durable provider stage progress and keeps retry locked", async ({ context, page }) => {
+  const journey = await openExtensionJourney(context, page, "confirmed_success", "GTM-TEST123");
+  await routeWriteAccess(journey);
+  await routeReadyPlan(journey);
+  let progressReads = 0;
+  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/*/progress?*", async (route) => {
+    progressReads += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        progress: {
+          schemaVersion: 1,
+          attemptId: "attempt_validation_1",
+          stage: "validation",
+          state: "in_flight",
+          retry: "locked",
+          startedAt: "2026-08-27T15:00:00.000Z",
+          updatedAt: "2026-08-27T15:00:00.000Z",
+          elapsedSeconds: 15,
+          message: "Validation is taking longer than expected and is still running.",
+        },
+      }),
+    });
+  });
+  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/*/resume", async (route) => {
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 3_000));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        result: {
+          status: "awaiting_preview",
+          nextStep: "run_tag_assistant_preview",
+          preview: {
+            setupFingerprint: "setup_form_contact",
+            workspaceFingerprint: "workspace-final",
+            previewVersionFingerprint: "preview-8",
+          },
+          operation: {
+            id: "operation_spec_form_contact",
+            status: "validated",
+            validation: { status: "passed" },
+          },
+        },
+      }),
+    });
+  });
+
+  await approveLeadSetup(journey);
+  await journey.root.getByRole("button", { name: "Prepare workspace & plan" }).click();
+  await journey.root.getByRole("button", { name: "Apply & validate draft" }).click();
+  await journey.root.getByRole("button", { name: "Confirm apply & validate" }).click();
+
+  await expect(journey.root.getByText(/Validation · in flight/i)).toBeVisible({ timeout: 2_500 });
+  await expect(journey.root.getByText(/longer than expected and is still running/i)).toBeVisible();
+  await expect(journey.root.getByText(/elapsed time does not determine success or failure/i)).toBeVisible();
+  await expect(journey.root.getByText(/Retry is locked/i)).toBeVisible();
+  expect(progressReads).toBe(1);
+  await expect(journey.root.getByRole("button", { name: /retry/i })).toHaveCount(0);
+  await expect(journey.root.getByRole("region", { name: "Exact preview readiness" }))
+    .toBeVisible({ timeout: 4_000 });
+});
+
 test("reviews exact replacement of an existing managed setup", async ({ context, page }) => {
   const journey = await openExtensionJourney(context, page, "confirmed_success", "GTM-TEST123");
   let resumeRequests = 0;

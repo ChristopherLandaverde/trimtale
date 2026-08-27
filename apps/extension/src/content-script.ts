@@ -28,6 +28,7 @@ import {
   type KnownInteractionTypeV1,
   type NavigationArea,
   type NavigationElement,
+  type ProviderProgressProjectionV1,
   type SuccessEvidence,
   type SetupProposal,
   type SetupAuthoringGroundingV1,
@@ -110,7 +111,7 @@ interface WorkflowPlanResponse {
 
 interface WorkflowResumeSummary {
   operationId: string;
-  status: "awaiting_preview" | "versioned" | "published" | "blocked" | "paused";
+  status: "awaiting_preview" | "versioned" | "published" | "blocked" | "paused" | "provider_progress";
   stage?: "planning" | "application" | "validation" | "version";
   validationStatus?: "passed";
   versionFingerprint?: string;
@@ -119,6 +120,13 @@ interface WorkflowResumeSummary {
   workspaceFingerprint?: string;
   previewVersionFingerprint?: string;
   publishedAt?: string;
+  providerProgress?: ProviderProgressProjectionV1;
+}
+
+interface WorkflowProgressResponse {
+  ok: boolean;
+  error?: "invalid_request" | "progress_unavailable" | "invalid_response" | "service_offline";
+  result?: ProviderProgressProjectionV1;
 }
 
 interface WorkflowResumeResponse {
@@ -145,10 +153,11 @@ interface WorkflowRepairResponse {
 
 interface WorkflowPublicationSummary {
   operationId: string;
-  status: "approved" | "published";
-  versionFingerprint: string;
+  status: "approved" | "published" | "provider_progress";
+  versionFingerprint?: string;
   approvedAt?: string;
   publishedAt?: string;
+  providerProgress?: ProviderProgressProjectionV1;
 }
 
 interface WorkflowPublicationResponse {
@@ -174,11 +183,12 @@ interface WorkflowLiveVerificationResponse {
 
 interface WorkflowRollbackSummary {
   operationId: string;
-  status: "rolled_back";
-  nextStep: "complete";
-  versionFingerprint: string;
-  targetVersionFingerprint: string;
-  completedAt: string;
+  status: "rolled_back" | "provider_progress";
+  nextStep?: "complete";
+  versionFingerprint?: string;
+  targetVersionFingerprint?: string;
+  completedAt?: string;
+  providerProgress?: ProviderProgressProjectionV1;
 }
 
 interface WorkflowRollbackResponse {
@@ -484,6 +494,17 @@ async function requestWorkflowResume(
     type: "GTM_WORKFLOW_RESUME_REQUEST",
     operationId,
   }) as Promise<WorkflowResumeResponse>;
+}
+
+async function requestWorkflowProgress(
+  operationId: string,
+  presentation: { displayTimedOut?: boolean; browserReloaded?: boolean } = {},
+): Promise<WorkflowProgressResponse> {
+  return chrome.runtime.sendMessage({
+    type: "GTM_WORKFLOW_PROGRESS_REQUEST",
+    operationId,
+    ...presentation,
+  }) as Promise<WorkflowProgressResponse>;
 }
 
 async function requestReplacementApproval(
@@ -2953,6 +2974,7 @@ async function publishExactVersion(
     return;
   }
   let publication: WorkflowPublicationResponse;
+  const stopProgress = monitorProviderProgress(requestId, intake, version.operationId);
   try {
     publication = await requestWorkflowPublicationAction(
       "GTM_WORKFLOW_PUBLISH_REQUEST",
@@ -2961,6 +2983,14 @@ async function publishExactVersion(
     );
   } catch {
     publication = { ok: false, error: "service_offline" };
+  } finally {
+    stopProgress();
+  }
+  if (publication.ok
+    && publication.result?.status === "provider_progress"
+    && publication.result.providerProgress) {
+    renderProviderProgress(requestId, intake, publication.result.providerProgress);
+    return;
   }
   if (!publication.ok
     || publication.result?.status !== "published"
@@ -3110,6 +3140,7 @@ async function rollbackPublication(
     verifyStatus: "blocked",
   });
   let response: WorkflowRollbackResponse;
+  const stopProgress = monitorProviderProgress(requestId, intake, publication.operationId);
   try {
     response = await requestWorkflowRollback(
       publication.operationId,
@@ -3118,6 +3149,14 @@ async function rollbackPublication(
     );
   } catch {
     response = { ok: false, error: "service_offline" };
+  } finally {
+    stopProgress();
+  }
+  if (response.ok
+    && response.result?.status === "provider_progress"
+    && response.result.providerProgress) {
+    renderProviderProgress(requestId, intake, response.result.providerProgress);
+    return;
   }
   if (!response.ok
     || response.result?.status !== "rolled_back"
@@ -3416,6 +3455,49 @@ function confirmWorkflowApply(
   renderWorkflowPlan(task, plan);
 }
 
+function renderProviderProgress(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  progress: ProviderProgressProjectionV1,
+): void {
+  const stage = progress.stage ?? "provider";
+  const state = progress.state.replaceAll("_", " ");
+  const elapsed = progress.elapsedSeconds === undefined
+    ? ""
+    : ` Elapsed ${progress.elapsedSeconds} seconds; elapsed time does not determine success or failure.`;
+  renderFormTaskState(requestId, intake, {
+    status: progress.state === "in_flight" ? "working" : "blocked",
+    summary: `${stage[0]!.toUpperCase()}${stage.slice(1)} · ${state}. ${progress.message}${elapsed}`,
+    verifyStatus: "pending",
+    question: progress.state === "reconciling"
+      ? "Current Google state must be reconciled before another mutation can be offered."
+      : progress.state === "failed"
+        ? "Retry remains locked until the operation checkpoint and fresh Google state permit it."
+        : "Retry is locked while this provider state is active.",
+  });
+}
+
+function monitorProviderProgress(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  operationId: string,
+): () => void {
+  let stopped = false;
+  const timeout = window.setTimeout(() => {
+    void requestWorkflowProgress(operationId, { displayTimedOut: true })
+      .then((response) => {
+        if (!stopped && response.ok && response.result) {
+          renderProviderProgress(requestId, intake, response.result);
+        }
+      })
+      .catch(() => undefined);
+  }, 1_500);
+  return () => {
+    stopped = true;
+    window.clearTimeout(timeout);
+  };
+}
+
 function blockedWorkflowCopy(result: WorkflowResumeSummary): string {
   if (result.status === "paused") {
     return "Application paused after a partial write. Nothing was published.";
@@ -3574,7 +3656,19 @@ async function completeExactDraftVerification(
     });
     return;
   }
-  const resumed = await requestWorkflowResume(preview.operationId);
+  const stopProgress = monitorProviderProgress(requestId, intake, preview.operationId);
+  let resumed: WorkflowResumeResponse;
+  try {
+    resumed = await requestWorkflowResume(preview.operationId);
+  } finally {
+    stopProgress();
+  }
+  if (resumed.ok
+    && resumed.result?.status === "provider_progress"
+    && resumed.result.providerProgress) {
+    renderProviderProgress(requestId, intake, resumed.result.providerProgress);
+    return;
+  }
   if (!resumed.ok
     || !resumed.result
     || resumed.result.status !== "versioned"
@@ -3605,10 +3699,13 @@ async function applyFormWorkflow(
     verifyStatus: "pending",
   });
   let response: WorkflowResumeResponse;
+  const stopProgress = monitorProviderProgress(requestId, intake, plan.operationId);
   try {
     response = await requestWorkflowResume(plan.operationId);
   } catch {
     response = { ok: false, error: "service_offline" };
+  } finally {
+    stopProgress();
   }
   if (!response.ok || !response.result) {
     renderFormTaskState(requestId, intake, {
@@ -3618,6 +3715,10 @@ async function applyFormWorkflow(
       question: "Return to the reviewed plan before retrying.",
       actions: [{ id: "return-to-form-plan", label: "Return to plan" }],
     });
+    return;
+  }
+  if (response.result.status === "provider_progress" && response.result.providerProgress) {
+    renderProviderProgress(requestId, intake, response.result.providerProgress);
     return;
   }
   if (response.result.status === "awaiting_preview"
@@ -3665,11 +3766,27 @@ async function planFormWorkflow(
   });
   const response = await requestWorkflowPlan(requestId, intake);
   if (response.ok && response.resumeOperationId) {
+    try {
+      const progress = await requestWorkflowProgress(response.resumeOperationId, { browserReloaded: true });
+      if (progress.ok && progress.result
+        && ["in_flight", "reconciling", "failed"].includes(progress.result.state)) {
+        renderProviderProgress(requestId, intake, progress.result);
+        return;
+      }
+    } catch {
+      // The normal resume request below retains the existing offline behavior.
+    }
     let resumed: WorkflowResumeResponse;
     try {
       resumed = await requestWorkflowResume(response.resumeOperationId);
     } catch {
       resumed = { ok: false, error: "service_offline" };
+    }
+    if (resumed.ok
+      && resumed.result?.status === "provider_progress"
+      && resumed.result.providerProgress) {
+      renderProviderProgress(requestId, intake, resumed.result.providerProgress);
+      return;
     }
     if (resumed.ok
       && resumed.result?.status === "published"

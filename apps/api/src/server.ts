@@ -550,6 +550,31 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  const workflowProgressMatch = requestUrl.pathname.match(
+    /^\/api\/google\/workflows\/([A-Za-z0-9_-]+)\/progress$/,
+  );
+  if (request.method === "GET" && workflowProgressMatch) {
+    if (!workflowRunner) {
+      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
+      return;
+    }
+    try {
+      sendJson(response, 200, {
+        progress: workflowRunner.progress(workflowProgressMatch[1] ?? "", {
+          displayTimedOut: requestUrl.searchParams.get("displayTimedOut") === "true",
+          browserReloaded: requestUrl.searchParams.get("browserReloaded") === "true",
+        }),
+      });
+    } catch (workflowError) {
+      sendJson(response, 404, {
+        error: workflowError instanceof Error
+          ? workflowError.message
+          : "Tracking operation was not found.",
+      });
+    }
+    return;
+  }
+
   const resumeMatch = requestUrl.pathname.match(
     /^\/api\/google\/workflows\/([A-Za-z0-9_-]+)\/resume$/,
   );
