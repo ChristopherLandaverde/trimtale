@@ -352,8 +352,9 @@ setup without weakening approval, privacy, or provider boundaries:
 
 1. Issue 23 now keeps confirmed verification targets operable when the website agent
    and page controls compete for a narrow viewport.
-2. Issue 24 defines an explicit exact-preview readiness receipt before a browser run
-   can begin.
+2. Issue 24 now requires an exact-preview readiness receipt that matches the loaded
+   container and current target, plus an explicit practitioner confirmation that Tag
+   Assistant shows Connected, before a browser run can begin.
 3. Issue 25 defines one generic browser-evidence contract for expected requests,
    permitted automatic events, required parameters, and duplicate policy.
 4. Issue 26 proves the callback pattern with one selected cross-origin provider before

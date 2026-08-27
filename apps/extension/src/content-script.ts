@@ -343,6 +343,14 @@ const workflowPreviewByRequest = new Map<string, {
   workspaceFingerprint: string;
   previewVersionFingerprint: string;
 }>();
+const previewReadinessByRequest = new Map<string, {
+  operationId: string;
+  workspaceFingerprint: string;
+  previewVersionFingerprint: string;
+  publicId: string;
+  targetUrl: string;
+}>();
+const previewTargetByRequest = new Map<string, string>();
 const workflowVersionByRequest = new Map<string, {
   operationId: string;
   versionFingerprint: string;
@@ -3138,11 +3146,12 @@ function renderPreviewHandoff(
   intake: ConversationIntakeResult,
   preview: NonNullable<ReturnType<typeof workflowPreviewByRequest.get>>,
 ): void {
+  const readiness = previewReadiness(requestId, intake, preview);
   const task = renderFormTaskState(requestId, intake, {
     status: "needs_input",
     summary: "The reviewed changes are applied and the exact workspace draft passed provider validation. No immutable version exists yet.",
-    verifyStatus: "active",
-    question: "Open Google Tag Manager, select the managed workspace, click Preview, connect this website in Tag Assistant, then return here and start the exact browser run.",
+    verifyStatus: readiness.confirmed ? "active" : "blocked",
+    question: readiness.question,
   });
   const binding = document.createElement("div");
   binding.className = "agent-specification operation-preview";
@@ -3155,16 +3164,137 @@ function renderPreviewHandoff(
     ["GTM preview", preview.previewVersionFingerprint],
   ]);
   task.append(binding);
+  const receipt = document.createElement("div");
+  receipt.className = "agent-specification operation-preview-readiness";
+  receipt.setAttribute("role", "region");
+  receipt.setAttribute("aria-label", "Exact preview readiness");
+  appendAgentText(receipt, "agent-receipt-heading", "Preview readiness");
+  appendSpecificationRows(receipt, readiness.rows);
+  task.append(receipt);
   renderQuickActions(requestId, [
     { id: "open-tag-assistant", label: "Open Google Tag Manager" },
-    {
+    ...(readiness.eligible && !readiness.confirmed
+      ? [{ id: "confirm-preview-readiness", label: "Confirm Tag Assistant connected" }]
+      : []),
+    ...(!readiness.eligible
+      ? [{ id: "recheck-preview-readiness", label: "Recheck Preview readiness" }]
+      : []),
+    ...(readiness.confirmed ? [{
       id: intake.interaction === "form_submission"
         ? "start-exact-form-preview"
         : "start-exact-interaction-preview",
       label: "Start exact browser run",
-    },
+    }, { id: "recheck-preview-readiness", label: "Recheck Preview readiness" }] : []),
   ], task);
   responseList?.scrollTo({ top: responseList.scrollHeight });
+}
+
+function normalizedPreviewUrl(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    url.searchParams.delete("_dbg");
+    url.searchParams.delete("gtm_debug");
+    url.searchParams.sort();
+    return url.href;
+  } catch {
+    return undefined;
+  }
+}
+
+function boundPreviewTargetUrl(
+  requestId: string,
+  intake: ConversationIntakeResult,
+): string | undefined {
+  const confirmedFormTarget = intake.target?.pageUrl
+    ? normalizedPreviewUrl(intake.target.pageUrl)
+    : undefined;
+  if (confirmedFormTarget) return confirmedFormTarget;
+  const existing = previewTargetByRequest.get(requestId);
+  if (existing) return existing;
+  const current = normalizedPreviewUrl(location.href);
+  if (current) previewTargetByRequest.set(requestId, current);
+  return current;
+}
+
+function previewReadiness(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  preview: NonNullable<ReturnType<typeof workflowPreviewByRequest.get>>,
+): {
+  eligible: boolean;
+  confirmed: boolean;
+  question: string;
+  rows: Array<[string, string]>;
+} {
+  const context = recognizedGtmContext;
+  const runtime = inspectGtmRuntime();
+  const loadedIds = runtime.status === "detected" ? runtime.containerIds : [];
+  const loadedContainer = loadedIds.length === 1 ? loadedIds[0] : undefined;
+  const targetUrl = boundPreviewTargetUrl(requestId, intake);
+  const currentUrl = normalizedPreviewUrl(location.href);
+  const targetMatches = Boolean(targetUrl && currentUrl && targetUrl === currentUrl);
+  const containerMatches = Boolean(
+    context && loadedContainer && loadedContainer === context.publicId,
+  );
+  const eligible = containerMatches && targetMatches;
+  const confirmation = previewReadinessByRequest.get(requestId);
+  const confirmed = Boolean(eligible
+    && confirmation
+    && confirmation.operationId === preview.operationId
+    && confirmation.workspaceFingerprint === preview.workspaceFingerprint
+    && confirmation.previewVersionFingerprint === preview.previewVersionFingerprint
+    && confirmation.publicId === context?.publicId
+    && confirmation.targetUrl === currentUrl);
+  const targetLabel = `${location.origin}${location.pathname}`;
+  const currentTarget = !targetMatches
+    ? "Current page does not match the confirmed target"
+    : targetLabel;
+  const tagAssistantState = confirmed
+    ? "Practitioner confirmed Connected"
+    : "Awaiting Tag Assistant confirmation";
+  const question = !containerMatches
+    ? "Reload the recognized GTM container on this page, then recheck Preview readiness."
+    : !targetMatches
+      ? "Return to the confirmed target page, then recheck Preview readiness."
+      : !confirmed
+        ? "In Tag Assistant, confirm this exact target shows Connected, then record that confirmation here."
+        : "The current target and loaded container match the confirmed Tag Assistant handoff. Start the exact browser run.";
+  return {
+    eligible,
+    confirmed,
+    question,
+    rows: [
+      ["Recognized container", context?.publicId ?? "Unavailable"],
+      ["Managed workspace", preview.workspaceFingerprint],
+      ["Bound preview", preview.previewVersionFingerprint],
+      ["Current target", currentTarget],
+      ["Tag Assistant", tagAssistantState],
+      ["Loaded container", loadedIds.length === 0 ? "Not detected" : loadedIds.join(", ")],
+    ],
+  };
+}
+
+function confirmPreviewReadiness(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  preview: NonNullable<ReturnType<typeof workflowPreviewByRequest.get>>,
+): void {
+  const readiness = previewReadiness(requestId, intake, preview);
+  const context = recognizedGtmContext;
+  const targetUrl = normalizedPreviewUrl(location.href);
+  if (!readiness.eligible || !context || !targetUrl) {
+    previewReadinessByRequest.delete(requestId);
+    renderPreviewHandoff(requestId, intake, preview);
+    return;
+  }
+  previewReadinessByRequest.set(requestId, {
+    operationId: preview.operationId,
+    workspaceFingerprint: preview.workspaceFingerprint,
+    previewVersionFingerprint: preview.previewVersionFingerprint,
+    publicId: context.publicId,
+    targetUrl,
+  });
+  renderPreviewHandoff(requestId, intake, preview);
 }
 
 function workflowReviewActions(
@@ -3406,6 +3536,8 @@ async function applyReviewedDraftRepair(
     previewVersionFingerprint: response.result.previewVersionFingerprint,
   };
   workflowRepairsByRequest.delete(requestId);
+  previewReadinessByRequest.delete(requestId);
+  previewTargetByRequest.delete(requestId);
   workflowPreviewByRequest.set(requestId, preview);
   renderPreviewHandoff(requestId, intake, preview);
 }
@@ -3458,6 +3590,8 @@ async function completeExactDraftVerification(
     });
     return;
   }
+  previewReadinessByRequest.delete(requestId);
+  previewTargetByRequest.delete(requestId);
   workflowPreviewByRequest.delete(requestId);
   renderCompletedVersion(requestId, intake, resumed.result);
 }
@@ -3500,6 +3634,8 @@ async function applyFormWorkflow(
       workspaceFingerprint: response.result.workspaceFingerprint,
       previewVersionFingerprint: response.result.previewVersionFingerprint,
     };
+    previewReadinessByRequest.delete(requestId);
+    previewTargetByRequest.delete(requestId);
     workflowPreviewByRequest.set(requestId, preview);
     renderPreviewHandoff(requestId, intake, preview);
     return;
@@ -3571,6 +3707,8 @@ async function planFormWorkflow(
         workspaceFingerprint: resumed.result.workspaceFingerprint,
         previewVersionFingerprint: resumed.result.previewVersionFingerprint,
       };
+      previewReadinessByRequest.delete(requestId);
+      previewTargetByRequest.delete(requestId);
       workflowPreviewByRequest.set(requestId, preview);
       renderPreviewHandoff(requestId, intake, preview);
       return;
@@ -3711,12 +3849,28 @@ function handleAssistantAction(actionId: string, requestId: string): void {
     if (preview) renderPreviewHandoff(requestId, intake, preview);
     return;
   }
-  if (actionId === "start-exact-form-preview" && intake?.canConfirm) {
-    void prepareFormVerification(requestId, intake);
+  const workflowPreview = workflowPreviewByRequest.get(requestId);
+  if (actionId === "confirm-preview-readiness" && intake?.canConfirm && workflowPreview) {
+    confirmPreviewReadiness(requestId, intake, workflowPreview);
     return;
   }
-  if (actionId === "start-exact-interaction-preview" && intake?.canConfirm) {
-    prepareInteractionVerification(requestId, intake);
+  if (actionId === "recheck-preview-readiness" && intake?.canConfirm && workflowPreview) {
+    renderPreviewHandoff(requestId, intake, workflowPreview);
+    return;
+  }
+  if ((actionId === "start-exact-form-preview" || actionId === "start-exact-interaction-preview")
+    && intake?.canConfirm
+    && workflowPreview) {
+    if (!previewReadiness(requestId, intake, workflowPreview).confirmed) {
+      previewReadinessByRequest.delete(requestId);
+      renderPreviewHandoff(requestId, intake, workflowPreview);
+      return;
+    }
+    if (actionId === "start-exact-form-preview") {
+      void prepareFormVerification(requestId, intake);
+    } else {
+      prepareInteractionVerification(requestId, intake);
+    }
     return;
   }
   const workflowRepair = workflowRepairsByRequest.get(requestId);

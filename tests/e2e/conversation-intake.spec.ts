@@ -349,6 +349,18 @@ test("authors and reviews a privacy-safe phone-click setup through chat", async 
   await task.getByRole("button", { name: "Apply & validate draft" }).click();
   await task.getByRole("button", { name: "Confirm apply & validate" }).click();
   await expect(task.getByText(/No immutable version exists yet/i)).toBeVisible();
+  await expect(task.getByRole("button", { name: "Start exact browser run" })).toHaveCount(0);
+  const exactTarget = site.url();
+  await site.evaluate(() => history.pushState({}, "", "/phone-preview-target-drift"));
+  await task.getByRole("button", { name: "Confirm Tag Assistant connected" }).click();
+  await expect(task.getByRole("region", { name: "Exact preview readiness" }))
+    .toContainText("Current page does not match the confirmed target");
+  expect(resumeRequests).toBe(1);
+  await site.evaluate((url) => history.replaceState({}, "", url), exactTarget);
+  await task.getByRole("button", { name: "Recheck Preview readiness" }).click();
+  await task.getByRole("button", { name: "Confirm Tag Assistant connected" }).click();
+  await expect(task.getByRole("region", { name: "Exact preview readiness" }))
+    .toContainText("Practitioner confirmed Connected");
   await task.getByRole("button", { name: "Start exact browser run" }).click();
   await site.locator("a[href^='tel:']").click();
   await expect.poll(() => resumeRequests).toBe(2);

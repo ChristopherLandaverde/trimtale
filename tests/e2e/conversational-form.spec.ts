@@ -204,6 +204,18 @@ async function approveLeadSetup(
   await root.getByRole("button", { name: "Approve setup" }).click();
 }
 
+async function confirmExactPreviewReadiness(journey: ExtensionJourney): Promise<void> {
+  const readiness = journey.root.getByRole("region", { name: "Exact preview readiness" });
+  await expect(readiness).toContainText("GTM-TEST123");
+  await expect(readiness).toContainText("Awaiting Tag Assistant confirmation");
+  await expect(journey.root.getByRole("button", { name: "Start exact browser run" }))
+    .toHaveCount(0);
+  await journey.root.getByRole("button", { name: "Confirm Tag Assistant connected" }).click();
+  await expect(readiness).toContainText("Practitioner confirmed Connected");
+  await expect(journey.root.getByRole("button", { name: "Start exact browser run" }))
+    .toBeVisible();
+}
+
 interface ExactPreviewRoutes {
   resumeRequests: number;
   verifyBodies: unknown[];
@@ -287,6 +299,7 @@ test("keeps a narrow exact-preview target operable", async ({ context, page }) =
 
   const submit = page.locator("form#contact button[type='submit']");
   await page.locator("form#contact input[name='email']").fill("narrow-private@example.test");
+  await confirmExactPreviewReadiness(journey);
   await journey.root.getByRole("button", { name: "Start exact browser run" }).click();
 
   await expect(journey.root.getByText("Verification active", { exact: true })).toBeVisible();
@@ -370,10 +383,52 @@ test("resumes a validated workflow after the browser restarts", async ({ context
   await expect.poll(() => resumeRequests).toBe(1);
   await expect(journey.root.getByRole("region", { name: "Exact preview binding" }))
     .toContainText("preview-8");
-  await expect(journey.root.getByRole("button", { name: "Start exact browser run" }))
-    .toBeVisible();
+  await expect(journey.root.getByRole("region", { name: "Exact preview readiness" }))
+    .toContainText("Awaiting Tag Assistant confirmation");
+  await confirmExactPreviewReadiness(journey);
   await expect(journey.root.getByRole("button", { name: "Apply & validate draft" }))
     .toHaveCount(0);
+});
+
+test("blocks exact Preview readiness when the confirmed target drifts", async ({ context, page }) => {
+  const journey = await openExtensionJourney(context, page, "confirmed_success", "GTM-TEST123");
+  const requests = await routeExactPreview(journey);
+  const confirmedTarget = page.url();
+
+  await approveLeadSetup(journey);
+  await journey.root.getByRole("button", { name: "Prepare workspace & plan" }).click();
+  await journey.root.getByRole("button", { name: "Apply & validate draft" }).click();
+  await journey.root.getByRole("button", { name: "Confirm apply & validate" }).click();
+  await expect.poll(() => requests.resumeRequests).toBe(1);
+
+  await page.evaluate(() => history.pushState({}, "", "/preview-target-drift"));
+  await journey.root.getByRole("button", { name: "Confirm Tag Assistant connected" }).click();
+
+  const readiness = journey.root.getByRole("region", { name: "Exact preview readiness" });
+  await expect(readiness).toContainText("Current page does not match the confirmed target");
+  await expect(journey.root.getByRole("button", { name: "Confirm Tag Assistant connected" }))
+    .toHaveCount(0);
+  await expect(journey.root.getByRole("button", { name: "Start exact browser run" }))
+    .toHaveCount(0);
+  await expect(journey.root.getByRole("button", { name: "Recheck Preview readiness" }))
+    .toBeVisible();
+  expect(requests.resumeRequests).toBe(1);
+  expect(requests.verifyBodies).toHaveLength(0);
+  await readiness.screenshot({
+    path: test.info().outputPath("exact-preview-target-drift.png"),
+    animations: "disabled",
+  });
+
+  await page.evaluate((url) => history.replaceState({}, "", url), confirmedTarget);
+  await journey.root.getByRole("button", { name: "Recheck Preview readiness" }).click();
+  await confirmExactPreviewReadiness(journey);
+  await page.evaluate(() => history.pushState({}, "", "/preview-target-drift-after-confirmation"));
+  await journey.root.getByRole("button", { name: "Start exact browser run" }).click();
+  await expect(readiness).toContainText("Current page does not match the confirmed target");
+  await expect(journey.root.getByRole("button", { name: "Start exact browser run" }))
+    .toHaveCount(0);
+  expect(requests.resumeRequests).toBe(1);
+  expect(requests.verifyBodies).toHaveLength(0);
 });
 
 test("resumes a versioned workflow after the browser restarts", async ({ context, page }) => {
@@ -839,6 +894,7 @@ test("previews, versions, and explicitly publishes the exact reviewed fingerprin
   await expect(root.getByRole("region", { name: "Exact preview binding" })).toContainText("preview-8");
   expect(await root.getByText(/Immutable version/).count()).toBe(0);
   await page.locator("form#contact input[name='email']").fill("private@example.com");
+  await confirmExactPreviewReadiness(journey);
   await root.getByRole("button", { name: "Start exact browser run" }).click();
   await page.locator("form#contact button[type='submit']").click();
 
@@ -953,6 +1009,7 @@ for (const previewCase of representativePreviewCases) {
     await expect(journey.root.getByRole("region", { name: "Exact preview binding" }))
       .toContainText("preview-8");
 
+    await confirmExactPreviewReadiness(journey);
     await journey.root.getByRole("button", { name: "Start exact browser run" }).click();
     await page.locator(`${previewCase.formSelector} input[name='email']`).fill(privateValue);
     await page.locator(`${previewCase.formSelector} button[type='submit']`).click();
@@ -1126,6 +1183,7 @@ test("offers an exact rollback only after failed live publication evidence", asy
   await root.getByRole("button", { name: "Prepare workspace & plan" }).click();
   await root.getByRole("button", { name: "Apply & validate draft" }).click();
   await root.getByRole("button", { name: "Confirm apply & validate" }).click();
+  await confirmExactPreviewReadiness(journey);
   await root.getByRole("button", { name: "Start exact browser run" }).click();
   await page.locator("form#contact button[type='submit']").click();
   await expect(root.getByRole("button", { name: "Review publication" })).toBeVisible();
@@ -1274,6 +1332,7 @@ test("reviews a bounded draft repair and requires a new exact preview", async ({
   await page.locator("form#contact").evaluate((form) => {
     form.setAttribute("data-hostile-repair", "<img src=x onerror=alert(1)>");
   });
+  await confirmExactPreviewReadiness(journey);
   await root.getByRole("button", { name: "Start exact browser run" }).click();
   await page.locator("form#contact input[name='email']").fill("repair-private@example.test");
   await page.locator("form#contact button[type='submit']").click();

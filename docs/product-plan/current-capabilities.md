@@ -1,6 +1,6 @@
 # What GTM Observability has today
 
-Status date: 2026-08-26
+Status date: 2026-08-27
 
 GTM Observability currently maintains one site-aware agent task from supported tracking
 intent through reviewable setup and verification. It observes the website's GTM
@@ -26,6 +26,7 @@ Open the agent and inspect page GTM / authorized access
     -> optionally request and approve a bounded model-authored interaction alternative
     -> optionally prepare the managed workspace and review its change plan
     -> explicitly approve application and validation
+    -> match the loaded container and target, then confirm Tag Assistant shows Connected
     -> verify the exact draft before immutable version creation
     -> on failed exact evidence, review one bounded repair and repeat exact preview
     -> optionally download the GTM JSON
@@ -75,6 +76,10 @@ The agent currently supports:
   enabled, with fresh-state rejection and independent receipts.
 - Exact confirmation before applying and validating the reviewed plan, followed by
   fingerprint-bound draft verification before immutable version creation.
+- An exact-Preview readiness receipt that matches the recognized and loaded container,
+  durable workspace/Preview binding, and current target before accepting the
+  practitioner's explicit Tag Assistant Connected confirmation. A changed binding or
+  page invalidates that non-durable confirmation without another workflow request.
 - A two-attempt, intent-preserving repair review for failed exact-draft evidence when
   the unchanged setup has one concrete managed-entity repair, followed by provider
   revalidation and a new exact-preview fingerprint.
@@ -254,7 +259,9 @@ an interrupted application resumes from freshly read Google state and completed 
 signatures.
 
 The runner stops at each authority checkpoint: exact draft preview, immutable version
-review, publication approval, and live verification. Publication remains behind its
+review, publication approval, and live verification. The website agent keeps an exact
+browser run locked until local container and target checks match and the practitioner
+confirms Tag Assistant shows Connected for that target. Publication remains behind its
 separate backend flag, OAuth scope, and exact fingerprint approval. A passing live run
 completes the operation. A failed run records the prior-live target and requires a
 second exact rollback confirmation; inconclusive evidence keeps rollback locked.
