@@ -5327,11 +5327,11 @@ async function mountOverlay(): Promise<void> {
       .agent-plan-stage.blocked { color: #e4c67e; }
       .agent-plan-stage.blocked i { color: #f4cf75; background: rgba(120,77,18,.35); }
       .agent-stage-kind { color: #84928f; font-size: 8px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; }
-      .agent-receipts { display: grid; gap: 4px; padding: 8px; border-radius: 10px; background: rgba(9,15,18,.38); }
-      .agent-receipt-heading { color: #85938f; font-size: 8px; font-weight: 700; letter-spacing: .055em; text-transform: uppercase; }
-      .agent-receipt { display: grid; grid-template-columns: minmax(72px, .8fr) minmax(0, 1.2fr); align-items: start; gap: 8px; color: #a9b6b3; font-size: 9px; }
+      .agent-receipts { display: grid; gap: 4px; padding: 8px; border: 1px solid rgba(167,243,208,.1); border-radius: 10px; background: #111a1d; }
+      .agent-receipt-heading { color: #aab9b4; font-size: 10px; font-weight: 750; letter-spacing: .055em; text-transform: uppercase; }
+      .agent-receipt { display: grid; grid-template-columns: minmax(72px, .8fr) minmax(0, 1.2fr); align-items: start; gap: 8px; color: #c1ceca; font-size: 10px; line-height: 1.4; }
       .agent-receipt-label { min-width: 0; overflow-wrap: anywhere; }
-      .agent-receipt-detail { min-width: 0; color: #7f8d92; text-align: right; overflow-wrap: anywhere; }
+      .agent-receipt-detail { min-width: 0; color: #aab8bd; text-align: right; overflow-wrap: anywhere; }
       .agent-question { padding-top: 1px; color: #e6eeea; font-size: 11px; font-weight: 590; overflow-wrap: anywhere; }
       .agent-specification { display: grid; gap: 5px; padding: 9px; border: 1px solid rgba(255,255,255,.08); border-radius: 11px; background: rgba(9,15,18,.35); }
       .agent-verification-result { display: grid; gap: 5px; padding: 9px; border: 1px solid rgba(141,232,189,.12); border-radius: 11px; background: rgba(9,15,18,.35); }

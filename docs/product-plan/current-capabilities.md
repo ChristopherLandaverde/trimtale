@@ -298,7 +298,8 @@ mutations.
 When a confirmed form is ready for its read-only setup review, the primary action says
 `Review what will be tracked`. The same compact decision area names the exact form,
 success signal, event name, and privacy boundary and states that nothing will be
-created yet.
+created yet. Action receipts use an opaque, high-contrast card so their labels and
+details remain crisp against the assistant's glass surface.
 
 The exact replies `confirm`, `yes`, `continue`, `ok`, and `okay` remain bound to the
 visible task. They may advance one visible read-only setup-review action. When scope,

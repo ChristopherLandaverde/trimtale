@@ -8,6 +8,23 @@ const screenshotOptions = {
   stylePath: resolve("tests/e2e/visual-stability.css"),
 };
 
+function contrastRatio(foreground: string, background: string): number {
+  const channels = (color: string): number[] => color.match(/[\d.]+/g)!
+    .slice(0, 3)
+    .map(Number)
+    .map((channel) => channel / 255)
+    .map((channel) => channel <= 0.04045
+      ? channel / 12.92
+      : ((channel + 0.055) / 1.055) ** 2.4);
+  const luminance = (color: string): number => {
+    const [red, green, blue] = channels(color);
+    return 0.2126 * red! + 0.7152 * green! + 0.0722 * blue!;
+  };
+  const lighter = Math.max(luminance(foreground), luminance(background));
+  const darker = Math.min(luminance(foreground), luminance(background));
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
 async function stabilizeSurface(surface: Locator): Promise<void> {
   await surface.evaluate((element) => {
     const target = element as HTMLElement;
@@ -178,6 +195,36 @@ test("keeps short confirmations bound to the visible task", async ({ context, pa
     };
   });
   expect(reviewVisibility).toEqual({ context: true, composer: true });
+  const receiptStyle = await journey.root.locator(".agent-receipts").evaluate((receipts) => {
+    const bounds = receipts.getBoundingClientRect();
+    const heading = receipts.querySelector<HTMLElement>(".agent-receipt-heading")!;
+    const row = receipts.querySelector<HTMLElement>(".agent-receipt")!;
+    const label = receipts.querySelector<HTMLElement>(".agent-receipt-label")!;
+    const detail = receipts.querySelector<HTMLElement>(".agent-receipt-detail")!;
+    const background = getComputedStyle(receipts).backgroundColor;
+    const centerHit = receipts.getRootNode() instanceof ShadowRoot
+      ? (receipts.getRootNode() as ShadowRoot).elementFromPoint(
+          bounds.left + bounds.width / 2,
+          bounds.top + bounds.height / 2,
+        )
+      : null;
+    return {
+      background,
+      headingColor: getComputedStyle(heading).color,
+      headingFontSize: Number.parseFloat(getComputedStyle(heading).fontSize),
+      labelColor: getComputedStyle(label).color,
+      detailColor: getComputedStyle(detail).color,
+      rowFontSize: Number.parseFloat(getComputedStyle(row).fontSize),
+      unobscured: Boolean(centerHit?.closest(".agent-receipts")),
+    };
+  });
+  expect(receiptStyle.unobscured).toBe(true);
+  expect(receiptStyle.headingFontSize).toBeGreaterThanOrEqual(10);
+  expect(receiptStyle.rowFontSize).toBeGreaterThanOrEqual(10);
+  expect(receiptStyle.background).toMatch(/^rgb\(/);
+  expect(contrastRatio(receiptStyle.headingColor, receiptStyle.background)).toBeGreaterThanOrEqual(4.5);
+  expect(contrastRatio(receiptStyle.labelColor, receiptStyle.background)).toBeGreaterThanOrEqual(4.5);
+  expect(contrastRatio(receiptStyle.detailColor, receiptStyle.background)).toBeGreaterThanOrEqual(4.5);
   await expect(assistant).toHaveScreenshot("guided-review-next-action.png", screenshotOptions);
   await journey.root.getByLabel("Tracking request").fill("continue");
   await journey.root.getByRole("button", { name: "Send request" }).click();
