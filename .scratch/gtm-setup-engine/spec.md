@@ -359,8 +359,11 @@ setup without weakening approval, privacy, or provider boundaries:
    permitted automatic events, required parameters, negative expectations, and
    duplicate policy. Its acceptance fixture covers forms, navigation, downloads, and
    phone clicks without changing runtime verdict behavior.
-4. Issue 26 proves the callback pattern with one selected cross-origin provider before
-   any generalized adapter framework is proposed.
+4. Issue 26 proves the callback pattern with Calendly's supported JavaScript embed:
+   accept the exact `https://calendly.com` origin and exact
+   `calendly.event_scheduled` completion once, normalize no provider payload fields,
+   and reject wrong-origin, malformed, non-completion, and repeat messages. This is a
+   provider-specific discovery result, not a generalized runtime adapter.
 5. Issue 27 now defines durable provider stages and the projection that distinguishes
    an active request, a display timeout, restart reconciliation, provider failure, and
    an approval wait without permitting duplicate retries.
