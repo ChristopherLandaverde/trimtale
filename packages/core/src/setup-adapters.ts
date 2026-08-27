@@ -1,4 +1,8 @@
 import type { SuccessEvidence } from "./contracts.js";
+import {
+  interactionBrowserEvidenceContract,
+  leadFormBrowserEvidenceContract,
+} from "./browser-evidence.js";
 import type {
   FiringPolicyV1,
   TrackingSetupV1,
@@ -119,6 +123,7 @@ export function navigationSetup(
       ],
       negative: [],
     },
+    browserEvidence: interactionBrowserEvidenceContract("navigation_click", ["link_text", "link_url"]),
   };
 }
 
@@ -187,5 +192,6 @@ export function formSetup(
         scenario: "unsuccessful_submission",
       }],
     },
+    browserEvidence: leadFormBrowserEvidenceContract(),
   };
 }

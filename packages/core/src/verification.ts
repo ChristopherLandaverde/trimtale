@@ -6,9 +6,13 @@ import type {
 import {
   TRACKING_SCHEMA_VERSION,
   assertTrackingRunEvidence,
-  type ScenarioVerdictCode,
   type TrackingRunEvidenceV1,
 } from "./contracts.js";
+import {
+  browserObservationsFromRunEvidence,
+  evaluateBrowserEvidence,
+  interactionBrowserEvidenceContract,
+} from "./browser-evidence.js";
 
 function isAnalyticsRequest(url: string): boolean {
   return /(?:(?:google-analytics\.com|analytics\.google\.com)|127\.0\.0\.1:4173)\/g\/collect/i.test(url);
@@ -30,16 +34,7 @@ export function evaluateEvidence(
 
   const clickedExpectedLink = evidence.linkUrl === expected.href;
   const analyticsRequests = evidence.requests.filter((request) => isAnalyticsRequest(request.url));
-  const exactlyOneRequest = analyticsRequests.length === 1;
-  const passed = clickedExpectedLink && exactlyOneRequest;
-  const verdictCode: ScenarioVerdictCode = passed
-    ? "browser_verified"
-    : analyticsRequests.length > 1
-      ? "duplicate_fire"
-      : clickedExpectedLink
-        ? "tag_fired_request_missing"
-        : "insufficient_observable_evidence";
-  const runEvidence: TrackingRunEvidenceV1 = {
+  const provisional: Omit<TrackingRunEvidenceV1, "verdict"> = {
     schemaVersion: TRACKING_SCHEMA_VERSION,
     runId: `run_${expected.id}_${Date.parse(evidence.clickedAt)}`,
     specificationId,
@@ -61,17 +56,16 @@ export function evaluateEvidence(
       network: { ga4Requests: analyticsRequests },
       consent: { analyticsStorage: "unknown" },
     },
-    verdict: {
-      code: verdictCode,
-      browserVerification: passed ? "passed" : "failed",
-      platformConfirmation: "unverified",
-      nextAction: passed
-        ? "No browser fix is needed; await platform confirmation."
-        : analyticsRequests.length > 1
-          ? "Inspect GTM for duplicate tags or overlapping triggers."
-          : "Open GTM Preview to determine whether the tag fired.",
-    },
   };
+  const contract = interactionBrowserEvidenceContract("navigation_click", ["link_text", "link_url"]);
+  const observations = browserObservationsFromRunEvidence(provisional.observations);
+  const matchingRequestCount = observations.requests.filter((request) =>
+    request.destination === contract.request.destination
+      && request.eventName === contract.request.eventName).length;
+  const exactlyOneRequest = matchingRequestCount === 1;
+  const verdict = evaluateBrowserEvidence(contract, observations);
+  const runEvidence: TrackingRunEvidenceV1 = { ...provisional, verdict };
+  const passed = clickedExpectedLink && verdict.browserVerification === "passed";
   assertTrackingRunEvidence(runEvidence);
 
   return {
@@ -90,7 +84,7 @@ export function evaluateEvidence(
       {
         name: "Single GA4 request observed",
         passed: exactlyOneRequest,
-        detail: `Observed ${analyticsRequests.length} matching GA4 request(s).`,
+        detail: `Observed ${matchingRequestCount} matching GA4 request(s).`,
       },
       {
         name: "GA4 platform processing",

@@ -1,3 +1,8 @@
+import {
+  validateBrowserEvidenceContract,
+  type BrowserEvidenceContractV1,
+} from "./browser-evidence.js";
+
 export const TRACKING_SETUP_SCHEMA_VERSION = 1 as const;
 
 export type TrackingSetupStatus = "draft" | "confirmed";
@@ -119,6 +124,7 @@ export interface TrackingSetupV1 {
     positive: VerificationExpectationV1[];
     negative: VerificationExpectationV1[];
   };
+  browserEvidence?: BrowserEvidenceContractV1;
 }
 
 const EVENT_NAME = /^[a-z][a-z0-9_]{0,39}$/;
@@ -691,6 +697,14 @@ export function validateTrackingSetup(value: unknown): string[] {
   const actions = validateActions(value.tagActions, errors);
   const policies = validatePolicies(value.firingPolicies, errors);
   const expectations = validateVerification(value.verification, errors);
+  if (value.browserEvidence !== undefined) {
+    errors.push(...validateBrowserEvidenceContract(value.browserEvidence));
+    if (isRecord(value.browserEvidence)
+      && typeof value.browserEvidence.tagActionId === "string"
+      && !actions.ids.has(value.browserEvidence.tagActionId)) {
+      errors.push(`browserEvidence.tagActionId references unknown ${value.browserEvidence.tagActionId}`);
+    }
+  }
   validateReferences(actions.actions, actions.ids, policies.ids, expectations, errors);
 
   return [...new Set(errors)];

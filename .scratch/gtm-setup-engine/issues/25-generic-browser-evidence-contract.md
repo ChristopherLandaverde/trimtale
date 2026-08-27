@@ -1,6 +1,6 @@
 # Define a generic browser-evidence contract
 
-Delivery mode: specification
+Delivery mode: implementation
 Status: resolved
 
 ## Decision
@@ -11,6 +11,7 @@ nor a verdict. One contract declares:
 
 - The interaction and whether a positive business outcome must be observed.
 - Allowed positive outcome evidence types.
+- The verdict to use when an observable required outcome is absent.
 - One expected destination and event matcher.
 - Required parameter names on the matching request.
 - Automatic event names that may coexist with the expected event.
@@ -64,17 +65,18 @@ hard-coded to `generate_lead`.
 - `tests/acceptance/generic-browser-evidence-contract.json` defines lead-form,
   navigation, download, and phone-click contracts plus positive, negative, duplicate,
   consent-limited, missing-parameter, and absent-outcome cases.
-- `packages/core/src/browser-evidence-acceptance.test.ts` schema-validates that fixture
-  now. A future `packages/core/src/browser-evidence.test.ts` must consume the same cases
-  when runtime implementation is separately authorized.
+- `packages/core/src/browser-evidence-acceptance.test.ts` schema-validates that fixture,
+  and `packages/core/src/browser-evidence.test.ts` consumes every case through the
+  production evaluator.
 - Existing `packages/core/src/form-verdict.test.ts` expectations cannot change during
   migration without an explicit product decision.
 
 ## Authorization
 
-The user authorized completing the remaining automatable product slices on 2026-08-27.
-This issue remains specification-only under the repository delivery gate; it does not
-authorize the runtime evaluator.
+The user explicitly authorized production implementation on 2026-08-27. The authorized
+boundary is the versioned setup contract, shared deterministic evaluator, and migration
+of form, navigation, download, and phone-click verdict paths. It excludes new GA4
+reporting claims or broader browser evidence collection.
 
 ## Comments
 
@@ -83,3 +85,6 @@ authorize the runtime evaluator.
 - 2026-08-27: Resolved the shared contract vocabulary, evaluation precedence,
   migration boundary, and executable acceptance fixture. ADR 0004 records why verdicts
   become contract-driven while browser collection remains interaction-specific.
+- 2026-08-27: Implemented the versioned setup-owned contract and shared evaluator,
+  migrated the four authorized interaction paths, and preserved interaction-specific
+  evidence collection and platform-confirmation boundaries.

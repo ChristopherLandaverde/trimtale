@@ -81,6 +81,23 @@ describe("generic tracking setup contract", () => {
     expect(validateTrackingSetup(openEvent)).toEqual([]);
   });
 
+  it("validates the versioned browser evidence contract and its tag reference", () => {
+    const fixture = navigationFixture();
+    expect(fixture.browserEvidence).toMatchObject({
+      schemaVersion: 1,
+      interaction: "navigation_click",
+      request: { eventName: "navigation_click" },
+    });
+    expect(validateTrackingSetup({
+      ...fixture,
+      browserEvidence: { ...fixture.browserEvidence, schemaVersion: 2 },
+    })).toContain("browserEvidence.schemaVersion must be 1");
+    expect(validateTrackingSetup({
+      ...fixture,
+      browserEvidence: { ...fixture.browserEvidence, tagActionId: "tag_missing" },
+    })).toContain("browserEvidence.tagActionId references unknown tag_missing");
+  });
+
   it("represents Custom HTML without making it an analytics event", () => {
     const fixture = navigationFixture();
     const customHtml = {

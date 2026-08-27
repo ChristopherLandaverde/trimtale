@@ -36,6 +36,18 @@
         { "type": "network_request", "destination": "google_analytics_4", "eventName": "navigation_click" }
       ],
       "negative": [{ "type": "page_error", "messagePattern": "Uncaught" }]
+    },
+    "browserEvidence": {
+      "schemaVersion": 1,
+      "id": "navigation",
+      "interaction": "navigation_click",
+      "outcome": { "required": true, "allowedEvidenceTypes": ["navigation_click"], "whenAbsent": "insufficient_observable_evidence" },
+      "request": { "destination": "ga4", "eventName": "navigation_click", "requiredParameters": ["link_text", "link_url"] },
+      "permittedAutomaticEvents": ["page_view", "session_start"],
+      "duplicatePolicy": { "minimum": 1, "maximum": 1 },
+      "dataLayerEvent": null,
+      "tagActionId": "tag_navigation",
+      "negativeExpectations": ["matching_page_error"]
     }
   },
   {
@@ -74,6 +86,18 @@
         { "type": "network_request", "destination": "google_analytics_4", "eventName": "generate_lead" }
       ],
       "negative": [{ "type": "network_request", "destination": "google_analytics_4", "eventName": "generate_lead", "scenario": "validation_error" }]
+    },
+    "browserEvidence": {
+      "schemaVersion": 1,
+      "id": "lead-form",
+      "interaction": "form_submission",
+      "outcome": { "required": true, "allowedEvidenceTypes": ["visible_element", "thank_you_url", "data_layer_event", "same_page_success"], "whenAbsent": "expected_non_conversion" },
+      "request": { "destination": "ga4", "eventName": "generate_lead", "requiredParameters": ["form_id", "form_name", "page_location"] },
+      "permittedAutomaticEvents": ["form_start", "page_view", "session_start"],
+      "duplicatePolicy": { "minimum": 1, "maximum": 1 },
+      "dataLayerEvent": "generate_lead",
+      "tagActionId": "tag_lead",
+      "negativeExpectations": ["matching_page_error"]
     }
   },
   {
@@ -135,6 +159,18 @@
     "verification": {
       "positive": [{ "type": "tag_fired", "tagActionId": "tag_phone_click" }],
       "negative": [{ "type": "tag_fired", "tagActionId": "tag_phone_click", "scenario": "ordinary_link" }]
+    },
+    "browserEvidence": {
+      "schemaVersion": 1,
+      "id": "phone-click",
+      "interaction": "phone_click",
+      "outcome": { "required": true, "allowedEvidenceTypes": ["phone_click"], "whenAbsent": "insufficient_observable_evidence" },
+      "request": { "destination": "ga4", "eventName": "phone_click", "requiredParameters": [] },
+      "permittedAutomaticEvents": ["page_view", "session_start"],
+      "duplicatePolicy": { "minimum": 1, "maximum": 1 },
+      "dataLayerEvent": null,
+      "tagActionId": "tag_phone_click",
+      "negativeExpectations": ["matching_page_error"]
     }
   },
   {

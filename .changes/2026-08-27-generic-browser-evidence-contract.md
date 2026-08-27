@@ -6,8 +6,8 @@ Issue: `.scratch/gtm-setup-engine/issues/25-generic-browser-evidence-contract.md
 
 ## Summary
 
-Defined the versioned browser evidence contract and executable acceptance cases that
-will let one deterministic evaluator classify form and known-interaction evidence.
+Implemented the versioned browser evidence contract and one deterministic evaluator
+for form, navigation, download, and phone-click evidence.
 
 ## Why
 
@@ -16,28 +16,34 @@ on duplicate handling, consent, required parameters, or privacy boundaries.
 
 ## Behavior
 
-This is a specification slice. It records contract fields, evaluation precedence,
-automatic-event handling, migration parity, and non-goals. It does not change runtime
-evidence collection, verdicts, browser UI, GTM, or GA4 behavior.
+Tracking setup authors now store a versioned browser-evidence contract. Form,
+navigation, download, and phone-click runtime paths evaluate normalized observations
+through the same rules for required outcomes, matching event requests, required
+parameters, duplicates, consent, and negative expectations. Automatic GA4 events
+cannot satisfy or duplicate the expected event. Existing verdict codes, privacy
+filtering, browser UI, and the unverified GA4 platform boundary remain unchanged.
 
 ## Regression coverage
 
-`packages/core/src/browser-evidence-acceptance.test.ts` validates the shared fixture
-for lead forms, navigation, downloads, and phone clicks, including automatic events,
-duplicates, missing parameters, consent limits, absent outcomes, and negative
-expectations. The future evaluator must consume this same fixture.
+`packages/core/src/browser-evidence.test.ts` consumes the shared acceptance fixture for
+lead forms, navigation, downloads, and phone clicks. Existing form, navigation,
+setup-contract, adapter, and interaction-authoring suites prove migration parity and
+schema/reference validation.
 
 ## Verification
 
-- Focused acceptance test: 3 tests passed.
-- `npm run verify`: 424 deterministic tests and 75 Chromium journeys passed.
+- Focused production and migration suites: 78 tests passed.
+- `npm run check`: all workspace builds and typechecks passed.
+- `npm run verify`: 436 deterministic tests and 75 Chromium journeys passed.
 
 ## Exploratory review
 
-Not applicable. This slice changes specification and executable acceptance data only;
-the built product is unchanged.
+[Issue 25 runtime review](../docs/reviews/2026-08-27-generic-browser-evidence-runtime.md)
+covered exact form evidence, provider-read denial, phone-click authoring and exact
+verification, navigation setup, and inert attacker-controlled labels. All 12 focused
+Chromium journeys passed with no finding.
 
 ## Documentation
 
-Updated Issue 25, the active setup-engine specification, the domain glossary, and ADR
-0004.
+Updated Issue 25, its executable acceptance fixture, setup fixtures, the domain
+glossary, ADR 0004, and the runtime exploratory review.

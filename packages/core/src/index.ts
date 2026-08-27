@@ -17,6 +17,7 @@ export * from "./publication.js";
 export * from "./generator.js";
 export * from "./form-evidence.js";
 export * from "./form-verdict.js";
+export * from "./browser-evidence.js";
 export * from "./gtm-runtime.js";
 export * from "./intake-evaluation.js";
 export * from "./intake-interpretation.js";

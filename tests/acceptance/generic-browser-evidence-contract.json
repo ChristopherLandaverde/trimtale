@@ -5,9 +5,10 @@
   "behavioralTest": "packages/core/src/browser-evidence.test.ts",
   "contracts": [
     {
+      "schemaVersion": 1,
       "id": "lead-form",
       "interaction": "form_submission",
-      "outcome": { "required": true, "allowedEvidenceTypes": ["visible_element", "thank_you_url", "data_layer_event", "same_page_success"] },
+      "outcome": { "required": true, "allowedEvidenceTypes": ["visible_element", "thank_you_url", "data_layer_event", "same_page_success"], "whenAbsent": "expected_non_conversion" },
       "request": { "destination": "ga4", "eventName": "generate_lead", "requiredParameters": ["form_id", "form_name", "page_location"] },
       "permittedAutomaticEvents": ["form_start", "page_view", "session_start"],
       "duplicatePolicy": { "minimum": 1, "maximum": 1 },
@@ -16,9 +17,10 @@
       "negativeExpectations": ["matching_page_error"]
     },
     {
+      "schemaVersion": 1,
       "id": "navigation",
       "interaction": "navigation_click",
-      "outcome": { "required": true, "allowedEvidenceTypes": ["navigation_click"] },
+      "outcome": { "required": true, "allowedEvidenceTypes": ["navigation_click"], "whenAbsent": "insufficient_observable_evidence" },
       "request": { "destination": "ga4", "eventName": "navigation_click", "requiredParameters": ["link_text", "link_url"] },
       "permittedAutomaticEvents": ["page_view", "session_start"],
       "duplicatePolicy": { "minimum": 1, "maximum": 1 },
@@ -27,9 +29,10 @@
       "negativeExpectations": ["matching_page_error"]
     },
     {
+      "schemaVersion": 1,
       "id": "download",
       "interaction": "file_download",
-      "outcome": { "required": true, "allowedEvidenceTypes": ["file_download"] },
+      "outcome": { "required": true, "allowedEvidenceTypes": ["file_download"], "whenAbsent": "insufficient_observable_evidence" },
       "request": { "destination": "ga4", "eventName": "file_download", "requiredParameters": [] },
       "permittedAutomaticEvents": ["page_view", "session_start"],
       "duplicatePolicy": { "minimum": 1, "maximum": 1 },
@@ -38,9 +41,10 @@
       "negativeExpectations": ["matching_page_error"]
     },
     {
+      "schemaVersion": 1,
       "id": "phone-click",
       "interaction": "phone_click",
-      "outcome": { "required": true, "allowedEvidenceTypes": ["phone_click"] },
+      "outcome": { "required": true, "allowedEvidenceTypes": ["phone_click"], "whenAbsent": "insufficient_observable_evidence" },
       "request": { "destination": "ga4", "eventName": "phone_click", "requiredParameters": [] },
       "permittedAutomaticEvents": ["page_view", "session_start"],
       "duplicatePolicy": { "minimum": 1, "maximum": 1 },

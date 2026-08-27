@@ -4,7 +4,9 @@ import {
   createFormSetupProposal,
   createKnownInteractionSetupProposal,
   createSetupProposal,
+  browserObservationsFromRunEvidence,
   determineFormVerdict,
+  evaluateBrowserEvidence,
   isAgentTurnV1,
   knownInteractionDefinition,
   normalizeFormRunEvidence,
@@ -884,8 +886,7 @@ function prepareInteractionVerification(requestId: string, intake: ConversationI
 
 function ga4EventName(requestUrl: string): string | undefined {
   try {
-    const value = new URL(requestUrl).searchParams.get("en")?.trim();
-    return value || undefined;
+    return new URL(requestUrl).searchParams.get("en")?.trim() || undefined;
   } catch {
     return undefined;
   }
@@ -900,17 +901,8 @@ function finishInteractionVerification(
   const proposal = interactionSetupProposal(active.intake);
   if (!proposal) return;
   const urls = analyticsUrlsSince(active.startedAt, active.startedAtPerformance);
-  const matching = urls.filter((url) => ga4EventName(url) === proposal.eventName);
   const consent = classifyConsent(document.documentElement.dataset.consent);
-  const passed = matching.length === 1 && consent !== "denied";
-  const code: TrackingRunEvidenceV1["verdict"]["code"] = consent === "denied"
-    ? "consent_limited"
-    : matching.length > 1
-      ? "duplicate_fire"
-      : matching.length === 0
-        ? "tag_fired_request_missing"
-        : "browser_verified";
-  const evidence: TrackingRunEvidenceV1 = {
+  const provisional: Omit<TrackingRunEvidenceV1, "verdict"> = {
     schemaVersion: 1,
     runId: `run_${proposal.eventName}_${Date.now()}`,
     specificationId: proposal.setup.id,
@@ -924,25 +916,31 @@ function finishInteractionVerification(
       },
       outcome: { observed: true, observable: true, evidenceType: proposal.interaction },
       dataLayer: { matchingEvents: [] },
-      tagFired: matching.length > 0,
+      tagFired: urls.length > 0,
       network: {
-        ga4Requests: matching.map((url) => ({ url, observedAt: new Date().toISOString() })),
+        ga4Requests: urls.map((url) => ({ url, observedAt: new Date().toISOString() })),
       },
       consent: { analyticsStorage: consent },
     },
-    verdict: {
-      code,
-      browserVerification: passed ? "passed" : "failed",
-      platformConfirmation: "unverified",
-      nextAction: passed
-        ? "Bind this run to the exact draft."
-        : consent === "denied"
-          ? "Grant analytics consent and retry."
-          : matching.length > 1
-            ? "Remove the duplicate fire and retry."
-            : "Confirm Tag Assistant preview is connected to the managed workspace and retry.",
-    },
   };
+  const contract = proposal.setup.browserEvidence;
+  if (!contract) return;
+  const verdict = evaluateBrowserEvidence(
+    contract,
+    browserObservationsFromRunEvidence(provisional.observations),
+  );
+  const evidence: TrackingRunEvidenceV1 = {
+    ...provisional,
+    observations: {
+      ...provisional.observations,
+      network: {
+        ga4Requests: provisional.observations.network.ga4Requests
+          .filter(({ url }) => ga4EventName(url) === contract.request.eventName),
+      },
+    },
+    verdict,
+  };
+  const passed = verdict.browserVerification === "passed";
   if (workflowPublicationByRequest.has(active.requestId)) {
     void completeLiveVerification(active.requestId, active.intake, evidence);
     return;

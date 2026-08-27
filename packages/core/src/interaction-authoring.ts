@@ -1,4 +1,5 @@
 import { compileTrackingSetup, type CompiledTrackingSetupV1 } from "./setup-compiler.js";
+import { interactionBrowserEvidenceContract } from "./browser-evidence.js";
 import type { FiringConditionV1, TrackingSetupV1 } from "./setup-contract.js";
 import type { ContainerContext } from "./types.js";
 
@@ -383,6 +384,7 @@ export function createKnownInteractionSetupProposal(
         { type: "tag_fired", tagActionId: `tag_${recipe.eventName}`, scenario: "analytics_consent_denied" },
       ],
     },
+    browserEvidence: interactionBrowserEvidenceContract(request.interaction),
   };
   const compiled = compileTrackingSetup(setup, {
     ...request.container,
