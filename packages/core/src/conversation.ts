@@ -13,6 +13,7 @@ export type ConversationInteraction =
   | "cta_click"
   | "phone_click"
   | "email_click"
+  | "calendly_booking"
   | "unknown";
 
 export type AutomaticCoverageInteraction =
@@ -50,13 +51,14 @@ export interface ConversationPageContext {
   navigationCount: number;
   forms: FormCandidate[];
   interactionCounts?: Partial<Record<KnownInteractionTypeV1, number>>;
+  calendlyEmbedCount?: number;
 }
 
 export interface ConversationIntakeResult {
   interaction: ConversationInteraction;
   state: ConversationState;
   canConfirm: boolean;
-  eventName?: "navigation_click" | "generate_lead" | KnownInteractionTypeV1;
+  eventName?: "navigation_click" | "generate_lead" | KnownInteractionTypeV1 | "calendly_booking_complete";
   scope?: InteractionScopeV1;
   target?: FormCandidate | undefined;
   successSignal?: FormSuccessSignal | undefined;
@@ -103,6 +105,7 @@ function normalized(value: string): string {
 
 export function classifyConversationInteraction(message: string): ConversationInteraction {
   const value = normalized(message);
+  if (/\bcalendly\b/.test(value)) return "calendly_booking";
   if (/\b(form|forms|submit|submission|lead|leads|inquiry|inquiries)\b/.test(value)) return "form_submission";
   if (/\b(page view|page views|pageview|pageviews)\b/.test(value)) return "page_view";
   if (/\b(scroll|scrolls|scrolling)\b/.test(value)) return "scroll";
@@ -194,6 +197,28 @@ export function interpretConversationIntent(
   page: ConversationPageContext,
 ): ConversationIntakeResult {
   const interaction = classifyConversationInteraction(message);
+  if (interaction === "calendly_booking") {
+    const count = Number.isSafeInteger(page.calendlyEmbedCount) && Number(page.calendlyEmbedCount) > 0
+      ? Math.min(Number(page.calendlyEmbedCount), 999)
+      : 0;
+    if (count !== 1) {
+      return {
+        interaction,
+        state: "insufficient_evidence",
+        eventName: "calendly_booking_complete",
+        canConfirm: false,
+        options: [],
+      };
+    }
+    return {
+      interaction,
+      state: "draft_ready",
+      eventName: "calendly_booking_complete",
+      scope: "current_page",
+      canConfirm: true,
+      options: [{ id: "confirm-calendly-specification", label: "Review setup" }],
+    };
+  }
   if (interaction === "form_submission") return formResult(message, page);
   if (interaction === "navigation_click") {
     return {

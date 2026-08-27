@@ -127,9 +127,11 @@ The generic model must support composition of:
 - positive and negative browser-verification expectations.
 
 Navigation clicks, confirmed lead forms, page-scoped events, phone clicks, downloads,
-and custom data-layer events must use the same authoring, planning, application, and
-verification pipeline. A new event that uses existing primitives must not require a
-new generator or user-interface state machine.
+provider completion signals, and custom data-layer events must use the same planning,
+application, and verification pipeline. A new event that uses existing primitives
+must not require a new generator or user-interface state machine. A provider completion
+adapter may add provider-specific recognition and review only when the browser boundary
+differs from ordinary page interactions.
 
 ## Language-model responsibility
 
@@ -370,6 +372,10 @@ setup without weakening approval, privacy, or provider boundaries:
 6. Issue 28 now defines eight optimization-measure families, separates deterministic
    local samples from credentialed Google samples, and records an initial five-run
    local baseline without adding telemetry, targets, or performance gates.
+7. Issue 29 implements the authorized Calendly inline adapter as two reviewable setup
+   actions: a payload-free exact-origin/source completion listener and a GA4 event tag.
+   It supports one current-page `embed_type=Inline` frame, uses the existing exact
+   Preview and publication gates, and blocks direct, popup, or multiple embeds.
 
 Server-side and mobile measurement remain separate projects. A parent-page Custom HTML
 tag does not bypass the browser's cross-origin boundary; iframe coverage requires a

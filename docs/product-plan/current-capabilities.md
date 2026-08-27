@@ -271,6 +271,21 @@ the failed evidence fingerprint and repair ledger, accepts only a reviewed plan 
 the unchanged setup, stops on ambiguity or exhaustion, and requires a newly bound
 exact preview after successful provider revalidation.
 
+## Calendly completion adapter
+
+The website agent can recognize exactly one Calendly inline embed on the current page
+from Calendly's generated `embed_type=Inline` iframe URL. It visibly reviews and
+generates a guarded Custom HTML listener plus a GA4
+`calendly_booking_complete` event tag. The listener requires the exact Calendly origin,
+the exact iframe source, and the exact scheduled-event message, accepts one completion,
+and discards the callback payload.
+
+The setup uses the same managed planning, application, exact Preview, immutable
+version, and publication gates as other supported setups. Browser verification
+requires an actual provider completion signal and one matching GA4 request. Direct
+iframes, popup widgets, multiple inline embeds, other providers, and fake production
+provider proof remain unsupported.
+
 ## Evidence and diagnosis foundations
 
 The shared domain package includes:

@@ -189,4 +189,41 @@ describe("deterministic conversation intake", () => {
       canConfirm: false,
     });
   });
+
+  it("grounds one supported Calendly inline embed on the current page", () => {
+    const observed = interpretConversationIntent("Track completed Calendly bookings", {
+      navigationCount: 0,
+      forms: [],
+      calendlyEmbedCount: 1,
+    });
+    const missing = interpretConversationIntent("Track Calendly appointments", {
+      navigationCount: 0,
+      forms: [],
+      calendlyEmbedCount: 0,
+    });
+    const ambiguous = interpretConversationIntent("Track Calendly meetings", {
+      navigationCount: 0,
+      forms: [],
+      calendlyEmbedCount: 2,
+    });
+
+    expect(observed).toMatchObject({
+      interaction: "calendly_booking",
+      state: "draft_ready",
+      eventName: "calendly_booking_complete",
+      scope: "current_page",
+      canConfirm: true,
+      options: [{ id: "confirm-calendly-specification", label: "Review setup" }],
+    });
+    expect(missing).toMatchObject({
+      interaction: "calendly_booking",
+      state: "insufficient_evidence",
+      canConfirm: false,
+    });
+    expect(ambiguous).toMatchObject({
+      interaction: "calendly_booking",
+      state: "insufficient_evidence",
+      canConfirm: false,
+    });
+  });
 });

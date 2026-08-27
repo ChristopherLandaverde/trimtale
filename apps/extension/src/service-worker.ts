@@ -70,6 +70,7 @@ chrome.runtime.onConnect.addListener((port) => {
       navigation: NavigationElement[];
       forms: FormCandidate[];
       interactionCounts?: Partial<Record<KnownInteractionTypeV1, number>>;
+      calendlyEmbedCount?: number;
     };
     connection?: { publicId: string; measurementId?: string };
     automaticCoverage?: unknown;
@@ -80,11 +81,13 @@ chrome.runtime.onConnect.addListener((port) => {
       navigationCount: page.navigation.length,
       forms: page.forms ?? [],
       ...(page.interactionCounts ? { interactionCounts: page.interactionCounts } : {}),
+      calendlyEmbedCount: page.calendlyEmbedCount ?? 0,
     });
     const turn = agentTurnForIntake(intake, {
       formCount: page.forms.length,
       navigationCount: page.navigation.length,
       ...(page.interactionCounts ? { interactionCounts: page.interactionCounts } : {}),
+      calendlyEmbedCount: page.calendlyEmbedCount ?? 0,
       ...(validAutomaticCoverage(message.automaticCoverage)
         ? { automaticCoverage: message.automaticCoverage }
         : {}),
@@ -97,6 +100,7 @@ chrome.runtime.onConnect.addListener((port) => {
       navigation: page.navigation,
       forms: page.forms,
       interactionCounts: page.interactionCounts,
+      calendlyEmbedCount: page.calendlyEmbedCount,
       intake,
     });
   });

@@ -1,6 +1,10 @@
 import {
   agentTurnForIntake,
+  CALENDLY_DATA_LAYER_EVENT,
+  CALENDLY_ORIGIN,
+  CALENDLY_PROVIDER_EVENT,
   countKnownLinkInteractions,
+  createCalendlySetupProposal,
   createFormSetupProposal,
   createKnownInteractionSetupProposal,
   createSetupProposal,
@@ -8,6 +12,7 @@ import {
   determineFormVerdict,
   evaluateBrowserEvidence,
   isAgentTurnV1,
+  isCalendlyInlineUrl,
   knownInteractionDefinition,
   normalizeFormRunEvidence,
   observeGtmRuntime,
@@ -15,6 +20,7 @@ import {
   selectConversationScope,
   selectConversationTarget,
   type BrowserEvidence,
+  type CalendlySetupProposalV1,
   type AgentTurnContext,
   type AgentTaskStatus,
   type AgentTurnV1,
@@ -341,6 +347,8 @@ const interactionTargetsByRequest = new Map<
   string,
   Partial<Record<KnownInteractionTypeV1, PageTarget[]>>
 >();
+const calendlyEmbedCountByRequest = new Map<string, number>();
+const calendlyTargetsByRequest = new Map<string, PageTarget[]>();
 const recentFormRequests: Array<{ url: string; observedAt: string }> = [];
 let activeFormVerification: { requestId: string; intake: ConversationIntakeResult } | undefined;
 const ga4VerificationByRequest = new Map<string, Ga4VerificationStarted>();
@@ -386,6 +394,13 @@ let activeInteractionVerification: {
   intake: ConversationIntakeResult;
   startedAt: string;
   startedAtPerformance: number;
+} | undefined;
+let activeCalendlyVerification: {
+  requestId: string;
+  intake: ConversationIntakeResult;
+  startedAt: string;
+  startedAtPerformance: number;
+  completionObserved: boolean;
 } | undefined;
 let recognizedGtmContext: Extract<GtmConnectionView, { kind: "recognized" }> | undefined;
 let gtmConnectionLoaded = false;
@@ -469,6 +484,8 @@ function formWorkflowRequest(requestId: string, result: ConversationIntakeResult
   }
   const interactionProposal = interactionSetupProposal(result);
   if (interactionProposal) return { setup: interactionProposal.setup, container: connected.container };
+  const calendlyProposal = calendlySetupProposal(result);
+  if (calendlyProposal) return { setup: calendlyProposal.setup, container: connected.container };
   const specification = confirmedFormSpecification(result);
   return specification ? { specification, ...connected } : undefined;
 }
@@ -649,6 +666,37 @@ function interactionSetupProposal(
   });
 }
 
+function calendlySetupProposal(
+  result: ConversationIntakeResult,
+): CalendlySetupProposalV1 | undefined {
+  if (result.interaction !== "calendly_booking"
+    || result.scope !== "current_page"
+    || !result.canConfirm
+    || scanCalendlyInlineEmbeds().length !== 1) {
+    return undefined;
+  }
+  const connected = connectedSetupContext();
+  const measurementId = connected?.measurementId ?? fixtureMeta("gtm-observability-measurement-id");
+  const publicId = connected?.container.publicId ?? fixtureMeta("gtm-observability-container-id");
+  if (!measurementId || !publicId) {
+    return undefined;
+  }
+
+  return createCalendlySetupProposal({
+    scope: "current_page",
+    pageUrl: location.href,
+    measurementId,
+    container: connected?.container
+      ?? { accountId: "0", containerId: "0", publicId, name: "GTM Observability import" },
+  });
+}
+
+function generatedInteractionProposal(
+  result: ConversationIntakeResult,
+): KnownInteractionSetupProposalV1 | CalendlySetupProposalV1 | undefined {
+  return interactionSetupProposal(result) ?? calendlySetupProposal(result);
+}
+
 function setupAuthoringRequest(
   requestId: string,
   result: ConversationIntakeResult,
@@ -736,7 +784,7 @@ async function requestGa4Configuration(
 }
 
 function interactionSetupDownloadHref(result: ConversationIntakeResult): string | undefined {
-  const proposal = interactionSetupProposal(result);
+  const proposal = generatedInteractionProposal(result);
   return proposal ? containerFileDownloadHref(proposal.compiled.containerFile) : undefined;
 }
 
@@ -905,6 +953,26 @@ function prepareInteractionVerification(requestId: string, intake: ConversationI
   showVerificationPresentation(requestId, intake);
 }
 
+function prepareCalendlyVerification(requestId: string, intake: ConversationIntakeResult): void {
+  recentFormRequests.length = 0;
+  activeCalendlyVerification = {
+    requestId,
+    intake,
+    startedAt: new Date().toISOString(),
+    startedAtPerformance: performance.now(),
+    completionObserved: false,
+  };
+  renderFormTaskState(requestId, intake, {
+    status: "working",
+    summary: workflowPublicationByRequest.has(requestId)
+      ? "Live verification is watching the published container for one trusted Calendly completion and GA4 request."
+      : "Exact preview verification is watching for one trusted Calendly completion and GA4 request.",
+    verifyStatus: "active",
+    question: "Complete one real test booking in the Calendly inline embed.",
+  });
+  showVerificationPresentation(requestId, intake);
+}
+
 function ga4EventName(requestUrl: string): string | undefined {
   try {
     return new URL(requestUrl).searchParams.get("en")?.trim() || undefined;
@@ -980,6 +1048,70 @@ function finishInteractionVerification(
     verifyStatus: "blocked",
     question: evidence.verdict.nextAction,
     actions: [{ id: "start-exact-interaction-preview", label: "Retry exact browser run" }],
+  });
+}
+
+function finishCalendlyVerification(
+  active: NonNullable<typeof activeCalendlyVerification>,
+): void {
+  if (activeCalendlyVerification !== active || !active.completionObserved) {
+    return;
+  }
+  activeCalendlyVerification = undefined;
+  restoreVerificationPresentation();
+  const proposal = calendlySetupProposal(active.intake);
+  if (!proposal?.setup.browserEvidence) {
+    return;
+  }
+  const urls = analyticsUrlsSince(active.startedAt, active.startedAtPerformance)
+    .filter((url) => ga4EventName(url) === CALENDLY_DATA_LAYER_EVENT);
+  const observedAt = new Date().toISOString();
+  const provisional: Omit<TrackingRunEvidenceV1, "verdict"> = {
+    schemaVersion: 1,
+    runId: `run_calendly_${Date.now()}`,
+    specificationId: proposal.setup.id,
+    startedAt: active.startedAt,
+    observations: {
+      interaction: {
+        type: "form_submission",
+        targetId: "calendly_inline_embed",
+        attempted: true,
+        submissionResult: "success",
+      },
+      outcome: {
+        observed: true,
+        observable: true,
+        evidenceType: "provider_completion",
+      },
+      dataLayer: { matchingEvents: [] },
+      tagFired: urls.length > 0,
+      network: { ga4Requests: urls.map((url) => ({ url, observedAt })) },
+      consent: { analyticsStorage: classifyConsent(document.documentElement.dataset.consent) },
+    },
+  };
+  const verdict = evaluateBrowserEvidence(
+    proposal.setup.browserEvidence,
+    browserObservationsFromRunEvidence(provisional.observations),
+  );
+  const evidence: TrackingRunEvidenceV1 = { ...provisional, verdict };
+  if (workflowPublicationByRequest.has(active.requestId)) {
+    void completeLiveVerification(active.requestId, active.intake, evidence);
+    return;
+  }
+  if (verdict.browserVerification === "passed") {
+    void completeExactDraftVerification(active.requestId, active.intake, evidence);
+    return;
+  }
+  if (workflowPreviewByRequest.has(active.requestId)) {
+    void beginDraftRepair(active.requestId, active.intake, evidence);
+    return;
+  }
+  renderFormTaskState(active.requestId, active.intake, {
+    status: "blocked",
+    summary: "The trusted Calendly completion did not produce one matching GA4 request. No version was created.",
+    verifyStatus: "blocked",
+    question: evidence.verdict.nextAction,
+    actions: [{ id: "start-exact-calendly-preview", label: "Retry exact browser run" }],
   });
 }
 
@@ -1921,6 +2053,17 @@ function formTargets(forms: FormCandidate[]): PageTarget[] {
   return forms.map((item) => ({ id: item.id, label: item.label, selector: item.selector }));
 }
 
+function scanCalendlyInlineEmbeds(): PageTarget[] {
+  return [...document.querySelectorAll<HTMLIFrameElement>("iframe")]
+    .filter((candidate) => isCalendlyInlineUrl(candidate.src))
+    .map((candidate, index) => ({
+      id: `calendly_inline_${index + 1}`,
+      label: "Calendly inline embed",
+      selector: "",
+      element: candidate,
+    }));
+}
+
 function recentAnalyticsRequests(since: number): BrowserEvidence["requests"] {
   return performance.getEntriesByType("resource")
     .filter((entry) => entry.startTime >= since && analyticsPattern.test(entry.name))
@@ -2035,6 +2178,7 @@ function agentContextForRequest(requestId: string): AgentTurnContext {
     ...(interactionCountsByRequest.has(requestId)
       ? { interactionCounts: interactionCountsByRequest.get(requestId)! }
       : {}),
+    calendlyEmbedCount: calendlyEmbedCountByRequest.get(requestId) ?? 0,
     ...(coverage ? { automaticCoverage: coverage } : {}),
     ...(connected
       ? { connection: { publicId: connected.publicId, ...(measurementId ? { measurementId } : {}) } }
@@ -2381,6 +2525,40 @@ function renderInteractionDraft(requestId: string, result: ConversationIntakeRes
   responseList?.scrollTo({ top: responseList.scrollHeight });
 }
 
+function renderCalendlyDraft(requestId: string, result: ConversationIntakeResult): void {
+  const proposal = calendlySetupProposal(result);
+  const task = agentTaskNodes.get(requestId);
+  if (!task) {
+    return;
+  }
+  task.querySelector(".agent-specification")?.remove();
+  task.querySelector(".quick-actions")?.remove();
+  const specification = document.createElement("div");
+  specification.className = "agent-specification";
+  specification.setAttribute("role", "region");
+  specification.setAttribute("aria-label", "Calendly completion setup review");
+  appendAgentText(specification, "agent-receipt-heading", "Reviewable setup");
+  appendSpecificationRows(specification, [
+    ["Provider", "Calendly inline embed"],
+    ["Signal", "Exact calendly.event_scheduled message"],
+    ["Source", "Exact https://calendly.com iframe on this page"],
+    ["Event", "calendly_booking_complete"],
+    ["Firing scope", "Only this page"],
+    ["Consent", "Requires analytics_storage"],
+    ["Sent", proposal?.privacy.sent.join("; ") ?? "Event name only"],
+    ["Excluded", proposal?.privacy.excluded.join("; ") ?? "Callback payload"],
+    ["Preview proof", "One real Calendly test booking and one matching GA4 request"],
+  ]);
+  appendAgentText(
+    specification,
+    "agent-verification-explanation explanation",
+    "Wrong origins, a different iframe source, non-completion events, and repeated completions cannot emit another event.",
+  );
+  task.append(specification);
+  renderQuickActions(requestId, [{ id: "approve-calendly-setup", label: "Approve setup" }], task);
+  responseList?.scrollTo({ top: responseList.scrollHeight });
+}
+
 async function authorInteractionAlternative(
   requestId: string,
   intake: ConversationIntakeResult,
@@ -2468,6 +2646,31 @@ function renderInteractionApproved(requestId: string, result: ConversationIntake
   turn.question = proposal
     ? "Download the GTM setup for manual review while managed-workspace planning is being generalized."
     : "Connect one exact GTM container and GA4 destination to continue.";
+  turn.plan = turn.plan.map((stage) => stage.id === "review"
+    ? { ...stage, status: proposal ? "completed" : "blocked" }
+    : stage.id === "verify"
+      ? { ...stage, status: proposal ? "pending" : "blocked" }
+      : stage);
+  turn.actions = proposal
+    ? [
+        ...(canPlan ? [{ id: "plan-form-workflow", label: "Prepare workspace & plan" }] : []),
+        { id: "download-interaction-setup", label: "Download GTM setup" },
+      ]
+    : [];
+  renderAgentTurn(requestId, turn);
+}
+
+function renderCalendlyApproved(requestId: string, result: ConversationIntakeResult): void {
+  const proposal = calendlySetupProposal(result);
+  const canPlan = recognizedGtmContext?.status.containerWritesEnabled === true;
+  const turn = agentTurnForIntake(result, agentContextForRequest(requestId));
+  turn.task.status = proposal ? "completed" : "blocked";
+  turn.task.summary = proposal
+    ? "The guarded Calendly listener and GA4 event setup were generated for review. Nothing was applied or published."
+    : "The setup requires one supported Calendly inline embed, one GTM container, and one GA4 destination.";
+  turn.question = proposal
+    ? "Prepare the managed workspace and review the deterministic change plan."
+    : "Restore one supported inline embed and connect one exact measurement destination.";
   turn.plan = turn.plan.map((stage) => stage.id === "review"
     ? { ...stage, status: proposal ? "completed" : "blocked" }
     : stage.id === "verify"
@@ -3219,7 +3422,9 @@ function renderPreviewHandoff(
     ...(readiness.confirmed ? [{
       id: intake.interaction === "form_submission"
         ? "start-exact-form-preview"
-        : "start-exact-interaction-preview",
+        : intake.interaction === "calendly_booking"
+          ? "start-exact-calendly-preview"
+          : "start-exact-interaction-preview",
       label: "Start exact browser run",
     }, { id: "recheck-preview-readiness", label: "Recheck Preview readiness" }] : []),
   ], task);
@@ -3345,7 +3550,7 @@ function workflowReviewActions(
   return [
     ...(includeApply ? [{ id: "apply-form-workflow", label: "Apply & validate draft" }] : []),
     {
-      id: interactionSetupProposal(intake) ? "download-interaction-setup" : "download-form-setup",
+      id: generatedInteractionProposal(intake) ? "download-interaction-setup" : "download-form-setup",
       label: "Download GTM setup",
     },
   ];
@@ -3650,7 +3855,9 @@ async function completeExactDraftVerification(
       actions: [{
         id: intake.interaction === "form_submission"
           ? "start-exact-form-preview"
-          : "start-exact-interaction-preview",
+          : intake.interaction === "calendly_booking"
+            ? "start-exact-calendly-preview"
+            : "start-exact-interaction-preview",
         label: "Retry exact browser run",
       }],
     });
@@ -3841,7 +4048,7 @@ async function planFormWorkflow(
       actions: [
         { id: "plan-form-workflow", label: "Retry planning" },
         {
-          id: interactionSetupProposal(intake) ? "download-interaction-setup" : "download-form-setup",
+          id: generatedInteractionProposal(intake) ? "download-interaction-setup" : "download-form-setup",
           label: "Download GTM setup",
         },
       ],
@@ -3902,8 +4109,16 @@ function handleAssistantAction(actionId: string, requestId: string): void {
     renderInteractionDraft(requestId, intake);
     return;
   }
+  if (actionId === "confirm-calendly-specification" && intake?.canConfirm) {
+    renderCalendlyDraft(requestId, intake);
+    return;
+  }
   if (actionId === "approve-interaction-setup" && intake?.canConfirm) {
     renderInteractionApproved(requestId, intake);
+    return;
+  }
+  if (actionId === "approve-calendly-setup" && intake?.canConfirm) {
+    renderCalendlyApproved(requestId, intake);
     return;
   }
   if (actionId === "author-interaction-alternative" && intake?.canConfirm) {
@@ -3973,7 +4188,9 @@ function handleAssistantAction(actionId: string, requestId: string): void {
     renderPreviewHandoff(requestId, intake, workflowPreview);
     return;
   }
-  if ((actionId === "start-exact-form-preview" || actionId === "start-exact-interaction-preview")
+  if ((actionId === "start-exact-form-preview"
+      || actionId === "start-exact-interaction-preview"
+      || actionId === "start-exact-calendly-preview")
     && intake?.canConfirm
     && workflowPreview) {
     if (!previewReadiness(requestId, intake, workflowPreview).confirmed) {
@@ -3983,6 +4200,8 @@ function handleAssistantAction(actionId: string, requestId: string): void {
     }
     if (actionId === "start-exact-form-preview") {
       void prepareFormVerification(requestId, intake);
+    } else if (actionId === "start-exact-calendly-preview") {
+      prepareCalendlyVerification(requestId, intake);
     } else {
       prepareInteractionVerification(requestId, intake);
     }
@@ -4018,7 +4237,11 @@ function handleAssistantAction(actionId: string, requestId: string): void {
   if (actionId === "start-live-interaction-verification"
     && intake?.canConfirm
     && workflowPublication) {
-    prepareInteractionVerification(requestId, intake);
+    if (intake.interaction === "calendly_booking") {
+      prepareCalendlyVerification(requestId, intake);
+    } else {
+      prepareInteractionVerification(requestId, intake);
+    }
     return;
   }
   if (actionId === "review-publication-rollback"
@@ -4152,6 +4375,7 @@ function connectAssistant(): chrome.runtime.Port {
     navigation?: NavigationElement[];
     forms?: FormCandidate[];
     interactionCounts?: Partial<Record<KnownInteractionTypeV1, number>>;
+    calendlyEmbedCount?: number;
     intake?: ConversationIntakeResult;
   }) => {
     if (!message.requestId) return;
@@ -4171,6 +4395,7 @@ function connectAssistant(): chrome.runtime.Port {
       navigationByRequest.set(message.requestId, message.navigation ?? []);
       formsByRequest.set(message.requestId, message.forms ?? []);
       interactionCountsByRequest.set(message.requestId, message.interactionCounts ?? {});
+      calendlyEmbedCountByRequest.set(message.requestId, message.calendlyEmbedCount ?? 0);
       if (message.intake) {
         intakeByRequest.set(message.requestId, message.intake);
         if (message.intake.state === "awaiting_target") {
@@ -4178,6 +4403,14 @@ function connectAssistant(): chrome.runtime.Port {
         } else if (message.intake.target) {
           highlightTargets(formTargets([message.intake.target]), "confirmed");
         } else {
+          if (message.intake.interaction === "calendly_booking") {
+            highlightTargets(
+              calendlyTargetsByRequest.get(message.requestId) ?? [],
+              message.intake.canConfirm ? "confirmed" : "candidate",
+            );
+            renderAgentTurn(message.requestId, message.turn, node);
+            return;
+          }
           const interaction = knownInteractionDefinition(message.intake.interaction)?.interaction;
           if (interaction) {
             highlightTargets(
@@ -4213,7 +4446,9 @@ function submitPrompt(): void {
   const forms = scanForms();
   const interactionScan = scanKnownInteractions();
   const interactionCounts = interactionScan.counts;
+  const calendlyTargets = scanCalendlyInlineEmbeds();
   interactionTargetsByRequest.set(requestId, interactionScan.targets);
+  calendlyTargetsByRequest.set(requestId, calendlyTargets);
   const coverage = automaticCoverage();
   connectAssistant().postMessage({
     type: "ASSISTANT_REQUEST",
@@ -4225,6 +4460,7 @@ function submitPrompt(): void {
       navigation: scan.navigation,
       forms,
       interactionCounts,
+      calendlyEmbedCount: calendlyTargets.length,
     },
     ...(recognizedGtmContext
       ? {
@@ -4403,6 +4639,25 @@ async function mountOverlay(): Promise<void> {
   applyPreferences();
   if (!preferences.collapsed) void loadGtmConnectionContext();
 }
+
+window.addEventListener("message", (event) => {
+  const active = activeCalendlyVerification;
+  if (!active || active.completionObserved) {
+    return;
+  }
+  const frames = scanCalendlyInlineEmbeds()
+    .flatMap((target) => target.element instanceof HTMLIFrameElement ? [target.element] : []);
+  if (frames.length !== 1
+    || event.origin !== CALENDLY_ORIGIN
+    || event.source !== frames[0]?.contentWindow
+    || !isRecord(event.data)
+    || event.data.event !== CALENDLY_PROVIDER_EVENT) {
+    return;
+  }
+
+  active.completionObserved = true;
+  window.setTimeout(() => finishCalendlyVerification(active), 1_200);
+});
 
 document.addEventListener("click", (event) => {
   const anchor = (event.target as Element | null)?.closest<HTMLAnchorElement>("a[href]");

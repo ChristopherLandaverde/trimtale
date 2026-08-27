@@ -64,6 +64,7 @@ const OUTCOMES = new Set<BrowserOutcomeEvidenceTypeV1>([
   "email_click",
   "outbound_click",
   "file_download",
+  "provider_completion",
 ]);
 
 function record(value: unknown): value is Record<string, unknown> {

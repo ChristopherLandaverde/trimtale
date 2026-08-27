@@ -46,6 +46,7 @@ export interface AgentTurnContext {
   formCount: number;
   navigationCount: number;
   interactionCounts?: Partial<Record<KnownInteractionTypeV1, number>>;
+  calendlyEmbedCount?: number;
   automaticCoverage?: {
     enabled: boolean;
     pageViews?: boolean;
@@ -122,6 +123,8 @@ function pageDetail(context: AgentTurnContext): string {
   if (outbound > 0) details.push(`${outbound} outbound link${outbound === 1 ? "" : "s"}`);
   const downloads = boundedCount(context.interactionCounts?.file_download ?? 0);
   if (downloads > 0) details.push(`${downloads} downloadable file link${downloads === 1 ? "" : "s"}`);
+  const calendly = boundedCount(context.calendlyEmbedCount ?? 0);
+  if (calendly > 0) details.push(`${calendly} Calendly inline embed${calendly === 1 ? "" : "s"}`);
   return details.join(" · ");
 }
 
@@ -394,6 +397,37 @@ export function agentTurnForIntake(
         receipts,
       };
     }
+  }
+
+  if (intake.interaction === "calendly_booking") {
+    const count = boundedCount(context.calendlyEmbedCount ?? 0);
+    if (count !== 1 || intake.state !== "draft_ready") {
+      return {
+        schemaVersion: 1,
+        task: {
+          goal: "Set up Calendly booking tracking",
+          status: "blocked",
+          summary: count > 1
+            ? "I found multiple supported Calendly inline embeds. No setup was generated because one exact provider source is required."
+            : "I could not find one supported Calendly inline embed on this page. No setup was generated.",
+        },
+        plan: plan("blocked"),
+        actions: [],
+        receipts,
+      };
+    }
+    return {
+      schemaVersion: 1,
+      task: {
+        goal: "Set up Calendly booking tracking",
+        status: "ready_for_review",
+        summary: "I found one Calendly inline embed with a supported completion signal. The setup will emit calendly_booking_complete once and exclude the callback payload.",
+      },
+      plan: plan("completed", "active"),
+      question: "Review the provider, source binding, event, consent, and privacy boundary before generation.",
+      actions,
+      receipts,
+    };
   }
 
   const knownInteraction = knownInteractionDefinition(intake.interaction);

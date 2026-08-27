@@ -227,6 +227,12 @@ _Avoid_: Log dump, screenshot, chain of thought
 A versioned part of a tracking setup that declares which normalized browser observations can pass, fail, or leave its tracking check inconclusive.
 _Avoid_: Run evidence, verdict, event-specific verifier
 
+**Provider completion signal**:
+An authoritative browser message from a supported embedded provider that proves one
+business outcome without exposing the provider's cross-origin document or private
+payload.
+_Avoid_: Iframe access, form submission event, generic callback
+
 **Time to verified setup**:
 The elapsed time from submitting a tracking intent to the generated tracking setup passing its browser check after import.
 _Avoid_: Setup time, generation time

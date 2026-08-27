@@ -86,7 +86,7 @@ export interface TrackingRunEvidenceV1 {
     outcome: {
       observed: boolean;
       observable: boolean;
-      evidenceType?: SuccessEvidence["type"] | "navigation_click" | "phone_click" | "email_click" | "outbound_click" | "file_download";
+      evidenceType?: SuccessEvidence["type"] | "navigation_click" | "phone_click" | "email_click" | "outbound_click" | "file_download" | "provider_completion";
     };
     dataLayer: { matchingEvents: unknown[] };
     tagFired: boolean | null;

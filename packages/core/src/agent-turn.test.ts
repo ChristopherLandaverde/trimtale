@@ -428,4 +428,41 @@ describe("provider-neutral agent turns", () => {
     expect(isAgentTurnV1({ ...unsupported, schemaVersion: 2 })).toBe(false);
     expect(isAgentTurnV1({ ...unsupported, task: { ...unsupported.task, status: "completed" } })).toBe(true);
   });
+
+  it("reviews one supported Calendly completion without claiming iframe access", () => {
+    const intake = interpretConversationIntent("Track Calendly bookings", {
+      navigationCount: 0,
+      forms: [],
+      calendlyEmbedCount: 1,
+    });
+    const turn = agentTurnForIntake(intake, {
+      formCount: 0,
+      navigationCount: 0,
+      calendlyEmbedCount: 1,
+      connection: { publicId: "GTM-TEST123", measurementId: "G-TEST123456" },
+    });
+    const ambiguous = agentTurnForIntake(
+      interpretConversationIntent("Track Calendly bookings", {
+        navigationCount: 0,
+        forms: [],
+        calendlyEmbedCount: 2,
+      }),
+      { formCount: 0, navigationCount: 0, calendlyEmbedCount: 2 },
+    );
+
+    expect(turn).toMatchObject({
+      task: {
+        goal: "Set up Calendly booking tracking",
+        status: "ready_for_review",
+        summary: expect.stringContaining("supported completion signal"),
+      },
+      actions: [{ id: "confirm-calendly-specification", label: "Review setup" }],
+    });
+    expect(turn.receipts[0]?.detail).toContain("1 Calendly inline embed");
+    expect(JSON.stringify(turn)).not.toContain("iframe DOM");
+    expect(ambiguous.task).toMatchObject({
+      status: "blocked",
+      summary: expect.stringContaining("multiple supported Calendly inline embeds"),
+    });
+  });
 });

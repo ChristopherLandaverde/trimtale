@@ -31,13 +31,18 @@ The isolated acceptance proof applies these rules:
 The fixture is `tests/acceptance/calendly-cross-origin-callback.json`; its deterministic
 receiver proof is `packages/core/src/calendly-callback-acceptance.test.ts`.
 
-## Production implication
+## Production follow-up
 
-A future Calendly adapter is viable, but this discovery does not authorize one. A
-production receiver would also need to bind `MessageEvent.source` to the expected
-widget instance so another Calendly embed on the same page cannot satisfy the signal.
-It must retain exact origin and event matching, first-completion deduplication, and the
-empty payload allowlist.
+Issue 29 separately authorized and implemented the first production adapter. It
+recognizes one current-page Calendly iframe only when the exact origin and Calendly's
+generated `embed_type=Inline` marker are present. The generated Custom HTML listener
+resolves the single frame when a message arrives, binds `MessageEvent.source`, retains
+the exact origin and event checks, accepts the first completion only, and keeps the
+payload allowlist empty. A second GA4 tag fires from the normalized data-layer event.
+
+The website agent exposes provider, source, consent, page scope, event, exclusions,
+and real-booking Preview proof before setup approval. The existing managed-workspace,
+exact Preview, immutable version, and publication checkpoints remain unchanged.
 
 This does not generalize to a provider that lacks an authoritative callback or
 validated `postMessage` contract. It does not read iframe DOM, collect form values, or
