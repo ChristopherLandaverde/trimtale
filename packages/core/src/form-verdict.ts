@@ -25,7 +25,16 @@ function requestHasRequiredParameters(url: string): boolean {
   }
 }
 
+function isLeadRequest(url: string): boolean {
+  try {
+    return new URL(url).searchParams.get("en") === "generate_lead";
+  } catch {
+    return false;
+  }
+}
+
 export function determineFormVerdict(observations: FormObservations): TrackingRunEvidenceV1["verdict"] {
+  const leadRequests = observations.network.ga4Requests.filter(({ url }) => isLeadRequest(url));
   let code: ScenarioVerdictCode;
   if (!observations.interaction.attempted) {
     code = "insufficient_observable_evidence";
@@ -37,10 +46,10 @@ export function determineFormVerdict(observations: FormObservations): TrackingRu
     code = observations.outcome.observable ? "expected_non_conversion" : "insufficient_observable_evidence";
   } else if (observations.consent.analyticsStorage === "denied") {
     code = "consent_limited";
-  } else if (observations.network.ga4Requests.length > 1) {
+  } else if (leadRequests.length > 1) {
     code = "duplicate_fire";
-  } else if (observations.network.ga4Requests.length === 1) {
-    code = requestHasRequiredParameters(observations.network.ga4Requests[0]!.url)
+  } else if (leadRequests.length === 1) {
+    code = requestHasRequiredParameters(leadRequests[0]!.url)
       ? "browser_verified"
       : "missing_parameter";
   } else if (observations.dataLayer.matchingEvents.length === 0) {
