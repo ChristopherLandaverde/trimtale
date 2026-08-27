@@ -105,5 +105,13 @@ portal, build the workflow, and start implementation on 2026-08-25.
 - 2026-08-26: Issue 20 preserved the exact preview while rechecking workspace and
   managed-entity state. The full gate passed, and the credentialed workflow created
   immutable version `5` without changing live version `3`.
-- Remaining: review and approve exact version `5`, publish it, then record clean live
-  verification or rollback.
+- 2026-08-26: Version `5` was explicitly published for live review, then safely rolled
+  back to version `3` after one automatic `form_start` request plus one
+  `generate_lead` request was misclassified as duplicate delivery. Issue 21 owns that
+  failing-first classifier correction; no failed version remains live.
+- 2026-08-26: Fresh exact preview `1787798374219` passed with
+  `gtm.elementVisibility`, one complete `generate_lead` request, and no private form
+  value. Google created immutable version `6` (`1787798811643`) from the verified
+  draft. Reloading the page restored the version review without another apply action.
+- Remaining: obtain publication approval bound to exact fingerprint `1787798811643`,
+  publish version `6`, then record clean live verification or rollback.

@@ -1,7 +1,7 @@
 # Filter form collection requests by event
 
 Delivery mode: implementation
-Status: claimed
+Status: resolved
 
 ## Production outcome
 
@@ -34,3 +34,6 @@ exposed the false duplicate verdict.
 - 2026-08-26: Regression first returned `duplicate_fire` for one `form_start` plus one
   `generate_lead` request. The accepted boundary is the event name carried by GA4's
   `en` query parameter.
+- 2026-08-26: The focused file passed 31 tests. The full gate passed 421 deterministic
+  tests and 73 Chromium journeys. A fresh real preview then emitted one
+  `generate_lead` request with the required metadata and no private form value.

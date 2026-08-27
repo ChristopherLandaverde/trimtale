@@ -1,7 +1,7 @@
 # Resume publication gates after interruption
 
 Delivery mode: implementation
-Status: claimed
+Status: resolved
 
 ## Production outcome
 
@@ -35,3 +35,9 @@ through Git checkpoints rather than stopping at a commit.
 
 - 2026-08-26: The credentialed workflow revealed that durable state survived a
   browser restart while the website agent only rehydrated validated operations.
+- 2026-08-26: The backend regression first returned `blocked` for a published
+  operation. The focused API test and two built-extension restart journeys passed.
+- 2026-08-26: The full gate passed 421 deterministic tests and 73 Chromium journeys.
+  Real preview `1787798374219` created immutable version `1787798811643`; after a page
+  reload, the website agent restored its publication review without exposing another
+  apply action. Issue 23 records a medium narrow-viewport overlap found during review.

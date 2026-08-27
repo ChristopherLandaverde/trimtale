@@ -291,7 +291,7 @@ Latency targets remain product hypotheses until measured in representative workf
 - [ ] One authoritative third-party JavaScript example is generated, reviewed,
   applied to the managed workspace, positively and negatively verified, versioned,
   approved, and published through the ordinary workflow.
-- [ ] The exact workspace draft is exercised in a real browser before version approval.
+- [x] The exact workspace draft is exercised in a real browser before version approval.
 - [x] Failed verification may cause bounded repair without widening the confirmed
   tracking intent or publication authority.
 - [x] A same-name product-owned entity can be replaced only after exact semantic
