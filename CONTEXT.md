@@ -148,6 +148,14 @@ _Avoid_: AI tag, owned tag, generated entity
 The signed-in organization surface for Google connections, container inventory, access, change awareness, and durable setup and publication history. Tagging setup and its publication flow remain available in the website agent.
 _Avoid_: Tag editor, website agent, observability scanner
 
+**Organization**:
+The tenant boundary that owns Google connections, tracking setup operations, approval history, and product access for one practitioner team.
+_Avoid_: Google account, client website, user account
+
+**Organization membership**:
+The authenticated relationship that gives one tracking practitioner stable, revocable permissions inside one organization.
+_Avoid_: Browser session, email identity, extension origin, Google login
+
 **Container inventory**:
 The accessible GTM accounts and web containers known for one organization, together with each container's effective access and connected GA4 context.
 _Avoid_: Website list, detected containers, client dashboard
