@@ -108,6 +108,10 @@ _Avoid_: Tracking change plan, implicit Analytics setup, combined provider appro
 A durable record of one tracking setup's progress from its confirmed specification through planning, application, validation, publication approval, publication, evidence, and any rollback. It is the source of truth for safe resumption after interruption.
 _Avoid_: Job, agent session, chat state
 
+**Provider stage**:
+The exact external-system step a tracking setup operation has entered, such as planning, application, validation, versioning, publication, or rollback.
+_Avoid_: Spinner state, elapsed-time status, retry attempt
+
 **Verified draft**:
 A managed-workspace draft whose setup, workspace, and preview fingerprints match passing browser evidence for the confirmed tracking specification. Any change to those fingerprints invalidates the verification.
 _Avoid_: Compiler-valid workspace, generated setup, live-site check
