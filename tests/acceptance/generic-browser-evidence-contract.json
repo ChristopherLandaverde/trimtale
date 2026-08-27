@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "issue": ".scratch/gtm-setup-engine/issues/25-generic-browser-evidence-contract.md",
+  "feature": "generic-browser-evidence-contract",
+  "behavioralTest": "packages/core/src/browser-evidence.test.ts",
+  "contracts": [
+    {
+      "id": "lead-form",
+      "interaction": "form_submission",
+      "outcome": { "required": true, "allowedEvidenceTypes": ["visible_element", "thank_you_url", "data_layer_event", "same_page_success"] },
+      "request": { "destination": "ga4", "eventName": "generate_lead", "requiredParameters": ["form_id", "form_name", "page_location"] },
+      "permittedAutomaticEvents": ["form_start", "page_view", "session_start"],
+      "duplicatePolicy": { "minimum": 1, "maximum": 1 },
+      "dataLayerEvent": "generate_lead",
+      "tagActionId": "tag_generate_lead",
+      "negativeExpectations": ["matching_page_error"]
+    },
+    {
+      "id": "navigation",
+      "interaction": "navigation_click",
+      "outcome": { "required": true, "allowedEvidenceTypes": ["navigation_click"] },
+      "request": { "destination": "ga4", "eventName": "navigation_click", "requiredParameters": ["link_text", "link_url"] },
+      "permittedAutomaticEvents": ["page_view", "session_start"],
+      "duplicatePolicy": { "minimum": 1, "maximum": 1 },
+      "dataLayerEvent": null,
+      "tagActionId": "tag_navigation_click",
+      "negativeExpectations": ["matching_page_error"]
+    },
+    {
+      "id": "download",
+      "interaction": "file_download",
+      "outcome": { "required": true, "allowedEvidenceTypes": ["file_download"] },
+      "request": { "destination": "ga4", "eventName": "file_download", "requiredParameters": [] },
+      "permittedAutomaticEvents": ["page_view", "session_start"],
+      "duplicatePolicy": { "minimum": 1, "maximum": 1 },
+      "dataLayerEvent": null,
+      "tagActionId": "tag_file_download",
+      "negativeExpectations": ["matching_page_error"]
+    },
+    {
+      "id": "phone-click",
+      "interaction": "phone_click",
+      "outcome": { "required": true, "allowedEvidenceTypes": ["phone_click"] },
+      "request": { "destination": "ga4", "eventName": "phone_click", "requiredParameters": [] },
+      "permittedAutomaticEvents": ["page_view", "session_start"],
+      "duplicatePolicy": { "minimum": 1, "maximum": 1 },
+      "dataLayerEvent": null,
+      "tagActionId": "tag_phone_click",
+      "negativeExpectations": ["matching_page_error"]
+    }
+  ],
+  "cases": [
+    {
+      "id": "lead-form-passes-with-permitted-form-start",
+      "contractId": "lead-form",
+      "observations": { "attempted": true, "result": "success", "outcomeObserved": true, "outcomeObservable": true, "consent": "granted", "dataLayerEvents": ["generate_lead"], "tagFired": true, "requests": [{ "destination": "ga4", "eventName": "form_start", "parameters": [] }, { "destination": "ga4", "eventName": "generate_lead", "parameters": ["form_id", "form_name", "page_location"] }], "negativeExpectations": [] },
+      "expected": { "verdict": "browser_verified", "browserVerification": "passed" }
+    },
+    {
+      "id": "navigation-passes",
+      "contractId": "navigation",
+      "observations": { "attempted": true, "result": "success", "outcomeObserved": true, "outcomeObservable": true, "consent": "granted", "dataLayerEvents": [], "tagFired": true, "requests": [{ "destination": "ga4", "eventName": "navigation_click", "parameters": ["link_text", "link_url"] }], "negativeExpectations": [] },
+      "expected": { "verdict": "browser_verified", "browserVerification": "passed" }
+    },
+    {
+      "id": "download-passes",
+      "contractId": "download",
+      "observations": { "attempted": true, "result": "success", "outcomeObserved": true, "outcomeObservable": true, "consent": "granted", "dataLayerEvents": [], "tagFired": true, "requests": [{ "destination": "ga4", "eventName": "file_download", "parameters": [] }], "negativeExpectations": [] },
+      "expected": { "verdict": "browser_verified", "browserVerification": "passed" }
+    },
+    {
+      "id": "phone-click-passes",
+      "contractId": "phone-click",
+      "observations": { "attempted": true, "result": "success", "outcomeObserved": true, "outcomeObservable": true, "consent": "granted", "dataLayerEvents": [], "tagFired": true, "requests": [{ "destination": "ga4", "eventName": "phone_click", "parameters": [] }], "negativeExpectations": [] },
+      "expected": { "verdict": "browser_verified", "browserVerification": "passed" }
+    },
+    {
+      "id": "automatic-event-alone-cannot-pass",
+      "contractId": "lead-form",
+      "observations": { "attempted": true, "result": "success", "outcomeObserved": true, "outcomeObservable": true, "consent": "granted", "dataLayerEvents": ["generate_lead"], "tagFired": true, "requests": [{ "destination": "ga4", "eventName": "form_start", "parameters": [] }], "negativeExpectations": [] },
+      "expected": { "verdict": "tag_fired_request_missing", "browserVerification": "failed" }
+    },
+    {
+      "id": "matching-event-duplicate-fails",
+      "contractId": "lead-form",
+      "observations": { "attempted": true, "result": "success", "outcomeObserved": true, "outcomeObservable": true, "consent": "granted", "dataLayerEvents": ["generate_lead"], "tagFired": true, "requests": [{ "destination": "ga4", "eventName": "generate_lead", "parameters": ["form_id", "form_name", "page_location"] }, { "destination": "ga4", "eventName": "generate_lead", "parameters": ["form_id", "form_name", "page_location"] }], "negativeExpectations": [] },
+      "expected": { "verdict": "duplicate_fire", "browserVerification": "failed" }
+    },
+    {
+      "id": "required-parameter-missing",
+      "contractId": "lead-form",
+      "observations": { "attempted": true, "result": "success", "outcomeObserved": true, "outcomeObservable": true, "consent": "granted", "dataLayerEvents": ["generate_lead"], "tagFired": true, "requests": [{ "destination": "ga4", "eventName": "generate_lead", "parameters": ["form_id", "page_location"] }], "negativeExpectations": [] },
+      "expected": { "verdict": "missing_parameter", "browserVerification": "failed" }
+    },
+    {
+      "id": "consent-denied-remains-inconclusive",
+      "contractId": "lead-form",
+      "observations": { "attempted": true, "result": "success", "outcomeObserved": true, "outcomeObservable": true, "consent": "denied", "dataLayerEvents": ["generate_lead"], "tagFired": false, "requests": [], "negativeExpectations": [] },
+      "expected": { "verdict": "consent_limited", "browserVerification": "inconclusive" }
+    },
+    {
+      "id": "absent-unobservable-outcome-remains-inconclusive",
+      "contractId": "lead-form",
+      "observations": { "attempted": true, "result": "unknown", "outcomeObserved": false, "outcomeObservable": false, "consent": "unknown", "dataLayerEvents": [], "tagFired": null, "requests": [], "negativeExpectations": [] },
+      "expected": { "verdict": "insufficient_observable_evidence", "browserVerification": "inconclusive" }
+    },
+    {
+      "id": "matching-negative-expectation-fails",
+      "contractId": "phone-click",
+      "observations": { "attempted": true, "result": "success", "outcomeObserved": true, "outcomeObservable": true, "consent": "granted", "dataLayerEvents": [], "tagFired": true, "requests": [{ "destination": "ga4", "eventName": "phone_click", "parameters": [] }], "negativeExpectations": ["matching_page_error"] },
+      "expected": { "verdict": "submission_failed", "browserVerification": "failed" }
+    }
+  ]
+}

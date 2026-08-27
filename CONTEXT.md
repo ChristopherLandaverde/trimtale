@@ -219,6 +219,10 @@ _Avoid_: Training data, mock websites, examples
 The normalized, durable record of what a tracking check observed about the interaction, business outcome, data layer, destination requests, consent state, and relevant tracking configuration.
 _Avoid_: Log dump, screenshot, chain of thought
 
+**Browser evidence contract**:
+A versioned part of a tracking setup that declares which normalized browser observations can pass, fail, or leave its tracking check inconclusive.
+_Avoid_: Run evidence, verdict, event-specific verifier
+
 **Time to verified setup**:
 The elapsed time from submitting a tracking intent to the generated tracking setup passing its browser check after import.
 _Avoid_: Setup time, generation time

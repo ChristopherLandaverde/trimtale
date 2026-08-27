@@ -355,8 +355,10 @@ setup without weakening approval, privacy, or provider boundaries:
 2. Issue 24 now requires an exact-preview readiness receipt that matches the loaded
    container and current target, plus an explicit practitioner confirmation that Tag
    Assistant shows Connected, before a browser run can begin.
-3. Issue 25 defines one generic browser-evidence contract for expected requests,
-   permitted automatic events, required parameters, and duplicate policy.
+3. Issue 25 now defines one generic browser-evidence contract for expected requests,
+   permitted automatic events, required parameters, negative expectations, and
+   duplicate policy. Its acceptance fixture covers forms, navigation, downloads, and
+   phone clicks without changing runtime verdict behavior.
 4. Issue 26 proves the callback pattern with one selected cross-origin provider before
    any generalized adapter framework is proposed.
 5. Issue 27 distinguishes active Google stages from timeouts and prevents UI retries
