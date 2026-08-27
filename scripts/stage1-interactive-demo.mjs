@@ -167,6 +167,23 @@ await context.route("http://127.0.0.1:8787/api/google/workflows/*/publish", (rou
     },
   }),
 }));
+await context.route("http://127.0.0.1:8787/api/google/workflows/*/verify-publication", (route) => route.fulfill({
+  status: 200,
+  contentType: "application/json",
+  body: JSON.stringify({
+    result: {
+      status: "completed",
+      nextStep: "complete",
+      operation: {
+        id: operationId,
+        status: "completed",
+        version: { fingerprint: "version-manual-demo-8" },
+        publication: { versionFingerprint: "version-manual-demo-8" },
+        postPublicationEvidenceId: "run-live-manual-demo-8",
+      },
+    },
+  }),
+}));
 
 await context.route("http://127.0.0.1:4175/stage1-demo", (route) => route.fulfill({
   contentType: "text/html",
@@ -210,6 +227,8 @@ await context.route("http://127.0.0.1:4175/stage1-demo", (route) => route.fulfil
             <li>Confirm that no version exists before the browser run.</li>
             <li>Start the exact run, then submit this form.</li>
             <li>Review and publish the exact demo version.</li>
+            <li>Run live verification and submit the form once more.</li>
+            <li>Finish at the Live and verified receipt.</li>
           </ol>
         </aside>
       </div>
