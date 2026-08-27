@@ -19,6 +19,8 @@ Date: 2026-08-26
    value and the exact validated preview binding.
 3. Reloaded the versioned target and repeated intake to test durable recovery from a
    browser interruption.
+4. Approved the exact displayed version, published it, stopped Preview, cleared the
+   debug cookie, rehydrated the published operation, and ran live verification.
 
 ## Observations
 
@@ -32,10 +34,16 @@ Date: 2026-08-26
 - Run `run_form_1787798730306` bound setup `setup_d729b06cc79a`, workspace
   `1787795812815`, and preview `1787798374219` before Google created immutable
   version `6` with fingerprint `1787798811643`.
-- Live remained version `3` with fingerprint `1787458659661`; publication was not
-  started.
+- Publication approval named only fingerprint `1787798811643`. Google confirmed it
+  at `2026-08-27T02:52:00.426Z`.
 - After reload, the website agent restored `Review publication` for the exact version
   and exposed no repeated apply action.
+- The clean live target was `https://consentflow-psi.vercel.app/` with no Tag Assistant
+  debug cookie. It restored `Run live verification` without another publication
+  action.
+- Live run `run_form_1787799218426` emitted exactly one complete `generate_lead`
+  request for the canonical page, completed the durable operation, and never exposed
+  or invoked rollback.
 
 ## Findings
 
@@ -53,3 +61,7 @@ Date: 2026-08-26
   `.data/stage1-google-smoke-operations-live-retry-3.json`.
 - Captures: `.data/stage1-live-retry-versioned.png` and
   `.data/stage1-version-5-review.png` (the latter filename predates version `6`).
+- Final captures: `.data/stage1-version-6-publication-approval.png`,
+  `.data/stage1-version-6-published.png`,
+  `.data/stage1-version-6-clean-live-ready.png`, and
+  `.data/stage1-version-6-live-verified.png`.

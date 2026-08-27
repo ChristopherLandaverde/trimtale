@@ -1,7 +1,7 @@
 # Credentialed Stage 1 setup workflow
 
 Delivery mode: implementation
-Status: in progress
+Status: resolved
 
 ## Production outcome
 
@@ -113,5 +113,8 @@ portal, build the workflow, and start implementation on 2026-08-25.
   `gtm.elementVisibility`, one complete `generate_lead` request, and no private form
   value. Google created immutable version `6` (`1787798811643`) from the verified
   draft. Reloading the page restored the version review without another apply action.
-- Remaining: obtain publication approval bound to exact fingerprint `1787798811643`,
-  publish version `6`, then record clean live verification or rollback.
+- 2026-08-26: The user approved exact fingerprint `1787798811643`. Google confirmed
+  publication at `2026-08-27T02:52:00.426Z`. After stopping Preview and clearing the
+  debug cookie, the clean canonical site rehydrated the published operation and
+  produced one complete live `generate_lead` request. Run `run_form_1787799218426`
+  completed the operation; rollback remained locked and unused.

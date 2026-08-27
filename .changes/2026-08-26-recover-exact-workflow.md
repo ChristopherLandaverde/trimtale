@@ -40,12 +40,13 @@ recovery without repeated application or publication actions.
 ## Exploratory review
 
 See `docs/reviews/2026-08-26-exact-workflow-recovery.md`. A real exact preview passed,
-created immutable version `6`, and recovered its exact review after reload. A negative
-off-screen path stopped without a version. No blocker or high-severity finding remains;
-Issue 23 records the medium narrow-viewport overlap.
+created immutable version `6`, and recovered its exact review after reload. Exact
+approval then published it; a clean no-debug-cookie reload restored and passed live
+verification. A negative off-screen path stopped without a version. No blocker or
+high-severity finding remains; Issue 23 records the medium narrow-viewport overlap.
 
 ## Documentation
 
-Updated Issues 11, 21, and 22, added Issue 23, and recorded the real exact-preview and
-recovery evidence. The Stage 1 acceptance checklist now records real-browser draft
-verification as complete.
+Resolved Issues 11, 21, and 22, added Issue 23, and recorded the real exact-preview,
+publication, live-verification, and recovery evidence. The Stage 1 acceptance
+checklist now records real-browser draft verification as complete.
