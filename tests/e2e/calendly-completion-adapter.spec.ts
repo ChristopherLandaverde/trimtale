@@ -238,7 +238,6 @@ test("authors and verifies one trusted Calendly inline completion", async ({ con
   expect(href).not.toContain("PRIVATE_INVITEE_EMAIL");
 
   await task.getByRole("button", { name: "Apply & validate draft" }).click();
-  await task.getByRole("button", { name: "Confirm apply & validate" }).click();
   await expect(task.getByText(/No immutable version exists yet/i)).toBeVisible();
   await task.getByRole("button", { name: "Confirm Tag Assistant connected" }).click();
   await expect(task.getByRole("region", { name: "Exact preview readiness" }))

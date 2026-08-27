@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "issue": ".scratch/gtm-setup-engine/issues/32-guided-task-journey.md",
+  "stages": ["define", "review", "apply", "test", "publish", "verify"],
+  "starterLimit": 3,
+  "compactContext": {
+    "healthyKinds": ["recognized"],
+    "expandedByDefault": false,
+    "requiredSummary": ["container_name", "public_id", "effective_access"]
+  },
+  "artifactKinds": ["specification", "plan", "receipt", "binding", "evidence"],
+  "resumableCheckpoints": ["approved_setup", "planned", "awaiting_preview", "versioned", "published"],
+  "approvalInvariants": [
+    "apply_requires_exact_visible_plan_action",
+    "publication_requires_exact_visible_version_action",
+    "rollback_requires_exact_visible_target_action"
+  ],
+  "queueBoundary": {
+    "allowed": ["pending_conversation_response"],
+    "forbidden": ["provider_mutation_cancel", "provider_mutation_steer"]
+  },
+  "forbiddenResumeFields": [
+    "prompt",
+    "form_value",
+    "cookie",
+    "credential",
+    "identity",
+    "page_text"
+  ],
+  "completion": ["live_and_verified", "copy_summary", "start_another_setup"]
+}

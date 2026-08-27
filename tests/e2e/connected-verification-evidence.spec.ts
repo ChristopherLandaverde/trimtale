@@ -120,6 +120,7 @@ test("carries exact GTM context through generation, browser evidence, and GA4 co
   );
   const root = page.locator("#gtm-observability-root");
   await root.getByRole("button", { name: "Open tracking agent" }).click();
+  await root.getByRole("button", { name: "Show connection details" }).click();
   await expect(root.getByRole("region", { name: "GTM connection" }).getByText("G-EXACT123", { exact: true }))
     .toBeVisible();
   await expect(root.getByText("7 of 7 automatic features on", { exact: true })).toBeVisible();

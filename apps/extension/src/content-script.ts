@@ -56,6 +56,27 @@ interface OverlayPreferences {
   collapsed: boolean;
 }
 
+type JourneyStage = "define" | "review" | "apply" | "test" | "publish" | "verify";
+type ResumeCheckpoint = "approved_setup" | "planned" | "awaiting_preview" | "versioned" | "published";
+
+interface ActiveJourneySnapshotV1 {
+  schemaVersion: 1;
+  origin: string;
+  requestId: string;
+  checkpoint: ResumeCheckpoint;
+  updatedAt: string;
+  intake: ConversationIntakeResult;
+  plan?: WorkflowPlanSummary;
+  preview?: {
+    operationId: string;
+    setupFingerprint: string;
+    workspaceFingerprint: string;
+    previewVersionFingerprint: string;
+  };
+  version?: { operationId: string; versionFingerprint: string };
+  publication?: { operationId: string; versionFingerprint: string; publishedAt: string };
+}
+
 interface ScanResponse { pageUrl: string; title: string; navigation: NavigationElement[]; }
 
 interface GtmWorkspaceResult {
@@ -326,6 +347,13 @@ let frame: HTMLElement | undefined;
 let responseList: HTMLElement | undefined;
 let composer: HTMLTextAreaElement | undefined;
 let gtmConnectionCard: HTMLElement | undefined;
+let journeyRail: HTMLElement | undefined;
+let journeyResumeCard: HTMLElement | undefined;
+let welcomeCard: HTMLElement | undefined;
+let artifactPanel: HTMLElement | undefined;
+let artifactBody: HTMLElement | undefined;
+let artifactToggle: HTMLButtonElement | undefined;
+let stopResponseButton: HTMLButtonElement | undefined;
 let port: chrome.runtime.Port | undefined;
 let targetHost: HTMLDivElement | undefined;
 interface PageTarget {
@@ -338,6 +366,9 @@ let highlightedTargets: PageTarget[] = [];
 let highlightTone: "candidate" | "confirmed" = "candidate";
 const responseNodes = new Map<string, HTMLElement>();
 const agentTaskNodes = new Map<string, HTMLElement>();
+const approvedSetupRequests = new Set<string>();
+const completedJourneyRequests = new Set<string>();
+const completionSummaryByRequest = new Map<string, string>();
 const navigationByRequest = new Map<string, NavigationElement[]>();
 const requestTimeouts = new Map<string, number>();
 const intakeByRequest = new Map<string, ConversationIntakeResult>();
@@ -408,6 +439,10 @@ let activeCalendlyVerification: {
 let recognizedGtmContext: Extract<GtmConnectionView, { kind: "recognized" }> | undefined;
 let gtmConnectionLoaded = false;
 let gtmConnectionRequestSequence = 0;
+let connectionExpanded = false;
+let currentTaskRequestId: string | undefined;
+let pendingAssistantRequestId: string | undefined;
+const queuedPrompts: Array<{ prompt: string; node: HTMLElement }> = [];
 
 function successEvidenceFor(result: ConversationIntakeResult): SuccessEvidence | undefined {
   const signal = result.successSignal;
@@ -1471,6 +1506,253 @@ function isBoundedText(value: unknown, maximum = 256): value is string {
   return typeof value === "string" && value.trim().length > 0 && value.length <= maximum;
 }
 
+const journeyStages: Array<{ id: JourneyStage; label: string }> = [
+  { id: "define", label: "Define" },
+  { id: "review", label: "Review" },
+  { id: "apply", label: "Apply" },
+  { id: "test", label: "Test" },
+  { id: "publish", label: "Publish" },
+  { id: "verify", label: "Verify" },
+];
+
+const resumableInteractions = new Set<ConversationIntakeResult["interaction"]>([
+  "form_submission",
+  "phone_click",
+  "email_click",
+  "outbound_click",
+  "file_download",
+  "calendly_booking",
+]);
+
+function journeyGoal(intake: ConversationIntakeResult): string {
+  const definition = knownInteractionDefinition(intake.interaction);
+  if (definition) {
+    return `${definition.interactionLabel} tracking`;
+  }
+  if (intake.interaction === "calendly_booking") {
+    return "Calendly completion tracking";
+  }
+  return "Form submission tracking";
+}
+
+function sanitizeResumeIntake(intake: ConversationIntakeResult): ConversationIntakeResult | undefined {
+  if (!intake.canConfirm || !resumableInteractions.has(intake.interaction)) {
+    return undefined;
+  }
+  const successSignals = intake.target?.successSignals.map((signal) => ({
+    ...signal,
+    label: "Confirmed success",
+  }));
+  const target = intake.target && successSignals
+    ? {
+        ...intake.target,
+        label: "Confirmed form",
+        successSignals,
+      }
+    : undefined;
+  const successSignal = intake.successSignal
+    ? { ...intake.successSignal, label: "Confirmed success" }
+    : undefined;
+  return {
+    interaction: intake.interaction,
+    state: "draft_ready",
+    canConfirm: true,
+    ...(intake.eventName ? { eventName: intake.eventName } : {}),
+    ...(intake.scope ? { scope: intake.scope } : {}),
+    ...(target ? { target } : {}),
+    ...(successSignal ? { successSignal } : {}),
+    options: [],
+  };
+}
+
+function parseResumeIntake(value: unknown): ConversationIntakeResult | undefined {
+  if (!isRecord(value)
+    || value.canConfirm !== true
+    || value.state !== "draft_ready"
+    || !resumableInteractions.has(value.interaction as ConversationIntakeResult["interaction"])
+    || !Array.isArray(value.options)
+    || value.options.length !== 0) {
+    return undefined;
+  }
+  if (value.scope !== undefined && value.scope !== "sitewide" && value.scope !== "current_page") {
+    return undefined;
+  }
+  const interaction = value.interaction as ConversationIntakeResult["interaction"];
+  const eventName = value.eventName;
+  if (eventName !== undefined && !isBoundedText(eventName, 64)) {
+    return undefined;
+  }
+  const parseSignal = (signal: unknown): FormCandidate["successSignals"][number] | undefined => {
+    if (!isRecord(signal)
+      || !isBoundedText(signal.id, 128)
+      || signal.label !== "Confirmed success"
+      || !["visible_element", "thank_you_url", "data_layer_event", "same_page_success"].includes(String(signal.type))
+      || !isBoundedText(signal.value, 2048)) {
+      return undefined;
+    }
+    return signal as unknown as FormCandidate["successSignals"][number];
+  };
+  let target: FormCandidate | undefined;
+  if (value.target !== undefined) {
+    if (!isRecord(value.target)
+      || !isBoundedText(value.target.id, 128)
+      || value.target.label !== "Confirmed form"
+      || !isBoundedText(value.target.selector, 2048)
+      || !isBoundedText(value.target.pageUrl, 2048)
+      || !Array.isArray(value.target.successSignals)
+      || value.target.successSignals.length > 20) {
+      return undefined;
+    }
+    const signals = value.target.successSignals.map(parseSignal);
+    if (signals.some((signal) => !signal)) {
+      return undefined;
+    }
+    target = {
+      id: value.target.id,
+      label: "Confirmed form",
+      selector: value.target.selector,
+      pageUrl: value.target.pageUrl,
+      successSignals: signals as FormCandidate["successSignals"],
+    };
+  }
+  const successSignal = value.successSignal === undefined ? undefined : parseSignal(value.successSignal);
+  if (value.successSignal !== undefined && !successSignal) {
+    return undefined;
+  }
+  return {
+    interaction,
+    state: "draft_ready",
+    canConfirm: true,
+    ...(eventName ? { eventName: eventName as NonNullable<ConversationIntakeResult["eventName"]> } : {}),
+    ...(value.scope ? { scope: value.scope as NonNullable<ConversationIntakeResult["scope"]> } : {}),
+    ...(target ? { target } : {}),
+    ...(successSignal ? { successSignal } : {}),
+    options: [],
+  };
+}
+
+function parsePlanAction(value: unknown): PlanActionSummary | undefined {
+  if (!isRecord(value)
+    || !["tag", "trigger", "variable", "builtInVariable"].includes(String(value.kind))
+    || !["create", "reuse", "no_op", "update", "conflict"].includes(String(value.action))
+    || !isBoundedText(value.generatedName, 512)) {
+    return undefined;
+  }
+  return value as unknown as PlanActionSummary;
+}
+
+function parseResumePlan(value: unknown): WorkflowPlanSummary | undefined {
+  if (!isRecord(value)
+    || !isBoundedText(value.operationId, 128)
+    || value.status !== "planned"
+    || value.planStatus !== "ready"
+    || !isBoundedText(value.fingerprint, 256)
+    || !Array.isArray(value.actions)
+    || value.actions.length > 100) {
+    return undefined;
+  }
+  const actions = value.actions.map(parsePlanAction);
+  if (actions.some((action) => !action)) {
+    return undefined;
+  }
+  return {
+    operationId: value.operationId,
+    status: "planned",
+    planStatus: "ready",
+    fingerprint: value.fingerprint,
+    actions: actions as PlanActionSummary[],
+    ...(value.replacementApproved === true ? { replacementApproved: true } : {}),
+  };
+}
+
+function parseJourneySnapshot(value: unknown): ActiveJourneySnapshotV1 | undefined {
+  if (!isRecord(value)
+    || value.schemaVersion !== 1
+    || !isBoundedText(value.origin, 2048)
+    || !isBoundedText(value.requestId, 128)
+    || !["approved_setup", "planned", "awaiting_preview", "versioned", "published"].includes(String(value.checkpoint))
+    || !isBoundedText(value.updatedAt, 64)) {
+    return undefined;
+  }
+  const intake = parseResumeIntake(value.intake);
+  if (!intake) {
+    return undefined;
+  }
+  const base = {
+    schemaVersion: 1 as const,
+    origin: value.origin,
+    requestId: value.requestId,
+    checkpoint: value.checkpoint as ResumeCheckpoint,
+    updatedAt: value.updatedAt,
+    intake,
+  };
+  if (base.checkpoint === "approved_setup") {
+    return base;
+  }
+  if (base.checkpoint === "planned") {
+    const plan = parseResumePlan(value.plan);
+    return plan ? { ...base, plan } : undefined;
+  }
+  const parseBinding = (binding: unknown, fields: string[]): Record<string, string> | undefined => {
+    if (!isRecord(binding)) {
+      return undefined;
+    }
+    const parsed: Record<string, string> = {};
+    for (const field of fields) {
+      if (!isBoundedText(binding[field], field === "publishedAt" ? 64 : 256)) {
+        return undefined;
+      }
+      parsed[field] = binding[field];
+    }
+    return parsed;
+  };
+  if (base.checkpoint === "awaiting_preview") {
+    const preview = parseBinding(value.preview, [
+      "operationId", "setupFingerprint", "workspaceFingerprint", "previewVersionFingerprint",
+    ]);
+    return preview
+      ? { ...base, preview: preview as NonNullable<ActiveJourneySnapshotV1["preview"]> }
+      : undefined;
+  }
+  if (base.checkpoint === "versioned") {
+    const version = parseBinding(value.version, ["operationId", "versionFingerprint"]);
+    return version
+      ? { ...base, version: version as NonNullable<ActiveJourneySnapshotV1["version"]> }
+      : undefined;
+  }
+  const publication = parseBinding(value.publication, ["operationId", "versionFingerprint", "publishedAt"]);
+  return publication
+    ? { ...base, publication: publication as NonNullable<ActiveJourneySnapshotV1["publication"]> }
+    : undefined;
+}
+
+function saveJourneySnapshot(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  checkpoint: ResumeCheckpoint,
+  detail: Pick<ActiveJourneySnapshotV1, "plan" | "preview" | "version" | "publication"> = {},
+): void {
+  const persistedIntake = sanitizeResumeIntake(intake);
+  if (!persistedIntake) {
+    return;
+  }
+  const snapshot: ActiveJourneySnapshotV1 = {
+    schemaVersion: 1,
+    origin: location.origin,
+    requestId,
+    checkpoint,
+    updatedAt: new Date().toISOString(),
+    intake: persistedIntake,
+    ...detail,
+  };
+  void chrome.storage.local.set({ activeJourney: snapshot });
+}
+
+function clearJourneySnapshot(): void {
+  void chrome.storage.local.remove("activeJourney");
+  journeyResumeCard?.setAttribute("hidden", "");
+}
+
 function parseConnectionStatus(value: unknown): GtmConnectionStatus | undefined {
   if (!isRecord(value)
     || typeof value.configured !== "boolean"
@@ -1864,6 +2146,7 @@ function appendEnhancedAction(parent: HTMLElement, audit?: EnhancedMeasurementAu
 function renderGtmConnection(view: GtmConnectionView): void {
   if (!gtmConnectionCard) return;
   gtmConnectionCard.replaceChildren();
+  gtmConnectionCard.classList.toggle("compact", view.kind === "recognized");
   const heading = document.createElement("div");
   heading.className = "gtm-context-heading";
   const title = document.createElement("strong");
@@ -1978,17 +2261,20 @@ function renderGtmConnection(view: GtmConnectionView): void {
     note.textContent = `${view.matchCount} accessible containers matched. None was selected.`;
   } else {
     badge.textContent = effectiveAccess(view.status);
-    summary.textContent = "GTM API authorization connected";
-    appendConnectionRow(body, "Page", view.publicId);
-    appendConnectionRow(body, "Account", view.account.name);
-    appendConnectionRow(body, "Container", view.container.name);
+    summary.textContent = `${view.container.name} · ${view.publicId}`;
+    const details = document.createElement("div");
+    details.className = "gtm-context-details";
+    details.hidden = !connectionExpanded;
+    appendConnectionRow(details, "Page", view.publicId);
+    appendConnectionRow(details, "Account", view.account.name);
+    appendConnectionRow(details, "Container", view.container.name);
     appendConnectionRow(
-      body,
+      details,
       "GA4",
       view.measurementIds.length > 0 ? view.measurementIds.join(" · ") : "No live destination found",
     );
-    appendEnhancedRows(body, view.enhancedMeasurement, view.enhancedMeasurementError);
-    appendEnhancedAction(body, view.enhancedMeasurement);
+    appendEnhancedRows(details, view.enhancedMeasurement, view.enhancedMeasurementError);
+    appendEnhancedAction(details, view.enhancedMeasurement);
     const leadBoundary = view.enhancedMeasurement
       ? " Confirmed lead outcomes remain separate."
       : "";
@@ -1996,10 +2282,31 @@ function renderGtmConnection(view: GtmConnectionView): void {
       ? " Analytics edit is limited to the reviewed master switch."
       : ` Analytics reads are ${view.status.analyticsReadEnabled ? "enabled" : "off"}.`;
     note.textContent = `${accessExplanation(view.status)}${analyticsAccess}${leadBoundary}`;
+    details.append(note);
+    body.append(details);
+    const toggle = document.createElement("button");
+    toggle.className = "gtm-context-toggle";
+    toggle.textContent = connectionExpanded ? "Less" : "More";
+    toggle.setAttribute(
+      "aria-label",
+      connectionExpanded ? "Hide connection details" : "Show connection details",
+    );
+    toggle.setAttribute("aria-expanded", String(connectionExpanded));
+    toggle.addEventListener("click", () => {
+      connectionExpanded = !connectionExpanded;
+      details.hidden = !connectionExpanded;
+      toggle.textContent = connectionExpanded ? "Less" : "More";
+      toggle.setAttribute(
+        "aria-label",
+        connectionExpanded ? "Hide connection details" : "Show connection details",
+      );
+      toggle.setAttribute("aria-expanded", String(connectionExpanded));
+    });
+    controls.prepend(toggle);
   }
 
   body.prepend(summary);
-  if (note.textContent) body.append(note);
+  if (view.kind !== "recognized" && note.textContent) body.append(note);
   gtmConnectionCard.append(heading, body);
 }
 
@@ -2178,6 +2485,9 @@ function restoreVerificationPresentation(): void {
 
 function setCollapsed(collapsed: boolean): void {
   preferences.collapsed = collapsed;
+  if (collapsed) {
+    closeArtifactPanel();
+  }
   if (!collapsed && !gtmConnectionLoaded) preferences.height = Math.max(preferences.height, 380);
   applyPreferences();
   persistPreferences();
@@ -2244,6 +2554,177 @@ function appendAgentText(parent: HTMLElement, className: string, copy: string): 
   return node;
 }
 
+function stageForRequest(requestId?: string): JourneyStage {
+  if (!requestId) {
+    return "define";
+  }
+  if (completedJourneyRequests.has(requestId) || workflowPublicationByRequest.has(requestId)) {
+    return "verify";
+  }
+  if (workflowVersionByRequest.has(requestId)) {
+    return "publish";
+  }
+  if (workflowPreviewByRequest.has(requestId)) {
+    return "test";
+  }
+  if (workflowPlansByRequest.has(requestId) || approvedSetupRequests.has(requestId)) {
+    return "apply";
+  }
+  return intakeByRequest.get(requestId)?.canConfirm ? "review" : "define";
+}
+
+function renderJourney(stage: JourneyStage, blocked = false): void {
+  if (!journeyRail) {
+    return;
+  }
+  const activeIndex = journeyStages.findIndex(({ id }) => id === stage);
+  journeyRail.replaceChildren();
+  const list = document.createElement("ol");
+  for (const [index, item] of journeyStages.entries()) {
+    const row = document.createElement("li");
+    row.className = index < activeIndex
+      ? "completed"
+      : index === activeIndex
+        ? blocked ? "blocked" : "active"
+        : "pending";
+    const marker = document.createElement("i");
+    marker.setAttribute("aria-hidden", "true");
+    marker.textContent = index < activeIndex || completedJourneyRequests.has(currentTaskRequestId ?? "")
+      ? "✓"
+      : String(index + 1);
+    const label = document.createElement("span");
+    label.textContent = item.label;
+    if (index === activeIndex && !completedJourneyRequests.has(currentTaskRequestId ?? "")) {
+      label.setAttribute("aria-current", "step");
+    }
+    row.append(marker, label);
+    list.append(row);
+  }
+  journeyRail.append(list);
+}
+
+function closeArtifactPanel(): void {
+  if (!artifactPanel || !artifactToggle) {
+    return;
+  }
+  artifactPanel.setAttribute("hidden", "");
+  artifactToggle.setAttribute("aria-expanded", "false");
+}
+
+function taskArtifacts(task: HTMLElement): HTMLElement[] {
+  return [...task.querySelectorAll<HTMLElement>(
+    ".agent-receipts, .agent-specification, .agent-verification-result",
+  )];
+}
+
+function renderArtifactPanel(task: HTMLElement): void {
+  if (!artifactBody || !artifactPanel || !artifactToggle) {
+    return;
+  }
+  const artifacts = taskArtifacts(task);
+  artifactBody.replaceChildren(...artifacts.map((artifact) => {
+    const copy = artifact.cloneNode(true) as HTMLElement;
+    copy.classList.remove("artifact-source");
+    copy.querySelectorAll<HTMLElement>("[id]").forEach((node) => node.removeAttribute("id"));
+    return copy;
+  }));
+  artifactPanel.removeAttribute("hidden");
+  artifactToggle.setAttribute("aria-expanded", "true");
+  artifactPanel.querySelector<HTMLButtonElement>(".artifact-close")?.focus();
+}
+
+function syncTaskArtifacts(): void {
+  if (!artifactToggle || !currentTaskRequestId) {
+    return;
+  }
+  const task = agentTaskNodes.get(currentTaskRequestId);
+  const artifacts = task ? taskArtifacts(task) : [];
+  for (const artifact of artifacts) {
+    artifact.classList.add("artifact-source");
+  }
+  artifactToggle.hidden = artifacts.length === 0;
+  artifactToggle.textContent = `Details ${artifacts.length}`;
+  artifactToggle.setAttribute(
+    "aria-label",
+    artifacts.length === 1 ? "View task details (1 artifact)" : `View task details (${artifacts.length} artifacts)`,
+  );
+  if (artifacts.length === 0) {
+    closeArtifactPanel();
+    return;
+  }
+  if (artifactToggle.getAttribute("aria-expanded") === "true" && task) {
+    renderArtifactPanel(task);
+  }
+}
+
+function restoreJourney(snapshot: ActiveJourneySnapshotV1): void {
+  const { requestId, intake } = snapshot;
+  intakeByRequest.set(requestId, intake);
+  currentTaskRequestId = requestId;
+  approvedSetupRequests.add(requestId);
+  journeyResumeCard?.setAttribute("hidden", "");
+  welcomeCard?.setAttribute("hidden", "");
+  if (snapshot.checkpoint === "approved_setup") {
+    if (intake.interaction === "form_submission") {
+      renderApprovedFormSetup(requestId, intake);
+    } else if (intake.interaction === "calendly_booking") {
+      renderCalendlyApproved(requestId, intake);
+    } else {
+      renderInteractionApproved(requestId, intake);
+    }
+    return;
+  }
+  if (snapshot.checkpoint === "planned" && snapshot.plan) {
+    showWorkflowPlan(requestId, intake, snapshot.plan);
+    return;
+  }
+  if (snapshot.checkpoint === "awaiting_preview" && snapshot.preview) {
+    workflowPreviewByRequest.set(requestId, snapshot.preview);
+    renderPreviewHandoff(requestId, intake, snapshot.preview);
+    return;
+  }
+  if (snapshot.checkpoint === "versioned" && snapshot.version) {
+    renderCompletedVersion(requestId, intake, {
+      operationId: snapshot.version.operationId,
+      status: "versioned",
+      validationStatus: "passed",
+      nextStep: "await_approval",
+      versionFingerprint: snapshot.version.versionFingerprint,
+    });
+    return;
+  }
+  if (snapshot.checkpoint === "published" && snapshot.publication) {
+    renderPublishedVersion(requestId, intake, snapshot.publication);
+  }
+}
+
+function renderResumeCard(snapshot: ActiveJourneySnapshotV1): void {
+  if (!journeyResumeCard || snapshot.origin !== location.origin) {
+    return;
+  }
+  welcomeCard?.setAttribute("hidden", "");
+  const stage = snapshot.checkpoint === "approved_setup" || snapshot.checkpoint === "planned"
+    ? "Apply"
+    : snapshot.checkpoint === "awaiting_preview"
+      ? "Test"
+      : snapshot.checkpoint === "versioned"
+        ? "Publish"
+        : "Verify";
+  journeyResumeCard.replaceChildren();
+  const copy = document.createElement("div");
+  appendAgentText(copy, "resume-kicker", "Continue setup");
+  appendAgentText(copy, "resume-goal", journeyGoal(snapshot.intake));
+  appendAgentText(copy, "resume-stage", `Next · ${stage}`);
+  const control = document.createElement("button");
+  control.className = "quick primary-quick";
+  control.textContent = "Continue";
+  control.setAttribute("aria-label", "Continue setup");
+  control.addEventListener("click", () => restoreJourney(snapshot));
+  journeyResumeCard.append(copy, control);
+  journeyResumeCard.removeAttribute("hidden");
+  renderJourney(stage.toLowerCase() as JourneyStage);
+}
+
 function positionAgentTask(task: HTMLElement): void {
   const messages = responseList;
   if (!messages) {
@@ -2268,6 +2749,8 @@ function positionAgentTask(task: HTMLElement): void {
 
 function renderAgentTurn(requestId: string, turn: AgentTurnV1, preferredNode?: HTMLElement): HTMLElement {
   const task = preferredNode ?? agentTaskNodes.get(requestId) ?? document.createElement("section");
+  currentTaskRequestId = requestId;
+  closeArtifactPanel();
   task.className = `agent-turn status-${turn.task.status}`;
   task.setAttribute("role", "region");
   task.setAttribute("aria-label", "Agent task");
@@ -2336,6 +2819,11 @@ function renderAgentTurn(requestId: string, turn: AgentTurnV1, preferredNode?: H
   preferences.height = Math.max(preferences.height, 520);
   applyPreferences();
   persistPreferences();
+  renderJourney(
+    stageForRequest(requestId),
+    turn.task.status === "blocked" || turn.task.status === "unsupported",
+  );
+  window.queueMicrotask(syncTaskArtifacts);
   positionAgentTask(task);
   return task;
 }
@@ -2673,6 +3161,8 @@ function renderModelAuthoredApproved(
   const authored = authoredSetupByRequest.get(requestId);
   if (!authored) return;
   authored.setup = { ...authored.setup, status: "confirmed" };
+  approvedSetupRequests.add(requestId);
+  saveJourneySnapshot(requestId, intake, "approved_setup");
   renderFormTaskState(requestId, intake, {
     status: "completed",
     summary: `The model-authored ${authored.eventName} setup is approved for deterministic planning. Nothing was applied or published.`,
@@ -2688,6 +3178,8 @@ function renderInteractionApproved(requestId: string, result: ConversationIntake
   const proposal = interactionSetupProposal(result);
   const definition = knownInteractionDefinition(result.interaction);
   const canPlan = recognizedGtmContext?.status.containerWritesEnabled === true;
+  approvedSetupRequests.add(requestId);
+  saveJourneySnapshot(requestId, result, "approved_setup");
   const turn = agentTurnForIntake(result, agentContextForRequest(requestId));
   turn.task.status = proposal ? "completed" : "blocked";
   turn.task.summary = proposal && definition
@@ -2713,6 +3205,8 @@ function renderInteractionApproved(requestId: string, result: ConversationIntake
 function renderCalendlyApproved(requestId: string, result: ConversationIntakeResult): void {
   const proposal = calendlySetupProposal(result);
   const canPlan = recognizedGtmContext?.status.containerWritesEnabled === true;
+  approvedSetupRequests.add(requestId);
+  saveJourneySnapshot(requestId, result, "approved_setup");
   const turn = agentTurnForIntake(result, agentContextForRequest(requestId));
   turn.task.status = proposal ? "completed" : "blocked";
   turn.task.summary = proposal
@@ -2815,6 +3309,8 @@ function renderApprovedFormSetup(
   intake: ConversationIntakeResult,
 ): void {
   const proposal = formSetupProposal(intake);
+  approvedSetupRequests.add(requestId);
+  saveJourneySnapshot(requestId, intake, "approved_setup");
   renderFormTaskState(requestId, intake, {
     status: "working",
     summary: proposal
@@ -3098,9 +3594,13 @@ function versionReviewActions(
   requestId: string,
   intake: ConversationIntakeResult,
 ): Array<{ id: string; label: string }> {
+  const version = workflowVersionByRequest.get(requestId);
   return [
-    ...(recognizedGtmContext?.status.publicationEnabled
-      ? [{ id: "review-exact-publication", label: "Review publication" }]
+    ...(recognizedGtmContext?.status.publicationEnabled && version
+      ? [{
+          id: "confirm-exact-publication",
+          label: `Approve & publish ${version.versionFingerprint}`,
+        }]
       : []),
     ...workflowReviewActions(requestId, intake, false),
   ];
@@ -3116,6 +3616,12 @@ function renderCompletedVersion(
     operationId: result.operationId,
     versionFingerprint: result.versionFingerprint,
   });
+  saveJourneySnapshot(requestId, intake, "versioned", {
+    version: {
+      operationId: result.operationId,
+      versionFingerprint: result.versionFingerprint,
+    },
+  });
   const publicationEnabled = recognizedGtmContext?.status.publicationEnabled === true;
   const task = renderFormTaskState(requestId, intake, {
     status: "completed",
@@ -3127,6 +3633,29 @@ function renderCompletedVersion(
     actions: versionReviewActions(requestId, intake),
   });
   renderWorkflowResult(task, result);
+  const version = workflowVersionByRequest.get(requestId);
+  if (publicationEnabled && version) {
+    renderPublicationBinding(task, version);
+    const plan = workflowPlansByRequest.get(requestId);
+    if (plan) renderWorkflowPlan(task, plan);
+  }
+}
+
+function renderPublicationBinding(
+  task: HTMLElement,
+  version: NonNullable<ReturnType<typeof workflowVersionByRequest.get>>,
+): void {
+  const binding = document.createElement("div");
+  binding.className = "agent-specification operation-publication";
+  binding.setAttribute("role", "region");
+  binding.setAttribute("aria-label", "Publication approval binding");
+  appendAgentText(binding, "agent-receipt-heading", "Publication approval binding");
+  appendSpecificationRows(binding, [
+    ["Version", version.versionFingerprint],
+    ["Effect", "Make this immutable GTM version live"],
+    ["Post-publish", "Live verification still required"],
+  ]);
+  task.append(binding);
 }
 
 function renderPublicationReview(
@@ -3144,17 +3673,7 @@ function renderPublicationReview(
       { id: "return-to-version-review", label: "Return to version" },
     ],
   });
-  const binding = document.createElement("div");
-  binding.className = "agent-specification operation-publication";
-  binding.setAttribute("role", "region");
-  binding.setAttribute("aria-label", "Publication approval binding");
-  appendAgentText(binding, "agent-receipt-heading", "Publication approval binding");
-  appendSpecificationRows(binding, [
-    ["Version", version.versionFingerprint],
-    ["Effect", "Make this immutable GTM version live"],
-    ["Post-publish", "Live verification still required"],
-  ]);
-  task.append(binding);
+  renderPublicationBinding(task, version);
   const plan = workflowPlansByRequest.get(requestId);
   if (plan) renderWorkflowPlan(task, plan);
 }
@@ -3169,6 +3688,7 @@ function renderPublishedVersion(
   },
 ): void {
   workflowPublicationByRequest.set(requestId, publication);
+  saveJourneySnapshot(requestId, intake, "published", { publication });
   const task = renderFormTaskState(requestId, intake, {
     status: "completed",
     summary: `Google confirmed publication of immutable version ${publication.versionFingerprint}.`,
@@ -3321,12 +3841,32 @@ async function completeLiveVerification(
     return;
   }
   if (response.result.status === "completed" && response.result.nextStep === "complete") {
-    renderFormTaskState(requestId, intake, {
+    completedJourneyRequests.add(requestId);
+    clearJourneySnapshot();
+    const summary = `Live and verified · ${journeyGoal(intake)} · GTM version ${publication.versionFingerprint}`;
+    completionSummaryByRequest.set(requestId, summary);
+    const task = renderFormTaskState(requestId, intake, {
       status: "completed",
       summary: `Live browser verification passed for published version ${publication.versionFingerprint}.`,
       verifyStatus: "completed",
-      question: "This tracking setup operation is complete.",
+      question: "This tracking setup is live and verified.",
+      actions: [
+        { id: "copy-completion-summary", label: "Copy summary" },
+        { id: "start-another-setup", label: "Start another setup" },
+      ],
     });
+    task.querySelector(".agent-goal")!.textContent = "Live and verified";
+    const receipt = document.createElement("div");
+    receipt.className = "agent-specification completion-receipt";
+    receipt.setAttribute("role", "region");
+    receipt.setAttribute("aria-label", "Live and verified receipt");
+    appendSpecificationRows(receipt, [
+      ["Setup", journeyGoal(intake)],
+      ["Version", publication.versionFingerprint],
+      ["Evidence", response.result.evidenceRunId],
+      ["Status", "Live and verified"],
+    ]);
+    task.append(receipt);
     return;
   }
   const target = response.result.targetVersionFingerprint;
@@ -3341,13 +3881,7 @@ async function completeLiveVerification(
     return;
   }
   publication.targetVersionFingerprint = target;
-  renderFormTaskState(requestId, intake, {
-    status: "blocked",
-    summary: `Live browser verification failed for published version ${publication.versionFingerprint}.`,
-    verifyStatus: "blocked",
-    question: `Review the recorded rollback from ${publication.versionFingerprint} to ${target}.`,
-    actions: [{ id: "review-publication-rollback", label: "Review rollback" }],
-  });
+  renderRollbackReview(requestId, intake, publication);
 }
 
 function renderRollbackReview(
@@ -3359,7 +3893,7 @@ function renderRollbackReview(
   if (!target) return;
   const task = renderFormTaskState(requestId, intake, {
     status: "ready_for_review",
-    summary: "Rollback is a separate exact action after failed live browser evidence.",
+    summary: `Live browser verification failed for published version ${publication.versionFingerprint}. Rollback is a separate exact action.`,
     verifyStatus: "blocked",
     question: `Restore prior live version ${target}?`,
     actions: [
@@ -3436,6 +3970,7 @@ function renderPreviewHandoff(
   intake: ConversationIntakeResult,
   preview: NonNullable<ReturnType<typeof workflowPreviewByRequest.get>>,
 ): void {
+  saveJourneySnapshot(requestId, intake, "awaiting_preview", { preview });
   const readiness = previewReadiness(requestId, intake, preview);
   const task = renderFormTaskState(requestId, intake, {
     status: "needs_input",
@@ -3613,6 +4148,9 @@ function showWorkflowPlan(
 ): void {
   workflowPlansByRequest.set(requestId, plan);
   const ready = plan.planStatus === "ready";
+  if (ready) {
+    saveJourneySnapshot(requestId, intake, "planned", { plan });
+  }
   const managedChange = plan.actions.some(
     ({ action, reason }) => action === "conflict" && reason === "managed_change_requires_approval",
   );
@@ -3630,7 +4168,7 @@ function showWorkflowPlan(
         : "The plan contains a conflict. Nothing was applied or published.",
     verifyStatus: "pending",
     question: ready
-      ? "Review the planned GTM changes before application."
+      ? "Apply these exact GTM changes and validate the draft? This does not publish."
       : managedChange
         ? "Existing managed setup differs. Keep it or begin an explicit replacement review."
         : "Resolve the conflict before application.",
@@ -4122,6 +4660,25 @@ function handleAssistantAction(actionId: string, requestId: string): void {
     renderNavigationPicker(navigationByRequest.get(requestId) ?? []);
     return;
   }
+  if (actionId === "copy-completion-summary") {
+    const summary = completionSummaryByRequest.get(requestId);
+    if (!summary) {
+      return;
+    }
+    void navigator.clipboard.writeText(summary)
+      .then(() => addMessage("Completion summary copied.", "assistant"))
+      .catch(() => addMessage("Copy was unavailable. The verified receipt remains in task details.", "assistant"));
+    return;
+  }
+  if (actionId === "start-another-setup") {
+    completedJourneyRequests.delete(requestId);
+    completionSummaryByRequest.delete(requestId);
+    currentTaskRequestId = undefined;
+    welcomeCard?.removeAttribute("hidden");
+    renderJourney("define");
+    composer?.focus();
+    return;
+  }
   const intake = intakeByRequest.get(requestId);
   const forms = formsByRequest.get(requestId) ?? [];
   if (actionId.startsWith("scope:") && intake) {
@@ -4216,7 +4773,7 @@ function handleAssistantAction(actionId: string, requestId: string): void {
     return;
   }
   if (actionId === "apply-form-workflow" && intake?.canConfirm && workflowPlan) {
-    confirmWorkflowApply(requestId, intake, workflowPlan);
+    void applyFormWorkflow(requestId, intake, workflowPlan);
     return;
   }
   if (actionId === "confirm-form-workflow-apply" && intake?.canConfirm && workflowPlan) {
@@ -4374,7 +4931,7 @@ function renderQuickActions(
   if (!actions.length) return;
   const row = document.createElement("div");
   row.className = "quick-actions";
-  for (const action of actions) {
+  for (const [index, action] of actions.entries()) {
     const downloadHref = action.id === "download-form-setup"
       ? formSetupDownloadHref(intakeByRequest.get(requestId)!)
       : action.id === "download-interaction-setup"
@@ -4382,6 +4939,9 @@ function renderQuickActions(
       : undefined;
     const control = downloadHref ? document.createElement("a") : document.createElement("button");
     control.className = "quick";
+    if (index === 0) {
+      control.classList.add("primary-quick");
+    }
     control.textContent = action.label;
     if (control instanceof HTMLAnchorElement) {
       control.href = downloadHref!;
@@ -4398,16 +4958,78 @@ function renderQuickActions(
   }
   parent?.append(row);
   if (parent?.classList.contains("agent-turn")) {
+    window.queueMicrotask(syncTaskArtifacts);
     positionAgentTask(parent);
     return;
   }
   responseList?.scrollTo({ top: responseList.scrollHeight });
 }
 
+function updateResponseControls(): void {
+  if (!stopResponseButton) {
+    return;
+  }
+  stopResponseButton.hidden = pendingAssistantRequestId === undefined;
+}
+
+function queuePrompt(prompt: string): void {
+  const node = document.createElement("div");
+  node.className = "queued-prompt";
+  node.textContent = `Queued · ${prompt}`;
+  responseList?.append(node);
+  queuedPrompts.push({ prompt, node });
+  responseList?.scrollTo({ top: responseList.scrollHeight });
+}
+
+function startNextQueuedPrompt(): void {
+  const next = queuedPrompts.shift();
+  if (!next) {
+    updateResponseControls();
+    return;
+  }
+  next.node.remove();
+  startAssistantPrompt(next.prompt);
+}
+
+function finishAssistantRequest(requestId: string): void {
+  if (pendingAssistantRequestId !== requestId) {
+    return;
+  }
+  pendingAssistantRequestId = undefined;
+  startNextQueuedPrompt();
+}
+
+function stopPendingResponse(): void {
+  const requestId = pendingAssistantRequestId;
+  if (!requestId) {
+    return;
+  }
+  const timeout = requestTimeouts.get(requestId);
+  if (timeout !== undefined) {
+    window.clearTimeout(timeout);
+  }
+  requestTimeouts.delete(requestId);
+  const pending = responseNodes.get(requestId);
+  if (pending) {
+    pending.className = "agent-turn status-blocked";
+    pending.textContent = "Response stopped. Nothing changed.";
+  }
+  responseNodes.delete(requestId);
+  pendingAssistantRequestId = undefined;
+  const stoppedPort = port;
+  port = undefined;
+  stoppedPort?.disconnect();
+  startNextQueuedPrompt();
+}
+
 function connectAssistant(): chrome.runtime.Port {
   if (port) return port;
-  port = chrome.runtime.connect({ name: "assistant" });
-  port.onDisconnect.addListener(() => {
+  const connectedPort = chrome.runtime.connect({ name: "assistant" });
+  port = connectedPort;
+  connectedPort.onDisconnect.addListener(() => {
+    if (port !== connectedPort) {
+      return;
+    }
     port = undefined;
     for (const [requestId, node] of responseNodes) {
       node.className = "agent-turn status-blocked";
@@ -4417,8 +5039,10 @@ function connectAssistant(): chrome.runtime.Port {
       if (timeout !== undefined) window.clearTimeout(timeout);
       requestTimeouts.delete(requestId);
     }
+    pendingAssistantRequestId = undefined;
+    startNextQueuedPrompt();
   });
-  port.onMessage.addListener((message: {
+  connectedPort.onMessage.addListener((message: {
     type?: string;
     requestId?: string;
     turn?: unknown;
@@ -4436,6 +5060,7 @@ function connectAssistant(): chrome.runtime.Port {
           node.classList.remove("streaming");
           node.textContent = "The agent response could not be safely read. Try again.";
         }
+        finishAssistantRequest(message.requestId);
         return;
       }
       responseNodes.delete(message.requestId);
@@ -4459,6 +5084,7 @@ function connectAssistant(): chrome.runtime.Port {
               message.intake.canConfirm ? "confirmed" : "candidate",
             );
             renderAgentTurn(message.requestId, message.turn, node);
+            finishAssistantRequest(message.requestId);
             return;
           }
           const interaction = knownInteractionDefinition(message.intake.interaction)?.interaction;
@@ -4471,18 +5097,30 @@ function connectAssistant(): chrome.runtime.Port {
         }
       }
       renderAgentTurn(message.requestId, message.turn, node);
+      finishAssistantRequest(message.requestId);
     }
   });
-  return port;
+  return connectedPort;
 }
 
 function submitPrompt(): void {
   const prompt = composer?.value.trim();
   if (!prompt) return;
-  clearTargetHighlights();
   composer!.value = "";
+  if (pendingAssistantRequestId) {
+    queuePrompt(prompt);
+    return;
+  }
+  startAssistantPrompt(prompt);
+}
+
+function startAssistantPrompt(prompt: string): void {
+  clearTargetHighlights();
+  welcomeCard?.setAttribute("hidden", "");
   addMessage(prompt, "user");
   const requestId = crypto.randomUUID();
+  pendingAssistantRequestId = requestId;
+  updateResponseControls();
   const pending = addAgentPending(requestId);
   requestTimeouts.set(requestId, window.setTimeout(() => {
     if (!responseNodes.has(requestId)) return;
@@ -4490,7 +5128,11 @@ function submitPrompt(): void {
     pending.textContent = "The agent did not respond. Try again.";
     responseNodes.delete(requestId);
     requestTimeouts.delete(requestId);
-    port?.disconnect();
+    pendingAssistantRequestId = undefined;
+    const timedOutPort = port;
+    port = undefined;
+    timedOutPort?.disconnect();
+    startNextQueuedPrompt();
   }, 8_000));
   const scan = scanNavigation();
   const forms = scanForms();
@@ -4549,7 +5191,7 @@ function enableDragging(handle: HTMLElement): void {
 
 async function mountOverlay(): Promise<void> {
   if (host) return;
-  const stored = await chrome.storage.local.get("overlayPreferences");
+  const stored = await chrome.storage.local.get(["overlayPreferences", "activeJourney"]);
   preferences = { ...preferences, ...(stored.overlayPreferences as Partial<OverlayPreferences> | undefined) };
   host = document.createElement("div");
   host.id = "gtm-observability-root";
@@ -4559,7 +5201,7 @@ async function mountOverlay(): Promise<void> {
       :host { all: initial; }
       .assistant { position: fixed; z-index: 2147483647; min-width: 310px; min-height: 220px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow: hidden; resize: both; border: 1px solid rgba(255,255,255,.19); border-radius: 22px; background: linear-gradient(145deg, rgba(26,32,38,.78), rgba(12,17,21,.7)); color: #f5f7f8; box-shadow: 0 24px 70px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.08); backdrop-filter: blur(26px) saturate(145%); -webkit-backdrop-filter: blur(26px) saturate(145%); font: 13px/1.45 Inter, ui-sans-serif, system-ui, sans-serif; display: grid; grid-template-rows: 30px 1fr auto; transition: width .18s ease, height .18s ease, border-color .18s ease, box-shadow .18s ease; }
       .assistant:focus-within { border-color: rgba(167,243,208,.32); box-shadow: 0 26px 76px rgba(0,0,0,.34), 0 0 0 1px rgba(167,243,208,.08), inset 0 1px 0 rgba(255,255,255,.1); }
-      .drag { position: relative; cursor: grab; display: flex; justify-content: flex-end; align-items: center; padding: 0 9px; user-select: none; }
+      .drag { position: relative; cursor: grab; display: flex; justify-content: space-between; align-items: center; padding: 0 9px; user-select: none; }
       .drag::before { content: ""; position: absolute; left: 50%; width: 34px; height: 3px; border-radius: 99px; transform: translateX(-50%); background: rgba(255,255,255,.16); }
       .drag:active { cursor: grabbing; }
       button { border: 0; cursor: pointer; font: inherit; }
@@ -4567,7 +5209,7 @@ async function mountOverlay(): Promise<void> {
       .icon:hover { color: white; background: rgba(255,255,255,.08); }
       .messages { overflow-y: auto; overflow-x: hidden; padding: 4px 16px 12px; display: flex; flex-direction: column; gap: 10px; }
       .messages > * { min-width: 0; }
-      .gtm-context { flex: none; display: grid; gap: 8px; padding: 11px 12px; border: 1px solid rgba(167,243,208,.16); border-radius: 14px; background: linear-gradient(145deg, rgba(21,36,32,.82), rgba(18,27,31,.78)); box-shadow: inset 0 1px 0 rgba(255,255,255,.045); }
+      .gtm-context { position: relative; flex: none; display: grid; gap: 8px; padding: 11px 12px; border: 1px solid rgba(167,243,208,.16); border-radius: 14px; background: linear-gradient(145deg, rgba(21,36,32,.82), rgba(18,27,31,.78)); box-shadow: inset 0 1px 0 rgba(255,255,255,.045); }
       .gtm-context-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
       .gtm-context-heading > strong { color: #f1f7f4; font-size: 12px; font-weight: 650; }
       .gtm-context-controls { display: flex; align-items: center; gap: 5px; }
@@ -4581,6 +5223,30 @@ async function mountOverlay(): Promise<void> {
       .gtm-context-row span { color: #7f8d94; font-size: 9px; text-transform: uppercase; }
       .gtm-context-row strong { min-width: 0; color: #e7eeeb; font-size: 11px; font-weight: 590; overflow-wrap: anywhere; }
       .gtm-context-body small { margin-top: 3px; color: #89969e; font-size: 9px; line-height: 1.4; }
+      .gtm-context.compact { gap: 4px; padding: 8px 10px; }
+      .gtm-context.compact .gtm-context-heading > strong { display: none; }
+      .gtm-context.compact .gtm-context-heading { position: absolute; top: 6px; right: 7px; }
+      .gtm-context.compact .gtm-context-body > p { margin: 0; padding-right: 112px; color: #dce9e4; font-size: 10px; font-weight: 620; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .gtm-context-details { display: grid; gap: 4px; padding-top: 7px; border-top: 1px solid rgba(255,255,255,.07); }
+      .gtm-context-details[hidden] { display: none; }
+      .gtm-context-toggle { padding: 3px 6px; border-radius: 7px; color: #b8c8c1; background: rgba(255,255,255,.055); font-size: 9px; }
+      .journey { position: sticky; top: 0; z-index: 3; flex: none; margin: 0 -4px; padding: 5px 6px 6px; border-radius: 10px; background: rgba(16,23,27,.94); box-shadow: 0 5px 12px rgba(0,0,0,.12); backdrop-filter: blur(12px); }
+      .journey ol { display: grid; grid-template-columns: repeat(6, 1fr); gap: 3px; margin: 0; padding: 0; list-style: none; }
+      .journey li { min-width: 0; color: #68777d; text-align: center; font-size: 8px; }
+      .journey li i { display: grid; place-items: center; width: 17px; height: 17px; margin: 0 auto 2px; border-radius: 50%; background: rgba(255,255,255,.045); font: 700 8px/1 Inter, sans-serif; }
+      .journey li span { display: block; overflow: hidden; text-overflow: ellipsis; }
+      .journey li.completed { color: #95aaa2; }
+      .journey li.completed i { color: #092419; background: #8de8bd; }
+      .journey li.active { color: #e6f6ef; font-weight: 650; }
+      .journey li.active i { color: #c8f9e1; background: rgba(57,113,88,.58); box-shadow: 0 0 0 1px rgba(141,232,189,.22); }
+      .journey li.blocked { color: #f4cf75; }
+      .journey li.blocked i { background: rgba(120,77,18,.35); }
+      .resume-card { display: flex; align-items: center; justify-content: space-between; gap: 9px; padding: 10px 11px; border: 1px solid rgba(141,232,189,.23); border-radius: 13px; background: linear-gradient(145deg, rgba(28,51,43,.9), rgba(20,34,34,.9)); }
+      .resume-card[hidden] { display: none; }
+      .resume-card > div { min-width: 0; }
+      .resume-kicker { color: #8de8bd; font-size: 8px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; }
+      .resume-goal { color: #eef8f3; font-size: 11px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .resume-stage { color: #91a29c; font-size: 9px; }
       .enhanced-review { display: grid; gap: 6px; }
       .enhanced-review > strong { color: #f1f7f4; font-size: 12px; }
       .message { max-width: 88%; padding: 9px 11px; border-radius: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -4590,6 +5256,9 @@ async function mountOverlay(): Promise<void> {
       .agent-welcome { display: grid; gap: 3px; padding: 2px 1px 5px; }
       .agent-welcome strong { color: #eef5f1; font-size: 13px; font-weight: 650; }
       .agent-welcome small { color: #93a09f; font-size: 10px; line-height: 1.45; }
+      .agent-welcome[hidden] { display: none; }
+      .starter-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+      .starter-actions button { padding: 6px 8px; border: 1px solid rgba(255,255,255,.1); border-radius: 9px; color: #cbd8d3; background: rgba(255,255,255,.045); font-size: 10px; }
       .agent-turn { align-self: stretch; display: grid; gap: 9px; min-width: 0; padding: 12px; border: 1px solid rgba(167,243,208,.14); border-radius: 15px; background: linear-gradient(145deg, rgba(24,37,36,.9), rgba(21,29,34,.9)); box-shadow: inset 0 1px 0 rgba(255,255,255,.045); }
       .agent-turn.status-blocked, .agent-turn.status-unsupported { border-color: rgba(251,191,36,.18); }
       .agent-turn.status-completed { border-color: rgba(141,232,189,.25); }
@@ -4622,23 +5291,35 @@ async function mountOverlay(): Promise<void> {
       .agent-specification-value { color: #dbe5e1; overflow-wrap: anywhere; }
       .agent-semantics { max-height: 150px; margin: 0; padding: 7px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: #c8d7d1; background: rgba(0,0,0,.22); border-radius: 7px; font: 8px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; }
       .agent-verification-explanation { padding-top: 4px; color: #9fadaa; font-size: 9px; line-height: 1.45; overflow-wrap: anywhere; }
+      .artifact-source { position: relative; max-height: 72px; overflow: hidden; mask-image: linear-gradient(#000 62%, transparent); }
+      .artifact-toggle { padding: 3px 7px; border-radius: 8px; color: #b9c8c2; background: rgba(255,255,255,.055); font-size: 9px; }
+      .artifact-toggle[hidden] { display: none; }
+      .artifact-panel { position: absolute; z-index: 4; inset: 30px 0 0; display: grid; grid-template-rows: auto 1fr; border-radius: 0 0 21px 21px; background: rgba(14,20,24,.97); backdrop-filter: blur(24px); }
+      .artifact-panel[hidden] { display: none; }
+      .artifact-panel-header { display: flex; align-items: center; justify-content: space-between; padding: 11px 14px; border-bottom: 1px solid rgba(255,255,255,.08); }
+      .artifact-panel-header strong { color: #eff7f3; font-size: 12px; }
+      .artifact-body { display: grid; align-content: start; gap: 10px; padding: 14px; overflow: auto; }
+      .artifact-body .agent-specification, .artifact-body .agent-receipts, .artifact-body .agent-verification-result { max-height: none; mask-image: none; }
       .agent-loading { min-height: 70px; background: linear-gradient(100deg, rgba(24,37,36,.9) 20%, rgba(70,105,94,.35) 45%, rgba(21,29,34,.9) 70%); background-size: 220% 100%; animation: shimmer 1.15s linear infinite; }
-      .agent-turn > .quick-actions { margin-top: 1px; }
+      .agent-turn > .quick-actions { position: sticky; bottom: -12px; z-index: 2; margin: 1px -12px -12px; padding: 9px 12px 12px; background: linear-gradient(transparent, rgba(20,31,33,.98) 28%); }
       .quick-actions { display: flex; flex-wrap: wrap; gap: 7px; }
       .quick { padding: 7px 10px; border: 1px solid rgba(167,243,208,.22); border-radius: 10px; color: #dff9ec; background: rgba(40,72,61,.58); font-size: 12px; text-decoration: none; }
       .quick:hover { border-color: rgba(167,243,208,.42); background: rgba(47,88,73,.72); }
       .gtm-action { justify-self: start; margin-top: 3px; }
       .gtm-write-note { color: #89969e; font-size: 10px; }
-      .primary-quick { margin-top: 3px; justify-self: start; }
+      .primary-quick { margin-top: 3px; justify-self: start; border-color: rgba(141,232,189,.42); background: rgba(45,91,74,.82); }
       .picker { display: grid; gap: 6px; padding: 9px; border: 1px solid rgba(255,255,255,.09); border-radius: 13px; background: rgba(22,29,34,.62); }
       .pick { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; padding: 6px; border-radius: 8px; color: #e3eaee; }
       .pick:hover { background: rgba(255,255,255,.04); }
       .pick input { accent-color: #8de8bd; }
       .pick small { color: #87949d; font-size: 10px; text-transform: uppercase; }
-      .composer { margin: 0 12px 12px; padding: 6px 6px 6px 12px; display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 8px; border: 1px solid rgba(255,255,255,.14); border-radius: 15px; background: rgba(31,39,45,.72); box-shadow: inset 0 1px 0 rgba(255,255,255,.035); transition: border-color .16s ease, background .16s ease, box-shadow .16s ease; }
+      .queued-prompt { align-self: stretch; padding: 7px 9px; border: 1px dashed rgba(139,188,246,.22); border-radius: 10px; color: #a9bfd4; background: rgba(45,66,84,.24); font-size: 10px; overflow-wrap: anywhere; }
+      .composer { margin: 0 12px 12px; padding: 6px 6px 6px 12px; display: grid; grid-template-columns: 1fr auto auto; align-items: end; gap: 6px; border: 1px solid rgba(255,255,255,.14); border-radius: 15px; background: rgba(31,39,45,.72); box-shadow: inset 0 1px 0 rgba(255,255,255,.035); transition: border-color .16s ease, background .16s ease, box-shadow .16s ease; }
       .composer:focus-within { border-color: rgba(167,243,208,.38); background: rgba(34,43,49,.88); box-shadow: 0 0 0 3px rgba(167,243,208,.06), inset 0 1px 0 rgba(255,255,255,.05); }
       textarea { resize: none; min-height: 38px; max-height: 120px; padding: 8px 0; border: 0; outline: 0; color: white; background: transparent; font: inherit; }
       textarea::placeholder { color: #87939c; }
+      .stop-response { align-self: center; padding: 6px 7px; border-radius: 8px; color: #e8c985; background: rgba(120,77,18,.25); font-size: 9px; }
+      .stop-response[hidden] { display: none; }
       .send { width: 38px; height: 38px; border-radius: 12px; color: #0c1b15; background: linear-gradient(145deg, #c4fae0, #8de8bd); box-shadow: 0 5px 16px rgba(86,220,157,.16), inset 0 1px 0 rgba(255,255,255,.5); font-size: 20px; transition: transform .15s ease, box-shadow .15s ease; }
       .send:hover { transform: translateY(-1px); box-shadow: 0 7px 20px rgba(86,220,157,.24), inset 0 1px 0 rgba(255,255,255,.55); }
       .assistant.collapsed { width: 48px !important; height: 48px !important; min-width: 48px; min-height: 48px; resize: none; display: grid; place-items: center; border-radius: 16px; border-color: rgba(255,255,255,.24); background: linear-gradient(145deg, rgba(48,58,67,.76), rgba(17,23,28,.7)); box-shadow: 0 12px 34px rgba(0,0,0,.3), 0 0 0 1px rgba(167,243,208,.05), inset 0 1px 0 rgba(255,255,255,.14); backdrop-filter: blur(18px) saturate(150%); -webkit-backdrop-filter: blur(18px) saturate(150%); }
@@ -4659,15 +5340,29 @@ async function mountOverlay(): Promise<void> {
       @media (prefers-reduced-motion: reduce) { .assistant, .send { transition: none; } .message.streaming:empty, .agent-loading { animation: none; } }
     </style>
     <section class="assistant collapsed" aria-label="Tracking agent">
-      <div class="drag" aria-label="Drag agent"><button class="icon collapse" aria-label="Collapse agent">−</button></div>
-      <div class="messages" aria-live="polite"><section class="gtm-context" role="region" aria-label="GTM connection"></section><div class="agent-welcome"><strong>What should we set up or check?</strong><small>I use this page and its connected measurement context automatically.</small></div></div>
-      <div class="composer"><textarea aria-label="Tracking request" placeholder="Describe an action or outcome…"></textarea><button class="send" aria-label="Send request">↑</button></div>
+      <div class="drag" aria-label="Drag agent"><button class="artifact-toggle" aria-expanded="false" hidden>Details</button><button class="icon collapse" aria-label="Collapse agent">−</button></div>
+      <div class="messages" aria-live="polite">
+        <section class="gtm-context" role="region" aria-label="GTM connection"></section>
+        <nav class="journey" aria-label="Setup journey"></nav>
+        <section class="resume-card" role="region" aria-label="Continue setup" hidden></section>
+        <div class="agent-welcome"><strong>What should we set up or check?</strong><small>I use this page and its connected measurement context automatically.</small><div class="starter-actions"><button data-prompt="Track leads from the contact form">Track a form</button><button data-prompt="Track CTA clicks">Track a click</button><button data-prompt="Check page view automatic coverage">Check automatic coverage</button></div></div>
+      </div>
+      <aside class="artifact-panel" aria-label="Task artifacts" hidden><div class="artifact-panel-header"><strong>Task details</strong><button class="icon artifact-close" aria-label="Close task artifacts">×</button></div><div class="artifact-body"></div></aside>
+      <div class="composer"><textarea aria-label="Tracking request" placeholder="Describe an action or outcome…"></textarea><button class="stop-response" aria-label="Stop response" hidden>Stop</button><button class="send" aria-label="Send request">↑</button></div>
       <button class="orb" aria-label="Open tracking agent"><span>Verification active</span></button>
     </section>`;
   frame = shadow.querySelector<HTMLElement>(".assistant")!;
   responseList = shadow.querySelector<HTMLElement>(".messages")!;
   composer = shadow.querySelector<HTMLTextAreaElement>("textarea")!;
   gtmConnectionCard = shadow.querySelector<HTMLElement>(".gtm-context")!;
+  journeyRail = shadow.querySelector<HTMLElement>(".journey")!;
+  journeyResumeCard = shadow.querySelector<HTMLElement>(".resume-card")!;
+  welcomeCard = shadow.querySelector<HTMLElement>(".agent-welcome")!;
+  artifactPanel = shadow.querySelector<HTMLElement>(".artifact-panel")!;
+  artifactBody = shadow.querySelector<HTMLElement>(".artifact-body")!;
+  artifactToggle = shadow.querySelector<HTMLButtonElement>(".artifact-toggle")!;
+  stopResponseButton = shadow.querySelector<HTMLButtonElement>(".stop-response")!;
+  renderJourney("define");
   renderGtmConnection({ kind: "loading" });
   shadow.querySelector(".orb")?.addEventListener("click", () => {
     restoreVerificationPresentation();
@@ -4675,8 +5370,39 @@ async function mountOverlay(): Promise<void> {
   });
   shadow.querySelector(".collapse")?.addEventListener("click", () => setCollapsed(true));
   shadow.querySelector(".send")?.addEventListener("click", submitPrompt);
+  shadow.querySelector(".artifact-close")?.addEventListener("click", closeArtifactPanel);
+  artifactToggle.addEventListener("click", () => {
+    if (artifactToggle?.getAttribute("aria-expanded") === "true") {
+      closeArtifactPanel();
+      return;
+    }
+    const task = currentTaskRequestId ? agentTaskNodes.get(currentTaskRequestId) : undefined;
+    if (task) {
+      renderArtifactPanel(task);
+    }
+  });
+  stopResponseButton.addEventListener("click", stopPendingResponse);
+  shadow.querySelectorAll<HTMLButtonElement>(".starter-actions [data-prompt]").forEach((control) => {
+    control.addEventListener("click", () => {
+      const prompt = control.dataset.prompt;
+      if (prompt) {
+        startAssistantPrompt(prompt);
+      }
+    });
+  });
   composer.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submitPrompt(); }
+  });
+  shadow.addEventListener("keydown", (event) => {
+    if ((event as KeyboardEvent).key === "Escape"
+      && artifactToggle?.getAttribute("aria-expanded") === "true") {
+      closeArtifactPanel();
+      artifactToggle.focus();
+    }
+  });
+  new MutationObserver(() => window.queueMicrotask(syncTaskArtifacts)).observe(responseList, {
+    childList: true,
+    subtree: true,
   });
   enableDragging(shadow.querySelector<HTMLElement>(".drag")!);
   new ResizeObserver(() => {
@@ -4687,6 +5413,10 @@ async function mountOverlay(): Promise<void> {
   }).observe(frame);
   document.documentElement.append(host);
   applyPreferences();
+  const savedJourney = parseJourneySnapshot(stored.activeJourney);
+  if (savedJourney?.origin === location.origin) {
+    renderResumeCard(savedJourney);
+  }
   if (!preferences.collapsed) void loadGtmConnectionContext();
 }
 

@@ -97,6 +97,7 @@ test("visibly grounds known-link requests without exposing their values", async 
   await site.goto("http://127.0.0.1:4175/link-interactions");
   const root = site.locator("#gtm-observability-root");
   await root.getByRole("button", { name: "Open tracking agent" }).click();
+  await root.getByRole("button", { name: "Show connection details" }).click();
   await expect(root.getByText("5 of 7 automatic features on", { exact: true })).toBeVisible();
 
   const cases = [
@@ -182,6 +183,7 @@ test("authors a privacy-safe outbound-link setup through the shared workflow", a
   await site.goto("http://127.0.0.1:4175/link-interactions");
   const root = site.locator("#gtm-observability-root");
   await root.getByRole("button", { name: "Open tracking agent" }).click();
+  await root.getByRole("button", { name: "Show connection details" }).click();
   await expect(root.getByText("5 of 7 automatic features on", { exact: true })).toBeVisible();
   await root.getByLabel("Tracking request").fill("Track external links");
   await root.getByRole("button", { name: "Send request" }).click();
@@ -224,6 +226,7 @@ test("authors file downloads only when automatic coverage is off", async ({ cont
   await site.goto("http://127.0.0.1:4175/link-interactions");
   const root = site.locator("#gtm-observability-root");
   await root.getByRole("button", { name: "Open tracking agent" }).click();
+  await root.getByRole("button", { name: "Show connection details" }).click();
   await expect(root.getByText("5 of 7 automatic features on", { exact: true })).toBeVisible();
   await root.getByLabel("Tracking request").fill("Track downloads");
   await root.getByRole("button", { name: "Send request" }).click();
@@ -255,6 +258,7 @@ test("does not duplicate exact-stream automatic link coverage", async ({ context
   await site.goto("http://127.0.0.1:4175/link-interactions");
   const root = site.locator("#gtm-observability-root");
   await root.getByRole("button", { name: "Open tracking agent" }).click();
+  await root.getByRole("button", { name: "Show connection details" }).click();
   await expect(root.getByText("7 of 7 automatic features on", { exact: true })).toBeVisible();
 
   await root.getByLabel("Tracking request").fill("Track outbound links");

@@ -282,6 +282,31 @@ the failed evidence fingerprint and repair ledger, accepts only a reviewed plan 
 the unchanged setup, stops on ambiguity or exhaustion, and requires a newly bound
 exact preview after successful provider revalidation.
 
+## Guided website-agent journey
+
+The website agent presents one six-stage journey: Define, Review, Apply, Test, Publish,
+and Verify. Before intake it shows at most three contextual starters. A recognized GTM
+connection collapses to the container name, public ID, and effective access; account,
+destination, Enhanced Measurement, and access details remain available on demand.
+
+The active task keeps one primary next action visible while specifications, plans,
+receipts, bindings, and verification evidence are readable in a separate task-details
+drawer. A second prompt waits behind the pending conversation response, and stopping
+that response advances the queue. These controls do not cancel or steer provider
+mutations.
+
+After a supported setup is approved, the extension stores one versioned,
+exact-origin continuation snapshot at reviewed provider boundaries. It retains only
+sanitized setup structure and exact operation bindings; prompts, form values, cookies,
+credentials, identity, and arbitrary page text are excluded. Reloading offers one
+continuation action and never applies, publishes, rolls back, or grants authority by
+itself. Live success clears the snapshot and ends with a copyable verified receipt.
+
+Application remains an explicit action on the visible exact plan. Publication remains
+a separate explicit action on the visible immutable version, and rollback remains a
+separate explicit action on the visible failed-version binding. Review-only
+interstitials no longer add redundant confirmations.
+
 ## Calendly completion adapter
 
 The website agent can recognize exactly one Calendly inline embed on the current page

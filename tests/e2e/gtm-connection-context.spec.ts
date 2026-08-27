@@ -13,6 +13,7 @@ async function stabilizeSurface(surface: Locator): Promise<void> {
     const target = element as HTMLElement;
     target.style.boxSizing = "border-box";
     target.style.width = `${width}px`;
+    target.closest<HTMLElement>(".messages")?.style.setProperty("overflow-y", "hidden");
   }, visualSurfaceWidth);
   await expect(surface).toHaveCSS("width", `${visualSurfaceWidth}px`);
 }
@@ -64,11 +65,13 @@ test("shows authenticated account, container, and read-only access before chat",
   await root.getByRole("button", { name: "Open tracking agent" }).click();
   const card = root.getByRole("region", { name: "GTM connection" });
   await expect(card.getByText("Read-only", { exact: true })).toBeVisible();
-  await expect(card.getByText("GTM-TEST123", { exact: true })).toBeVisible();
+  await expect(card).toContainText("GTM-TEST123");
+  const connectionDetailsButton = card.getByRole("button", { name: "Show connection details" });
+  await connectionDetailsButton.click();
   await expect(card.getByText("Agency", { exact: true })).toBeVisible();
   await expect(card.getByText("Lead site", { exact: true })).toBeVisible();
-  await expect(card.getByText(/GTM API authorization connected/i)).toBeVisible();
-  await expect(root.getByLabel("Tracking request")).toBeFocused();
+  await expect(card.getByText(/This backend can inspect GTM/i)).toBeVisible();
+  await expect(card.getByRole("button", { name: "Hide connection details" })).toBeFocused();
   expect(statusRequests).toBe(1);
   expect(recognitionRequests).toBe(1);
   await card.getByRole("button", { name: "Refresh GTM connection" }).click();
@@ -177,6 +180,7 @@ for (const scenario of enhancedMeasurementScenarios) {
     const root = page.locator("#gtm-observability-root");
     await root.getByRole("button", { name: "Open tracking agent" }).click();
     const card = root.getByRole("region", { name: "GTM connection" });
+    await card.getByRole("button", { name: "Show connection details" }).click();
 
     await expect(card.getByText(scenario.summary, { exact: true })).toBeVisible();
     await expect(card.getByText(scenario.detail, { exact: true })).toBeVisible();
@@ -326,6 +330,7 @@ test("reviews and confirms one exact enhanced-measurement switch", async ({ cont
   const root = page.locator("#gtm-observability-root");
   await root.getByRole("button", { name: "Open tracking agent" }).click();
   const card = root.getByRole("region", { name: "GTM connection" });
+  await card.getByRole("button", { name: "Show connection details" }).click();
   const reviewButton = card.getByRole("button", { name: "Review enhanced measurement" });
   await reviewButton.click();
   const review = card.getByRole("region", { name: "Enhanced measurement review" });
@@ -385,6 +390,7 @@ test("bounds a malformed enhanced-measurement response", async ({ context, page 
   const root = page.locator("#gtm-observability-root");
   await root.getByRole("button", { name: "Open tracking agent" }).click();
   const card = root.getByRole("region", { name: "GTM connection" });
+  await card.getByRole("button", { name: "Show connection details" }).click();
 
   await expect(card.getByText("Lead site", { exact: true })).toBeVisible();
   await expect(card.getByText("Enhanced measurement check unavailable", { exact: true })).toBeVisible();

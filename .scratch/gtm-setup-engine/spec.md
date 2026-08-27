@@ -299,6 +299,9 @@ Latency targets remain product hypotheses until measured in representative workf
 - [x] The exact workspace draft is exercised in a real browser before version approval.
 - [x] Starting a browser run centers the confirmed target and retains a compact visible
   verification state so the website agent does not obstruct the required interaction.
+- [x] The website agent keeps Define, Review, Apply, Test, Publish, and Verify visible,
+  separates task artifacts from the primary action, and restores a privacy-filtered,
+  exact-origin journey after reload without repeating or widening provider authority.
 - [x] Failed verification may cause bounded repair without widening the confirmed
   tracking intent or publication authority.
 - [x] A same-name product-owned entity can be replaced only after exact semantic
@@ -385,6 +388,10 @@ setup without weakening approval, privacy, or provider boundaries:
 9. Issue 31 authenticates the single-organization beta with Clerk Organizations,
    Chrome-hosted OAuth/PKCE, centrally mapped Member/Admin permissions,
    organization-scoped durable operations, and membership-bound approval receipts.
+10. Issue 32 guides the website-agent task through six visible stages, condenses healthy
+    connection context, separates artifacts, removes review-only confirmation clicks,
+    queues conversation prompts safely, and restores exact-origin local journey state
+    without persisting prompts, page text, values, credentials, or identity.
 
 Server-side and mobile measurement remain separate projects. A parent-page Custom HTML
 tag does not bypass the browser's cross-origin boundary; iframe coverage requires a

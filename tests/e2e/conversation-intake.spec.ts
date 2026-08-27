@@ -347,7 +347,6 @@ test("authors and reviews a privacy-safe phone-click setup through chat", async 
   expect(decodeURIComponent(href ?? "")).not.toContain("+12125550123");
 
   await task.getByRole("button", { name: "Apply & validate draft" }).click();
-  await task.getByRole("button", { name: "Confirm apply & validate" }).click();
   await expect(task.getByText(/No immutable version exists yet/i)).toBeVisible();
   await expect(task.getByRole("button", { name: "Start exact browser run" })).toHaveCount(0);
   const exactTarget = site.url();

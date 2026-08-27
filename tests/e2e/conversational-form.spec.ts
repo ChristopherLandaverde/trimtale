@@ -293,7 +293,6 @@ test("keeps a narrow exact-preview target operable", async ({ context, page }) =
   await approveLeadSetup(journey);
   await journey.root.getByRole("button", { name: "Prepare workspace & plan" }).click();
   await journey.root.getByRole("button", { name: "Apply & validate draft" }).click();
-  await journey.root.getByRole("button", { name: "Confirm apply & validate" }).click();
   await expect(journey.root.getByRole("region", { name: "Exact preview binding" }))
     .toContainText("preview-8");
 
@@ -398,7 +397,6 @@ test("blocks exact Preview readiness when the confirmed target drifts", async ({
   await approveLeadSetup(journey);
   await journey.root.getByRole("button", { name: "Prepare workspace & plan" }).click();
   await journey.root.getByRole("button", { name: "Apply & validate draft" }).click();
-  await journey.root.getByRole("button", { name: "Confirm apply & validate" }).click();
   await expect.poll(() => requests.resumeRequests).toBe(1);
 
   await page.evaluate(() => history.pushState({}, "", "/preview-target-drift"));
@@ -484,7 +482,7 @@ test("resumes a versioned workflow after the browser restarts", async ({ context
   await expect.poll(() => resumeRequests).toBe(1);
   await expect(journey.root.getByText("Immutable version version-8 created", { exact: true }))
     .toBeVisible();
-  await expect(journey.root.getByRole("button", { name: "Review publication" }))
+  await expect(journey.root.getByRole("button", { name: "Approve & publish version-8" }))
     .toBeVisible();
   await expect(journey.root.getByRole("button", { name: "Apply & validate draft" }))
     .toHaveCount(0);
@@ -553,7 +551,7 @@ test("resumes a published workflow for live verification", async ({ context, pag
     .toBeVisible();
   await expect(journey.root.getByRole("button", { name: "Run live verification" }))
     .toBeVisible();
-  await expect(journey.root.getByRole("button", { name: "Review publication" }))
+  await expect(journey.root.getByRole("button", { name: "Approve & publish version-8" }))
     .toHaveCount(0);
 });
 
@@ -645,7 +643,6 @@ test("shows durable provider stage progress and keeps retry locked", async ({ co
   await approveLeadSetup(journey);
   await journey.root.getByRole("button", { name: "Prepare workspace & plan" }).click();
   await journey.root.getByRole("button", { name: "Apply & validate draft" }).click();
-  await journey.root.getByRole("button", { name: "Confirm apply & validate" }).click();
 
   await expect(journey.root.getByText(/Validation · in flight/i)).toBeVisible({ timeout: 2_500 });
   await expect(journey.root.getByText(/longer than expected and is still running/i)).toBeVisible();
@@ -779,8 +776,8 @@ test("reviews exact replacement of an existing managed setup", async ({ context,
   });
   expect(resumeRequests).toBe(0);
   await root.getByRole("button", { name: "Apply & validate draft" }).click();
-  await expect(root.getByRole("button", { name: "Confirm apply & validate" })).toBeVisible();
-  expect(resumeRequests).toBe(0);
+  await expect.poll(() => resumeRequests).toBe(1);
+  await expect(root.getByText(/reviewed plan could not be applied/i)).toBeVisible();
   await root.getByRole("region", { name: "Agent task" }).screenshot({
     path: test.info().outputPath("managed-replacement-blocked.png"),
     animations: "disabled",
@@ -936,17 +933,13 @@ test("previews, versions, and explicitly publishes the exact reviewed fingerprin
   const { root } = journey;
   await approveLeadSetup(journey);
   await root.getByRole("button", { name: "Prepare workspace & plan" }).click();
-  await root.getByRole("button", { name: "Apply & validate draft" }).click();
-
   expect(resumeRequests).toBe(0);
-  await expect(root.getByText(/writes the reviewed changes and validates the managed workspace/i)).toBeVisible();
-  await expect(root.getByText(/Browser preview must pass before an immutable version/i)).toBeVisible();
-  await expect(root.getByText(/does not publish/i)).toBeVisible();
+  await expect(root.getByText(/Apply these exact GTM changes.*does not publish/i)).toBeVisible();
   await root.getByRole("region", { name: "Agent task" }).screenshot({
     path: test.info().outputPath("form-operation-approval.png"),
     animations: "disabled",
   });
-  await root.getByRole("button", { name: "Confirm apply & validate" }).click();
+  await root.getByRole("button", { name: "Apply & validate draft" }).click();
 
   await expect.poll(() => resumeRequests).toBe(1);
   expect(resumeRequest).toEqual({
@@ -984,10 +977,9 @@ test("previews, versions, and explicitly publishes the exact reviewed fingerprin
     path: test.info().outputPath("form-operation-versioned.png"),
     animations: "disabled",
   });
-  await root.getByRole("button", { name: "Review publication" }).click();
   await expect(root.getByRole("region", { name: "Publication approval binding" }))
     .toContainText("version-8");
-  await expect(root.getByText(/separate from setup approval and browser verification/i)).toBeVisible();
+  await expect(root.getByText(/separate approval to make it live/i)).toBeVisible();
   expect(publicationRequests).toBe(0);
   await root.getByRole("button", { name: "Approve & publish version-8" }).click();
   await expect.poll(() => publicationRequests).toBe(2);
@@ -1069,7 +1061,6 @@ for (const previewCase of representativePreviewCases) {
     await approveLeadSetup(journey, previewCase.targetName);
     await journey.root.getByRole("button", { name: "Prepare workspace & plan" }).click();
     await journey.root.getByRole("button", { name: "Apply & validate draft" }).click();
-    await journey.root.getByRole("button", { name: "Confirm apply & validate" }).click();
     await expect(journey.root.getByRole("region", { name: "Exact preview binding" }))
       .toContainText("preview-8");
 
@@ -1246,12 +1237,10 @@ test("offers an exact rollback only after failed live publication evidence", asy
   await approveLeadSetup(journey);
   await root.getByRole("button", { name: "Prepare workspace & plan" }).click();
   await root.getByRole("button", { name: "Apply & validate draft" }).click();
-  await root.getByRole("button", { name: "Confirm apply & validate" }).click();
   await confirmExactPreviewReadiness(journey);
   await root.getByRole("button", { name: "Start exact browser run" }).click();
   await page.locator("form#contact button[type='submit']").click();
-  await expect(root.getByRole("button", { name: "Review publication" })).toBeVisible();
-  await root.getByRole("button", { name: "Review publication" }).click();
+  await expect(root.getByRole("button", { name: "Approve & publish version-8" })).toBeVisible();
   await root.getByRole("button", { name: "Approve & publish version-8" }).click();
   await expect(root.getByRole("button", { name: "Run live verification" })).toBeVisible();
   await page.evaluate(() => {
@@ -1279,7 +1268,6 @@ test("offers an exact rollback only after failed live publication evidence", asy
     path: test.info().outputPath("live-publication-failed.png"),
     animations: "disabled",
   });
-  await root.getByRole("button", { name: "Review rollback" }).click();
   await expect(root.getByRole("region", { name: "Rollback approval binding" })).toContainText("live-7");
   expect(rollbackRequests).toBe(0);
   await root.getByRole("region", { name: "Agent task" }).screenshot({
@@ -1388,7 +1376,6 @@ test("reviews a bounded draft repair and requires a new exact preview", async ({
   await approveLeadSetup(journey);
   await root.getByRole("button", { name: "Prepare workspace & plan" }).click();
   await root.getByRole("button", { name: "Apply & validate draft" }).click();
-  await root.getByRole("button", { name: "Confirm apply & validate" }).click();
   await page.evaluate(() => {
     const fixture = (window as Window & { __formFixture?: { ga4RequestCount: number } }).__formFixture;
     if (fixture) fixture.ga4RequestCount = 0;
@@ -1462,7 +1449,6 @@ test("rejects an authority-escalating workflow response", async ({ context, page
   await approveLeadSetup(journey);
   await root.getByRole("button", { name: "Prepare workspace & plan" }).click();
   await root.getByRole("button", { name: "Apply & validate draft" }).click();
-  await root.getByRole("button", { name: "Confirm apply & validate" }).click();
 
   await expect(root.getByText(/could not be applied.*Nothing was published/i)).toBeVisible();
   await expect(root.getByText(/privateSentinel|published successfully/i)).toHaveCount(0);

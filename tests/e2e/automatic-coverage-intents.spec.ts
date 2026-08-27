@@ -89,6 +89,7 @@ test("reports automatic-only requests as covered without setup actions", async (
 
   const root = page.locator("#gtm-observability-root");
   await root.getByRole("button", { name: "Open tracking agent" }).click();
+  await root.getByRole("button", { name: "Show connection details" }).click();
   await expect(root.getByText("7 of 7 automatic features on", { exact: true })).toBeVisible();
 
   const scenarios = [
@@ -115,6 +116,7 @@ test("names an exact feature gap without generating fallback setup", async ({ co
 
   const root = page.locator("#gtm-observability-root");
   await root.getByRole("button", { name: "Open tracking agent" }).click();
+  await root.getByRole("button", { name: "Show connection details" }).click();
   await expect(root.getByText("6 of 7 automatic features on", { exact: true })).toBeVisible();
   await root.getByLabel("Tracking request").fill(acceptanceMessage("scroll-request-coverage-check"));
   await root.getByRole("button", { name: "Send request" }).click();
@@ -131,6 +133,7 @@ test("blocks when exact enhanced-measurement settings are unavailable", async ({
 
   const root = page.locator("#gtm-observability-root");
   await root.getByRole("button", { name: "Open tracking agent" }).click();
+  await root.getByRole("button", { name: "Show connection details" }).click();
   await expect(root.getByText("Enhanced measurement check unavailable", { exact: true })).toBeVisible();
   await root.getByLabel("Tracking request").fill(acceptanceMessage("scroll-request-coverage-check"));
   await root.getByRole("button", { name: "Send request" }).click();
