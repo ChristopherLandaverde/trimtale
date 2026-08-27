@@ -631,6 +631,19 @@ function planSummary(value: unknown): WorkflowPlanSummary | undefined {
   };
 }
 
+function resumableOperationId(value: unknown): string | undefined {
+  if (!isRecord(value)
+    || value.status !== "reused"
+    || !isRecord(value.operation)
+    || value.operation.status !== "validated"
+    || typeof value.operation.id !== "string"
+    || !/^operation_[A-Za-z0-9_-]+$/.test(value.operation.id)) {
+    return undefined;
+  }
+
+  return value.operation.id;
+}
+
 function replacementRefs(value: unknown): value is Array<{
   kind: PlanActionSummary["kind"];
   entitySignature: string;
@@ -914,9 +927,13 @@ chrome.runtime.onMessage.addListener(
         return;
       }
       const body: unknown = await response.json();
-      const summary = isRecord(body) ? planSummary(body.result) : undefined;
+      const result = isRecord(body) ? body.result : undefined;
+      const summary = planSummary(result);
+      const resumeOperationId = resumableOperationId(result);
       sendResponse(summary
         ? { ok: true, result: summary }
+        : resumeOperationId
+          ? { ok: true, resumeOperationId }
         : { ok: false, error: "invalid_response" });
     }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
     return true;

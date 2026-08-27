@@ -36,6 +36,8 @@ portal, build the workflow, and start implementation on 2026-08-25.
 - `scripts/stage1-google-smoke.test.ts` proves the launcher validates the exact target
   URL, container ID, GA4 destination, extension origin, and publication-locked
   environment.
+- `tests/e2e/conversational-form.spec.ts` proves a browser restart resumes one reused
+  validated operation into its exact preview binding without repeating application.
 - The real integration lane remains credential-gated and records its exploratory
   evidence under `docs/reviews/`; it never runs in `npm run verify`.
 
@@ -85,6 +87,10 @@ portal, build the workflow, and start implementation on 2026-08-25.
   with no entity writes, provider validation passed, and the durable operation reached
   `validated` with setup `setup_7573af95969d`, workspace `1787767985454`, and exact
   GTM preview `1787786615309`.
-- Remaining: sign into Google Tag Manager in the managed Chromium profile, connect
-  workspace `7` through the supported human Tag Assistant handoff, run the form, then
-  review/version/publish and record live verification or rollback.
+- 2026-08-26: Normal Chrome Stable signed into workspace `7`, and the supported Google
+  UI connected Tag Assistant to the disposable ConsentFlow site for
+  `GTM-PCJ3Q5RK`. The browser switch exposed and fixed rejected continuation of a
+  durable validated operation; its exact preview binding now rehydrates without
+  another apply action.
+- Remaining: run the form in the connected preview, then review/version/publish and
+  record live verification or rollback.

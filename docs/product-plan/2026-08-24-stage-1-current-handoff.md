@@ -199,10 +199,10 @@ is about product state and authority checkpoints rather than external availabili
 ## What has not been proven
 
 - Real authenticated GTM planning and provider validation reached exact preview
-  fingerprint `1787786615309` with a zero-change plan. The supported human Tag
-  Assistant browser handoff remains incomplete because the managed Chromium profile
-  is not signed into the Google web UI; the saved API grant cannot create browser
-  session cookies.
+  fingerprint `1787786615309` with a zero-change plan. Normal Chrome signed into
+  workspace `7`, and the supported Google UI connected Tag Assistant to the disposable
+  ConsentFlow site. The exact form run after returning to the managed harness remains
+  incomplete.
 - No real Google container version was published during controlled Chromium review.
 - Chat publication currently records the actor class `website_chat_human`, not a
   signed-in product user or verified organization membership.
@@ -222,8 +222,8 @@ Current working-tree baseline:
 
 - `npm run verify` passes.
 - 418 deterministic tests pass across 51 test files.
-- 70 Playwright Chromium journeys pass.
-- All workspace typechecks and preflight checks pass; 85 change records validate.
+- 71 Playwright Chromium journeys pass.
+- All workspace typechecks and preflight checks pass; 86 change records validate.
 
 ## Recommended next implementation order
 

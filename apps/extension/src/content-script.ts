@@ -103,6 +103,7 @@ interface WorkflowPlanResponse {
   ok: boolean;
   error?: "invalid_request" | "planning_blocked" | "planning_unavailable" | "invalid_response" | "service_offline";
   result?: WorkflowPlanSummary;
+  resumeOperationId?: string;
 }
 
 interface WorkflowResumeSummary {
@@ -3470,6 +3471,31 @@ async function planFormWorkflow(
     verifyStatus: "pending",
   });
   const response = await requestWorkflowPlan(requestId, intake);
+  if (response.ok && response.resumeOperationId) {
+    let resumed: WorkflowResumeResponse;
+    try {
+      resumed = await requestWorkflowResume(response.resumeOperationId);
+    } catch {
+      resumed = { ok: false, error: "service_offline" };
+    }
+    if (resumed.ok
+      && resumed.result?.status === "awaiting_preview"
+      && resumed.result.validationStatus === "passed"
+      && resumed.result.nextStep === "run_tag_assistant_preview"
+      && resumed.result.setupFingerprint
+      && resumed.result.workspaceFingerprint
+      && resumed.result.previewVersionFingerprint) {
+      const preview = {
+        operationId: resumed.result.operationId,
+        setupFingerprint: resumed.result.setupFingerprint,
+        workspaceFingerprint: resumed.result.workspaceFingerprint,
+        previewVersionFingerprint: resumed.result.previewVersionFingerprint,
+      };
+      workflowPreviewByRequest.set(requestId, preview);
+      renderPreviewHandoff(requestId, intake, preview);
+      return;
+    }
+  }
   if (!response.ok || !response.result) {
     workflowPlansByRequest.delete(requestId);
     renderFormTaskState(requestId, intake, {

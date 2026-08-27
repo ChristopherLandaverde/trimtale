@@ -268,6 +268,62 @@ async function routeExactPreview(journey: ExtensionJourney): Promise<ExactPrevie
   return requests;
 }
 
+test("resumes a validated workflow after the browser restarts", async ({ context, page }) => {
+  const journey = await openExtensionJourney(context, page, "confirmed_success", "GTM-TEST123");
+  let resumeRequests = 0;
+  await routeWriteAccess(journey);
+  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/plan", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        result: {
+          status: "reused",
+          operation: {
+            id: "operation_spec_form_contact",
+            status: "validated",
+            validation: { status: "passed" },
+          },
+        },
+      }),
+    });
+  });
+  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/*/resume", async (route) => {
+    resumeRequests += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        result: {
+          status: "awaiting_preview",
+          nextStep: "run_tag_assistant_preview",
+          preview: {
+            setupFingerprint: "setup_form_contact",
+            workspaceFingerprint: "workspace-final",
+            previewVersionFingerprint: "preview-8",
+          },
+          operation: {
+            id: "operation_spec_form_contact",
+            status: "validated",
+            validation: { status: "passed" },
+          },
+        },
+      }),
+    });
+  });
+
+  await approveLeadSetup(journey);
+  await journey.root.getByRole("button", { name: "Prepare workspace & plan" }).click();
+
+  await expect.poll(() => resumeRequests).toBe(1);
+  await expect(journey.root.getByRole("region", { name: "Exact preview binding" }))
+    .toContainText("preview-8");
+  await expect(journey.root.getByRole("button", { name: "Start exact browser run" }))
+    .toBeVisible();
+  await expect(journey.root.getByRole("button", { name: "Apply & validate draft" }))
+    .toHaveCount(0);
+});
+
 test("reviews a durable form plan without applying it", async ({ context, page }) => {
   const journey = await openExtensionJourney(context, page, "confirmed_success", "GTM-TEST123");
   let planBody: unknown;
