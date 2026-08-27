@@ -70,3 +70,6 @@ reviewing its exact behavior and non-goals.
   the production listener now resolves the exact recognized source at message time.
 - 2026-08-27: Final verification passed with 449 deterministic tests and 78 Chromium
   journeys. The focused Calendly review has no unresolved finding.
+- 2026-08-27: The user deferred the real-provider production pilot. Issue 30 records
+  its targets, entry criteria, evidence, authorization, and cleanup gates separately
+  from this completed implementation.

@@ -376,6 +376,9 @@ setup without weakening approval, privacy, or provider boundaries:
    actions: a payload-free exact-origin/source completion listener and a GA4 event tag.
    It supports one current-page `embed_type=Inline` frame, uses the existing exact
    Preview and publication gates, and blocks direct, popup, or multiple embeds.
+8. Issue 30 records the credentialed Calendly production pilot as an external release
+   gate. The user deferred that real booking and account-scoped run; local callback
+   fixtures remain regression evidence and do not satisfy the gate.
 
 Server-side and mobile measurement remain separate projects. A parent-page Custom HTML
 tag does not bypass the browser's cross-origin boundary; iframe coverage requires a
