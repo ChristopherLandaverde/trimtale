@@ -69,4 +69,29 @@ describe("confirmed form setup generation", () => {
       expect.objectContaining({ type: "PAGE_URL", name: "Page URL" }),
     ]);
   });
+
+  it("emits canonical GTM visible trigger parameters", () => {
+    const proposal = createFormSetupProposal(request({
+      type: "visible_element",
+      selector: "#contact-success",
+    }));
+    const trigger = proposal.containerFile.containerVersion.trigger[0] as {
+      parameter?: unknown[];
+    };
+
+    expect(trigger.parameter).toEqual(expect.arrayContaining([
+      { type: "TEMPLATE", key: "elementSelector", value: "#contact-success" },
+      { type: "TEMPLATE", key: "selectorType", value: "CSS" },
+      { type: "TEMPLATE", key: "onScreenRatio", value: "1" },
+      { type: "BOOLEAN", key: "useOnScreenDuration", value: "false" },
+      { type: "BOOLEAN", key: "useDomChangeListener", value: "true" },
+      { type: "TEMPLATE", key: "firingFrequency", value: "ONCE" },
+    ]));
+    expect(trigger.parameter).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "selector" }),
+      expect.objectContaining({ key: "selectionMethod" }),
+      expect.objectContaining({ key: "minimumPercentVisible" }),
+      expect.objectContaining({ key: "observeDomChanges" }),
+    ]));
+  });
 });

@@ -359,15 +359,16 @@ function compileTrigger(
   }
   if (policy.source.type === "element_visibility") {
     trigger.parameter = [
-      template("selector", policy.source.selector ?? ""),
-      template("selectionMethod", "CSS_SELECTOR"),
-      template("minimumPercentVisible", "1"),
-      template("onScreenDuration", "0"),
+      template("elementSelector", policy.source.selector ?? ""),
+      template("selectorType", "CSS"),
+      template("onScreenRatio", "1"),
+      booleanParam("useOnScreenDuration", false),
+      booleanParam("useDomChangeListener", true),
       template("firingFrequency", policy.source.visibilityFrequency === "every_time"
         ? "MANY_PER_ELEMENT"
         : policy.source.visibilityFrequency === "once_per_element"
           ? "ONCE_PER_ELEMENT"
-          : "ONCE_PER_PAGE"),
+          : "ONCE"),
     ];
   }
   if (policy.source.type === "click") {

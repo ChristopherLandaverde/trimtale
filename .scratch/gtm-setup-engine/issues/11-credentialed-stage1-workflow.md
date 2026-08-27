@@ -92,5 +92,15 @@ portal, build the workflow, and start implementation on 2026-08-25.
   `GTM-PCJ3Q5RK`. The browser switch exposed and fixed rejected continuation of a
   durable validated operation; its exact preview binding now rehydrates without
   another apply action.
+- 2026-08-26: The first real form run exposed a hidden-to-visible success-element
+  compiler defect and stopped without creating a version. Issue 19's initial
+  one-field repair passed provider validation but failed a fresh Tag Assistant run.
+  The rendered GTM editor then exposed the full canonical parameter contract, now
+  covered by a failing-first regression. No version was created.
+- 2026-08-26: Canonical preview `1787793264804` passed the real exact browser run:
+  Tag Assistant emitted Element Visibility, fired the managed `generate_lead` tag,
+  and the operation bound one-request evidence. Version creation then failed closed
+  because its fresh validation rotated the quick-preview fingerprint. Issue 20 owns
+  that gate; nothing was versioned or published.
 - Remaining: run the form in the connected preview, then review/version/publish and
   record live verification or rollback.
