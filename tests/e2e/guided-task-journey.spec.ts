@@ -55,7 +55,7 @@ async function approveForm(journey: ExtensionJourney): Promise<void> {
   await root.getByRole("button", { name: "Refresh GTM connection" }).click();
   await journey.send("Track leads from the contact form");
   await root.getByRole("button", { name: "Contact sales" }).click();
-  await root.getByRole("button", { name: "Review setup" }).click();
+  await root.getByRole("button", { name: "Review what will be tracked" }).click();
   await root.getByRole("button", { name: "Approve setup" }).click();
 }
 
@@ -145,7 +145,40 @@ test("keeps short confirmations bound to the visible task", async ({ context, pa
   await expect(assistant).toHaveScreenshot("guided-contextual-confirmation.png", screenshotOptions);
 
   await journey.root.getByRole("button", { name: "Contact sales" }).click();
-  await expect(journey.root.getByRole("button", { name: "Review setup" })).toBeVisible();
+  const reviewAction = journey.root.getByRole("button", { name: "Review what will be tracked" });
+  await expect(reviewAction).toBeVisible();
+  await expect(journey.root.getByText(
+    "Review the exact form, success signal, event name, and privacy boundary. Nothing will be created yet.",
+    { exact: true },
+  )).toBeVisible();
+  await expect(journey.root.getByText("Review the grounded setup before I generate anything.", { exact: true }))
+    .toHaveCount(0);
+  const reviewVisibility = await journey.root.evaluate((root) => {
+    const shadow = root.shadowRoot!;
+    const assistantBounds = shadow.querySelector<HTMLElement>(".assistant")!.getBoundingClientRect();
+    const messages = shadow.querySelector<HTMLElement>(".messages")!.getBoundingClientRect();
+    const journeyRail = shadow.querySelector<HTMLElement>(".journey")!.getBoundingClientRect();
+    const guidance = shadow.querySelector<HTMLElement>(".next-action-guidance")!.getBoundingClientRect();
+    const action = shadow.querySelector<HTMLElement>("[data-action-id='confirm-specification']")!
+      .getBoundingClientRect();
+    const composerBounds = shadow.querySelector<HTMLElement>(".composer")!.getBoundingClientRect();
+    const composerHit = shadow.elementFromPoint(
+      composerBounds.left + composerBounds.width / 2,
+      composerBounds.top + composerBounds.height / 2,
+    );
+    const visibleTop = Math.max(messages.top, journeyRail.bottom);
+    return {
+      context: guidance.top >= visibleTop
+        && guidance.bottom <= messages.bottom
+        && action.top >= visibleTop
+        && action.bottom <= messages.bottom,
+      composer: composerBounds.top >= assistantBounds.top
+        && composerBounds.bottom <= assistantBounds.bottom
+        && Boolean(composerHit?.closest(".composer")),
+    };
+  });
+  expect(reviewVisibility).toEqual({ context: true, composer: true });
+  await expect(assistant).toHaveScreenshot("guided-review-next-action.png", screenshotOptions);
   await journey.root.getByLabel("Tracking request").fill("continue");
   await journey.root.getByRole("button", { name: "Send request" }).click();
   await expect(journey.root.getByText("Reviewable setup", { exact: true })).toBeVisible();

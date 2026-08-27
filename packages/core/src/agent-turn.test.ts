@@ -75,7 +75,7 @@ describe("provider-neutral agent turns", () => {
         { id: "review", status: "active", kind: "approval" },
         { id: "verify", status: "pending" },
       ],
-      actions: [{ id: "confirm-specification", label: "Review setup" }],
+      actions: [{ id: "confirm-specification", label: "Review what will be tracked" }],
     });
     expect(serialized).not.toContain(privateSentinel);
     expect(serialized).not.toContain("form#contact");

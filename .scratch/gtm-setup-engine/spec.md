@@ -304,6 +304,8 @@ Latency targets remain product hypotheses until measured in representative workf
   exact-origin journey after reload without repeating or widening provider authority.
 - [x] Exact short confirmations preserve the visible task, advance only one read-only
   review action, and never infer a scope choice or approval.
+- [x] A form's read-only review action names what will be tracked and keeps its exact
+  review contents and no-creation boundary visible in the compact journey.
 - [x] Failed verification may cause bounded repair without widening the confirmed
   tracking intent or publication authority.
 - [x] A same-name product-owned entity can be replaced only after exact semantic

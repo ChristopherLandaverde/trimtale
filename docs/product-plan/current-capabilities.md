@@ -295,6 +295,11 @@ drawer. A second prompt waits behind the pending conversation response, and stop
 that response advances the queue. These controls do not cancel or steer provider
 mutations.
 
+When a confirmed form is ready for its read-only setup review, the primary action says
+`Review what will be tracked`. The same compact decision area names the exact form,
+success signal, event name, and privacy boundary and states that nothing will be
+created yet.
+
 The exact replies `confirm`, `yes`, `continue`, `ok`, and `okay` remain bound to the
 visible task. They may advance one visible read-only setup-review action. When scope,
 target, evidence, or approval requires a choice, the agent preserves the task and

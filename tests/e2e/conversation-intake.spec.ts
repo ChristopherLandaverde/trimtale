@@ -87,7 +87,7 @@ test("clarifies a form intent and requires explicit specification confirmation",
   await setAssistantVisibility(root, "visible");
   await expect(root.getByText(/successful Contact sales submissions as generate_lead/)).toBeVisible();
   await expect(root.getByText(/without counting submit attempts or validation errors/)).toBeVisible();
-  await root.getByRole("button", { name: "Review setup" }).click();
+  await root.getByRole("button", { name: "Review what will be tracked" }).click();
   await expect(task).toHaveCount(1);
   await expect(task.getByText("Reviewable setup", { exact: true })).toBeVisible();
   await expect(task.getByText("Qualified inquiry", { exact: true })).toBeVisible();
@@ -141,16 +141,16 @@ test("uses one adjacent stable status as form success evidence and rejects ambig
   )).toHaveCount(1);
   await expect(discoveredTargets.locator(".target.confirmed span"))
     .toHaveText("✓ Disposable workflow smoke form");
-  await expect(discovered.root.getByRole("button", { name: "Review setup" })).toBeVisible();
+  await expect(discovered.root.getByRole("button", { name: "Review what will be tracked" })).toBeVisible();
   await expect(discovered.root.getByText(/diagnostic handoff/i)).toHaveCount(0);
 
   const ambiguous = await submitIntent("http://127.0.0.1:4175/ambiguous-status");
   await expect(ambiguous.root.getByText(/not a safe observable signal that proves it succeeded/i)).toBeVisible();
-  await expect(ambiguous.root.getByRole("button", { name: "Review setup" })).toHaveCount(0);
+  await expect(ambiguous.root.getByRole("button", { name: "Review what will be tracked" })).toHaveCount(0);
 
   const unaddressable = await submitIntent("http://127.0.0.1:4175/unaddressable-status");
   await expect(unaddressable.root.getByText(/not a safe observable signal that proves it succeeded/i)).toBeVisible();
-  await expect(unaddressable.root.getByRole("button", { name: "Review setup" })).toHaveCount(0);
+  await expect(unaddressable.root.getByRole("button", { name: "Review what will be tracked" })).toHaveCount(0);
 });
 
 test("blocks a phone request without observable phone-link evidence", async ({ page: site }) => {

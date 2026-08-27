@@ -117,7 +117,7 @@ async function approveLeadSetup(journey: ExtensionJourney): Promise<void> {
   }, privatePageText);
   await journey.send("Track leads from the contact form");
   await journey.root.getByRole("button", { name: "Contact sales" }).click();
-  await journey.root.getByRole("button", { name: "Review setup" }).click();
+  await journey.root.getByRole("button", { name: "Review what will be tracked" }).click();
   await journey.root.getByRole("button", { name: "Approve setup" }).click();
 }
 

@@ -131,7 +131,7 @@ test("carries exact GTM context through generation, browser evidence, and GA4 co
   await expect(task.getByText("Needs custom setup · Confirmed lead tracking", { exact: true })).toBeVisible();
   await expect(task.getByText(/GA4 measures form starts and submits, not confirmed leads/i)).toBeVisible();
   await root.getByRole("button", { name: "Contact sales" }).click();
-  await root.getByRole("button", { name: "Review setup" }).click();
+  await root.getByRole("button", { name: "Review what will be tracked" }).click();
   await root.getByRole("button", { name: "Approve setup" }).click();
   await expect(root.getByRole("region", { name: "Tracking evidence path" })).toHaveCount(0);
   await expect(task.getByText(/Setup approved and generated/i)).toBeVisible();
@@ -237,7 +237,7 @@ test("keeps browser verification usable when the Analytics provider denies the r
   await root.getByLabel("Tracking request").fill("Track leads from the contact form");
   await root.getByRole("button", { name: "Send request" }).click();
   await root.getByRole("button", { name: "Contact sales" }).click();
-  await root.getByRole("button", { name: "Review setup" }).click();
+  await root.getByRole("button", { name: "Review what will be tracked" }).click();
   await root.getByRole("button", { name: "Approve setup" }).click();
   await root.getByRole("button", { name: "Verify already-installed setup" }).click();
 

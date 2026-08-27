@@ -4931,6 +4931,13 @@ function renderQuickActions(
   if (!actions.length) return;
   const row = document.createElement("div");
   row.className = "quick-actions";
+  if (actions.length === 1 && actions[0]?.id === "confirm-specification") {
+    appendAgentText(
+      row,
+      "next-action-guidance",
+      "Review the exact form, success signal, event name, and privacy boundary. Nothing will be created yet.",
+    );
+  }
   for (const [index, action] of actions.entries()) {
     const downloadHref = action.id === "download-form-setup"
       ? formSetupDownloadHref(intakeByRequest.get(requestId)!)
@@ -5345,6 +5352,7 @@ async function mountOverlay(): Promise<void> {
       .agent-loading { min-height: 70px; background: linear-gradient(100deg, rgba(24,37,36,.9) 20%, rgba(70,105,94,.35) 45%, rgba(21,29,34,.9) 70%); background-size: 220% 100%; animation: shimmer 1.15s linear infinite; }
       .agent-turn > .quick-actions { position: sticky; bottom: -12px; z-index: 2; margin: 1px -12px -12px; padding: 9px 12px 12px; background: linear-gradient(transparent, rgba(20,31,33,.98) 28%); }
       .quick-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+      .next-action-guidance { flex: 1 0 100%; color: #b8c7c2; font-size: 10px; line-height: 1.4; }
       .quick { padding: 7px 10px; border: 1px solid rgba(167,243,208,.22); border-radius: 10px; color: #dff9ec; background: rgba(40,72,61,.58); font-size: 12px; text-decoration: none; }
       .quick:hover { border-color: rgba(167,243,208,.42); background: rgba(47,88,73,.72); }
       .gtm-action { justify-self: start; margin-top: 3px; }

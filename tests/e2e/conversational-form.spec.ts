@@ -34,7 +34,7 @@ for (const acceptance of contract.journeys) {
     await expect(targets.locator(".target.candidate")).toHaveCount(2);
     await root.getByRole("button", { name: "Contact sales" }).click();
     await expect(targets.locator(".target.confirmed[data-target-id='contact']")).toHaveCount(1);
-    await root.getByRole("button", { name: "Review setup" }).click();
+    await root.getByRole("button", { name: "Review what will be tracked" }).click();
     const task = root.getByRole("region", { name: "Agent task" });
     await expect(task).toHaveCount(1);
     await expect(task.locator(".agent-specification-row").filter({ hasText: "Event" }).getByText("generate_lead", { exact: true }))
@@ -96,7 +96,7 @@ test("keeps container context separate from a confirmed lead task", async ({ con
   const { root } = journey;
   await journey.send("Track leads from the contact form");
   await root.getByRole("button", { name: "Contact sales" }).click();
-  await root.getByRole("button", { name: "Review setup" }).click();
+  await root.getByRole("button", { name: "Review what will be tracked" }).click();
   await root.getByRole("button", { name: "Approve setup" }).click();
 
   await expect(root.getByRole("region", { name: "GTM connection" })).toContainText("GTM-TEST123");
@@ -200,7 +200,7 @@ async function approveLeadSetup(
     .toBeVisible();
   await journey.send("Track leads from the contact form");
   await root.getByRole("button", { name: targetName }).click();
-  await root.getByRole("button", { name: "Review setup" }).click();
+  await root.getByRole("button", { name: "Review what will be tracked" }).click();
   await root.getByRole("button", { name: "Approve setup" }).click();
 }
 

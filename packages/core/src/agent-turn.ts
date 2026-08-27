@@ -392,7 +392,6 @@ export function agentTurnForIntake(
           `I can track successful ${intake.target?.label ?? "form"} submissions as generate_lead without counting submit attempts or validation errors.`,
         ),
         plan: plan("completed", "active"),
-        question: "Review the grounded setup before I generate anything.",
         actions,
         receipts,
       };

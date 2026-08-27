@@ -188,7 +188,7 @@ function formResult(message: string, page: ConversationPageContext): Conversatio
     canConfirm: true,
     target,
     successSignal,
-    options: [{ id: "confirm-specification", label: "Review setup" }],
+    options: [{ id: "confirm-specification", label: "Review what will be tracked" }],
   };
 }
 
@@ -318,6 +318,6 @@ export function selectConversationSuccess(
     canConfirm: true,
     target,
     successSignal,
-    options: [{ id: "confirm-specification", label: "Review setup" }],
+    options: [{ id: "confirm-specification", label: "Review what will be tracked" }],
   };
 }

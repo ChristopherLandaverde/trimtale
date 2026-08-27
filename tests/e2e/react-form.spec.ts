@@ -18,7 +18,7 @@ test("completes the lead-form journey on a real React page", async ({ page }) =>
   await root.getByRole("button", { name: "Open tracking agent" }).click();
   await root.getByLabel("Tracking request").fill("Track successful React demo requests as leads");
   await root.getByRole("button", { name: "Send request" }).click();
-  await root.getByRole("button", { name: "Review setup" }).click();
+  await root.getByRole("button", { name: "Review what will be tracked" }).click();
   await root.getByRole("button", { name: "Approve setup" }).click();
   await root.getByRole("button", { name: "Verify already-installed setup" }).click();
 
