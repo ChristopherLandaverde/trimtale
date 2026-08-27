@@ -33,18 +33,21 @@ Date: 2026-08-26
 
 - Fixed: generated Element Visibility triggers used aliases that Google stored but its
   runtime ignored.
-- Open: immutable version creation rotates the GTM quick-preview fingerprint after
-  exact evidence is bound. Issue 20 owns this separate version-gate defect; nothing
-  was versioned or published during this review.
+- Fixed: immutable version creation no longer rotates the GTM quick-preview
+  fingerprint after exact evidence is bound. The corrected path created version `5`
+  from the verified preview; nothing was published during this review.
 
 ## Evidence
 
 - Failing-first canonical parameter regression, then 26 focused generator, compiler,
   and planner tests passed.
-- `npm run verify`: 419 deterministic tests across 51 files and 71 Chromium journeys
+- `npm run verify`: 420 deterministic tests across 51 files and 71 Chromium journeys
   passed.
 - Focused headed adversarial review: one journey passed; visual inspection confirmed
   inert attacker text, retained private page input, completed verification, and no
   publication.
 - Real Tag Assistant: events `gtm_observability_smoke_success` and
   `gtm.elementVisibility`; `GA4 Event - generate_lead` under Tags Fired.
+- Real GTM version gate: exact preview `1787793264804` remained bound while immutable
+  version `5` with fingerprint `1787794230999` was created. Live version `3` remained
+  unchanged.

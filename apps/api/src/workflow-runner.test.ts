@@ -296,6 +296,42 @@ describe("resumable non-publishing tracking workflow", () => {
     expect(client.publishApprovedVersion).not.toHaveBeenCalled();
   });
 
+  it("invalidates exact evidence when managed entities change", async () => {
+    const client = google({
+      createValidatedVersion: vi.fn().mockResolvedValue({
+        status: "blocked",
+        validation: {
+          status: "failed",
+          checkedAt: "2026-08-22T12:07:00.000Z",
+          workspaceFingerprint: "workspace-final",
+          errors: ["Workspace entities do not match the approved tracking change plan."],
+          workspaceChanges: [],
+        },
+      }),
+    });
+    const runner = new TrackingWorkflowRunner(
+      await repository(),
+      client,
+      () => new Date("2026-08-22T12:08:00.000Z"),
+    );
+    const planned = await runner.plan(request);
+    if (planned.status === "blocked") throw new Error(planned.reason);
+    const awaiting = await runner.resume(planned.operation.id);
+    if (awaiting.status !== "awaiting_preview") throw new Error(awaiting.status);
+    runner.verifyDraft(planned.operation.id, exactDraftRun(awaiting.operation));
+
+    expect(await runner.resume(planned.operation.id)).toMatchObject({
+      status: "blocked",
+      stage: "version",
+      reason: "version_creation_blocked",
+      operation: {
+        status: "validation_failed",
+        validation: { workspaceFingerprint: "workspace-final" },
+      },
+    });
+    expect(runner.get(planned.operation.id)?.draftVerification).toBeUndefined();
+  });
+
   it("persists partial application evidence and resumes safely", async () => {
     const client = google({
       applyManagedWorkspace: vi.fn()

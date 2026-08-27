@@ -823,6 +823,34 @@ export class GtmDiscoveryClient {
     if (!["applied", "validation_failed", "validated", "draft_verified"].includes(operation.status)) {
       throw new GoogleIntegrationError("Only applied tracking operations can be validated.", 409);
     }
+    const validation = await this.validateWorkspaceState(operation);
+    if (validation.status !== "passed") {
+      return validation;
+    }
+    const preview = await this.post<WorkspacePreviewResponse>(`/${operation.workspace.path}:quick_preview`);
+    if (preview.syncStatus?.mergeConflict || preview.syncStatus?.syncError) {
+      return {
+        ...validation,
+        status: "failed",
+        errors: ["GTM could not synchronize the validation preview."],
+      };
+    }
+    if (preview.compilerError || !preview.containerVersion?.fingerprint) {
+      return {
+        ...validation,
+        status: "failed",
+        errors: ["GTM reported compiler errors for the workspace preview."],
+      };
+    }
+    return {
+      ...validation,
+      previewVersionFingerprint: preview.containerVersion.fingerprint,
+    };
+  }
+
+  private async validateWorkspaceState(
+    operation: TrackingSetupOperationV1,
+  ): Promise<GtmWorkspaceValidationEvidence> {
     const checkedAt = new Date().toISOString();
     const failed = (workspaceFingerprint: string, workspaceChanges: unknown[], errors: string[]): GtmWorkspaceValidationEvidence => ({
       status: "failed", checkedAt, workspaceFingerprint, errors, workspaceChanges,
@@ -851,20 +879,12 @@ export class GtmDiscoveryClient {
       || freshPlan.plan.actions.some(({ action }) => action !== "reuse" && action !== "no_op")) {
       return failed(currentWorkspace.fingerprint ?? "unknown", changes, ["Workspace entities do not match the approved tracking change plan."]);
     }
-    const preview = await this.post<WorkspacePreviewResponse>(`/${currentWorkspace.path}:quick_preview`);
-    if (preview.syncStatus?.mergeConflict || preview.syncStatus?.syncError) {
-      return failed(currentWorkspace.fingerprint ?? "unknown", changes, ["GTM could not synchronize the validation preview."]);
-    }
-    if (preview.compilerError || !preview.containerVersion?.fingerprint) {
-      return failed(currentWorkspace.fingerprint ?? "unknown", changes, ["GTM reported compiler errors for the workspace preview."]);
-    }
     return {
       status: "passed",
       checkedAt,
       workspaceFingerprint: currentWorkspace.fingerprint ?? "unknown",
       errors: [],
       workspaceChanges: changes,
-      previewVersionFingerprint: preview.containerVersion.fingerprint,
     };
   }
 
@@ -927,17 +947,18 @@ export class GtmDiscoveryClient {
     if (operation.previewPolicy === "exact_draft_required" && operation.status !== "draft_verified") {
       throw new GoogleIntegrationError("Exact browser preview is required before version creation.", 409);
     }
-    const validation = await this.validateManagedWorkspace(operation);
+    let validation = operation.status === "draft_verified"
+      ? await this.validateWorkspaceState(operation)
+      : await this.validateManagedWorkspace(operation);
     if (validation.status !== "passed") return { status: "blocked", validation };
-    if (operation.draftVerification
-      && validation.previewVersionFingerprint !== operation.draftVerification.previewVersionFingerprint) {
-      return {
-        status: "blocked",
-        validation: {
-          ...validation,
-          status: "failed",
-          errors: ["The GTM preview fingerprint changed after browser verification."],
-        },
+    if (operation.status === "draft_verified") {
+      const previewFingerprint = operation.draftVerification?.previewVersionFingerprint;
+      if (!previewFingerprint) {
+        throw new GoogleIntegrationError("Exact browser preview evidence is missing.", 409);
+      }
+      validation = {
+        ...validation,
+        previewVersionFingerprint: previewFingerprint,
       };
     }
     const inspection = await this.inspectObservedContainer(operation.container.publicId);

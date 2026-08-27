@@ -102,5 +102,8 @@ portal, build the workflow, and start implementation on 2026-08-25.
   and the operation bound one-request evidence. Version creation then failed closed
   because its fresh validation rotated the quick-preview fingerprint. Issue 20 owns
   that gate; nothing was versioned or published.
-- Remaining: run the form in the connected preview, then review/version/publish and
-  record live verification or rollback.
+- 2026-08-26: Issue 20 preserved the exact preview while rechecking workspace and
+  managed-entity state. The full gate passed, and the credentialed workflow created
+  immutable version `5` without changing live version `3`.
+- Remaining: review and approve exact version `5`, publish it, then record clean live
+  verification or rollback.

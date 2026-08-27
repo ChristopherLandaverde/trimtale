@@ -1,7 +1,7 @@
 # Preserve the verified preview during versioning
 
 Delivery mode: implementation
-Status: in progress
+Status: resolved
 
 ## Production outcome
 
@@ -35,3 +35,9 @@ entity state before `create_version`.
   returned a new fingerprint for unchanged draft state, invalidating the exact binding
   and leaving the operation safely at `draft_verified`. No version or publication was
   created.
+- 2026-08-26: Version creation now rechecks the bound workspace and managed entities
+  without rotating the verified preview. Managed-state drift clears the stale browser
+  evidence and returns the operation to `validation_failed`.
+- 2026-08-26: The full verification gate passed with 420 deterministic tests across
+  51 files and 71 Chromium journeys. The credentialed operation then created immutable
+  version `5` from preview `1787793264804`; publication remained gated.

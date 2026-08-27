@@ -208,24 +208,14 @@ describe("managed workspace validation and version creation", () => {
     expect(fetcher.mock.calls.some(([input]) => input.toString().includes(":publish"))).toBe(false);
   });
 
-  it("creates an exact-policy version only from a current browser-verified preview fingerprint", async () => {
-    const fetcher = validationFetch();
+  it("creates an exact-policy version without rotating the verified preview", async () => {
+    const fetcher = validationFetch({ previewFingerprint: "preview-9" });
     expect(await new GtmDiscoveryClient(async () => "token", fetcher, true)
       .createValidatedVersion(operation("draft_verified"))).toMatchObject({
         status: "versioned",
         version: { fingerprint: "version-8" },
       });
-
-    const changed = validationFetch({ previewFingerprint: "preview-9" });
-    expect(await new GtmDiscoveryClient(async () => "token", changed, true)
-      .createValidatedVersion(operation("draft_verified"))).toMatchObject({
-        status: "blocked",
-        validation: {
-          status: "failed",
-          errors: ["The GTM preview fingerprint changed after browser verification."],
-        },
-      });
-    expect(changed.mock.calls.some(([input]) => input.toString().includes(":create_version"))).toBe(false);
+    expect(fetcher.mock.calls.some(([input]) => input.toString().includes(":quick_preview"))).toBe(false);
   });
 
   it("refuses version creation when GTM returns compiler errors or the request fails", async () => {

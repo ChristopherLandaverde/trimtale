@@ -340,7 +340,9 @@ export class TrackingWorkflowRunner {
     }
     const version = await this.google.createValidatedVersion(operation);
     if (version.status !== "versioned") {
-      operation = this.save(operation, {
+      const invalidated = structuredClone(operation);
+      delete invalidated.draftVerification;
+      operation = this.save(invalidated, {
         status: "validation_failed",
         validation: version.validation,
       });
