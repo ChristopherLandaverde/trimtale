@@ -4648,7 +4648,7 @@ async function planFormWorkflow(
 
 function handleAssistantAction(actionId: string, requestId: string): void {
   if (actionId.startsWith("prompt:")) {
-    if (composer) composer.value = actionId.slice("prompt:".length);
+    if (composer) composer.value = actionId.slice("prompt:".length).replaceAll("_", " ");
     submitPrompt();
     return;
   }

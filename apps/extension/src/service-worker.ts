@@ -1,5 +1,7 @@
 import {
+  adoptIntakeInterpretation,
   agentTurnForIntake,
+  createIntakeInterpretationInputV2,
   interpretConversationIntent,
   validateGa4ActionReceipt,
   validateGa4ConfigurationPlan,
@@ -7,6 +9,7 @@ import {
   validateExactDraftBrowserRun,
   validateTrackingRunEvidence,
   validateProviderProgressProjection,
+  validateIntakeInterpretationV2,
   validateAuthoringInput,
   validateFormSetupRequest,
   type AgentTurnContext,
@@ -17,6 +20,8 @@ import {
   type Ga4ActionReceiptV1,
   type Ga4ConfigurationPlanV1,
   type FormCandidate,
+  type ConversationIntakeResult,
+  type ConversationPageContext,
   type KnownInteractionTypeV1,
   type NavigationElement,
   type ProviderProgressProjectionV1,
@@ -64,51 +69,100 @@ chrome.commands.onCommand.addListener(async (command) => {
   if (tab) await toggleAssistant(tab);
 });
 
+interface AssistantPageInput {
+  title: string;
+  url: string;
+  navigation: NavigationElement[];
+  forms: FormCandidate[];
+  interactionCounts?: Partial<Record<KnownInteractionTypeV1, number>>;
+  calendlyEmbedCount?: number;
+}
+
+function conversationPage(page: AssistantPageInput): ConversationPageContext {
+  return {
+    navigationCount: page.navigation.length,
+    forms: page.forms,
+    ...(page.interactionCounts ? { interactionCounts: page.interactionCounts } : {}),
+    calendlyEmbedCount: page.calendlyEmbedCount ?? 0,
+  };
+}
+
+async function interpretedIntake(
+  prompt: string,
+  page: AssistantPageInput,
+): Promise<ConversationIntakeResult> {
+  const pageContext = conversationPage(page);
+  const deterministic = interpretConversationIntent(prompt, pageContext);
+  const input = createIntakeInterpretationInputV2(prompt, pageContext);
+  let response: Response;
+  try {
+    response = await authenticatedApiFetch("http://127.0.0.1:8787/api/intake/interpretations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+  } catch {
+    return deterministic;
+  }
+  if (response.status === 503 || response.status === 401 || response.status === 403) {
+    return deterministic;
+  }
+  if (!response.ok) {
+    return deterministic;
+  }
+
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    return interpretConversationIntent("", pageContext);
+  }
+  const result = isRecord(body) ? body.result : undefined;
+  if (validateIntakeInterpretationV2(input, result).length > 0) {
+    return interpretConversationIntent("", pageContext);
+  }
+  const adoption = adoptIntakeInterpretation(input, result, pageContext);
+  return adoption.status === "accepted"
+    ? adoption.intake
+    : interpretConversationIntent("", pageContext);
+}
+
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== "assistant") return;
   port.onMessage.addListener((message: {
     type?: string;
     requestId?: string;
     prompt?: string;
-    page?: {
-      title: string;
-      url: string;
-      navigation: NavigationElement[];
-      forms: FormCandidate[];
-      interactionCounts?: Partial<Record<KnownInteractionTypeV1, number>>;
-      calendlyEmbedCount?: number;
-    };
+    page?: AssistantPageInput;
     connection?: { publicId: string; measurementId?: string };
     automaticCoverage?: unknown;
   }) => {
     if (message.type !== "ASSISTANT_REQUEST" || !message.requestId || !message.prompt || !message.page) return;
     const page = message.page;
-    const intake = interpretConversationIntent(message.prompt, {
-      navigationCount: page.navigation.length,
-      forms: page.forms ?? [],
-      ...(page.interactionCounts ? { interactionCounts: page.interactionCounts } : {}),
-      calendlyEmbedCount: page.calendlyEmbedCount ?? 0,
-    });
-    const turn = agentTurnForIntake(intake, {
-      formCount: page.forms.length,
-      navigationCount: page.navigation.length,
-      ...(page.interactionCounts ? { interactionCounts: page.interactionCounts } : {}),
-      calendlyEmbedCount: page.calendlyEmbedCount ?? 0,
-      ...(validAutomaticCoverage(message.automaticCoverage)
-        ? { automaticCoverage: message.automaticCoverage }
-        : {}),
-      ...(message.connection ? { connection: message.connection } : {}),
-    });
-    port.postMessage({
-      type: "AGENT_TURN",
-      requestId: message.requestId,
-      turn,
-      navigation: page.navigation,
-      forms: page.forms,
-      interactionCounts: page.interactionCounts,
-      calendlyEmbedCount: page.calendlyEmbedCount,
-      intake,
-    });
+    const postTurn = (intake: ConversationIntakeResult): void => {
+      const turn = agentTurnForIntake(intake, {
+        formCount: page.forms.length,
+        navigationCount: page.navigation.length,
+        ...(page.interactionCounts ? { interactionCounts: page.interactionCounts } : {}),
+        calendlyEmbedCount: page.calendlyEmbedCount ?? 0,
+        ...(validAutomaticCoverage(message.automaticCoverage)
+          ? { automaticCoverage: message.automaticCoverage }
+          : {}),
+        ...(message.connection ? { connection: message.connection } : {}),
+      });
+      port.postMessage({
+        type: "AGENT_TURN",
+        requestId: message.requestId,
+        turn,
+        navigation: page.navigation,
+        forms: page.forms,
+        interactionCounts: page.interactionCounts,
+        calendlyEmbedCount: page.calendlyEmbedCount,
+        intake,
+      });
+    };
+    const deterministic = interpretConversationIntent(message.prompt, conversationPage(page));
+    void interpretedIntake(message.prompt, page).then(postTurn).catch(() => postTurn(deterministic));
   });
 });
 

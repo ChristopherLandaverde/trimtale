@@ -37,7 +37,7 @@ The site-aware exchange that lets a person describe a tracking intent in everyda
 _Avoid_: Free-form chatbot, prompt box, agent guess
 
 **Intake interpretation**:
-A non-authoritative, structured reading of a tracking intent against privacy-filtered observed candidates, identifying plausible interaction, outcome, target, success evidence, ambiguity, and the shortest useful clarification.
+A non-authoritative, structured reading of a tracking intent against privacy-filtered observed candidates, identifying one or more plausible conversion-outcome and observed-interaction pairings, their grounding, ambiguity, and the shortest useful clarification.
 _Avoid_: Model decision, confirmed intent, agent plan
 
 **Intake acceptance corpus**:

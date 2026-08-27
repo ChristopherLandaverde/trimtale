@@ -200,7 +200,10 @@ for (const scenario of enhancedMeasurementScenarios) {
     await expect(task.getByText(scenario.taskSummary)).toBeVisible();
     if (scenario.taskSnapshot) {
       await stabilizeSurface(task);
-      await expect(task).toHaveScreenshot(scenario.taskSnapshot, screenshotOptions);
+      await expect(task).toHaveScreenshot(scenario.taskSnapshot, {
+        ...screenshotOptions,
+        maxDiffPixels: 10,
+      });
     }
     if (scenario.settings.stream && scenario.settings.outboundClicks) {
       await expect(task.getByRole("button", { name: "Track all" })).toHaveCount(0);

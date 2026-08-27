@@ -48,9 +48,14 @@ import {
   googleAnalyticsWritesEnabled,
 } from "./analytics.js";
 import {
+  OpenAIIntakeProvider,
+  openAILiveIntakeConfig,
+} from "./openai-intake-provider.js";
+import {
   OpenAISetupAuthoringProvider,
   openAISetupAuthoringConfig,
 } from "./openai-setup-authoring-provider.js";
+import { LiveIntakeService } from "./live-intake-api.js";
 
 const port = Number.parseInt(process.env.PORT ?? "8787", 10);
 const configuredExtensionOrigin = process.env.EXTENSION_ORIGIN;
@@ -67,6 +72,13 @@ const analyticsReadEnabled = googleAnalyticsReadsEnabled() || analyticsWriteEnab
 const setupAuthoringConfig = openAISetupAuthoringConfig();
 const setupAuthoringProvider = setupAuthoringConfig
   ? new OpenAISetupAuthoringProvider(setupAuthoringConfig)
+  : undefined;
+const liveIntakeConfig = openAILiveIntakeConfig();
+const liveIntakeService = liveIntakeConfig && authRuntime
+  ? new LiveIntakeService(
+      authRuntime.organizationId,
+      new OpenAIIntakeProvider(liveIntakeConfig),
+    )
   : undefined;
 const analyticsAccess = analyticsWriteEnabled
   ? AnalyticsAccess.Edit
@@ -265,6 +277,32 @@ const server = createServer(async (request, response) => {
         error: invalid
           ? "Setup authoring request is invalid."
           : "Setup authoring provider is unavailable.",
+      });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && requestUrl.pathname === "/api/intake/interpretations") {
+    if (!liveIntakeService) {
+      sendJson(response, 503, { error: "Live language interpretation is not configured." });
+      return;
+    }
+    try {
+      const body = await readJson(request);
+      sendJson(response, 200, {
+        result: await liveIntakeService.interpret(
+          organizationAuthority!,
+          body,
+          AbortSignal.timeout(6_000),
+        ),
+      });
+    } catch (interpretationError) {
+      const invalidInput = interpretationError instanceof Error
+        && interpretationError.message === "Live intake input is invalid.";
+      sendJson(response, invalidInput ? 400 : 502, {
+        error: invalidInput
+          ? "The language interpretation request is invalid."
+          : "Language interpretation is temporarily unavailable.",
       });
     }
     return;

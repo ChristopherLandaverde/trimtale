@@ -23,6 +23,7 @@ export * from "./calendly-authoring.js";
 export * from "./gtm-runtime.js";
 export * from "./intake-evaluation.js";
 export * from "./intake-interpretation.js";
+export * from "./intake-interpretation-v2.js";
 export * from "./intake-shadow.js";
 export * from "./managed-workspace.js";
 export * from "./navigation.js";

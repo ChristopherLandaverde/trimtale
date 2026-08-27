@@ -62,6 +62,27 @@ interpretation cannot:
 - report an evidence verdict; or
 - claim platform receipt.
 
+## Live interpretation
+
+Schema version 2 is the live, outcome-language boundary. It accepts the same bounded
+message and candidate classes, but candidate IDs are generated aliases rather than DOM
+IDs. Form selectors, page URLs, success selectors, and link values stay in the content
+script. Common email-address and phone-number shapes are replaced with `[redacted]` in
+both the practitioner message and candidate labels before the backend call.
+
+The result keeps one open, bounded stated-outcome label and one to twelve proposed
+measurements. Each proposed measurement pairs a bounded conversion-outcome label with
+one known observed-interaction candidate and supplied target/evidence aliases. This
+shape can represent more than lead generation without making a lead-specific domain
+contract. It does not expose multi-measurement review in this slice.
+
+Only a result with one valid, unambiguous, supported measurement can enter the existing
+deterministic conversation intake. Form adoption resolves aliases back to the locally
+held form and success signal; other known interactions re-enter through their existing
+deterministic capability checks. Multiple, ambiguous, unknown, invented, or invalid
+results expose no setup review or approval. Provider absence and transport failure
+preserve the deterministic classifier as a fallback.
+
 ## Acceptance corpus
 
 `tests/acceptance/intake-interpretation.json` contains 14 versioned cases covering
@@ -212,6 +233,29 @@ OpenAI request fields and response usage follow the official
 Current rates must be taken from [OpenAI API pricing](https://openai.com/api/pricing/)
 at execution time rather than copied from this repository.
 
+## Explicit live OpenAI configuration
+
+`POST /api/intake/interpretations` is available only to an authenticated organization
+member with tracking-write permission and only when all live settings are present. The
+route sends one validated schema-v2 input through the same bounded Responses adapter,
+aborts after six seconds, validates structured output again, and returns no usage,
+raw provider response, credential, or exception detail.
+
+Live interpretation is disabled by default. Enabling it requires:
+
+| Environment variable | Meaning |
+|---|---|
+| `OPENAI_LIVE_INTAKE_ENABLED=true` | Exact opt-in; every other value is disabled |
+| `OPENAI_API_KEY` | Backend-only credential |
+| `OPENAI_LIVE_INTAKE_MODEL` | Explicit Structured Outputs-compatible model ID |
+| `OPENAI_LIVE_INTAKE_INPUT_COST_PER_MILLION_USD` | Positive current input-token rate |
+| `OPENAI_LIVE_INTAKE_OUTPUT_COST_PER_MILLION_USD` | Positive current output-token rate |
+| `OPENAI_LIVE_INTAKE_MAX_OUTPUT_TOKENS` | Positive bounded output budget, at most 16,000 |
+
+Incomplete enabled configuration fails server startup rather than silently selecting a
+model, rate, or budget. Ordinary verification intercepts the loopback route and makes
+no external or paid request.
+
 ## Read-only report API
 
 The loopback API reads the command's report collection from
@@ -237,10 +281,10 @@ invoke the provider, runner, command, credential, GTM workflow, or publication p
 
 ## Deliberate boundary
 
-The repository now has one dormant real provider adapter, a fixed instruction, and an
-owner-operated credentialed command. It does not contain a credential, checked-in
-model choice or price, automatic execution, paid-call test, model-execution route,
-visible model-report UI, production intake influence, or GTM action. Evaluation reports
-are operator observability artifacts available only through the backend command and
-protected read API. Advancing any model into visible conversation suggestions remains a
-separate feature-flag and evaluation decision.
+The repository contains no credential, checked-in model choice or price, paid-call
+test, visible model-report UI, prompt persistence, model conversation state, or model-
+authorized GTM action. The optional live route influences intake only after exact
+configuration and runtime grounding; tracking specifications, setup, provider writes,
+approval, publication, evidence, and verdicts remain deterministic or explicitly
+practitioner authorized. Evaluation reports remain operator artifacts produced only by
+the separate backend command.

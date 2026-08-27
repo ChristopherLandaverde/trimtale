@@ -200,6 +200,16 @@ Accepted shadow interpretations remain non-authoritative and do not alter conver
 state. Provider SDKs, backend credentials, persistence, model comparison, routing, and
 visible suggestions remain separate decisions.
 
+## Live outcome-language intake
+
+An explicitly enabled live interpreter may convert privacy-filtered outcome language
+into one or more candidate pairings of conversion outcomes and observed interactions.
+It may reference only supplied page and success-evidence candidate IDs. Exactly one
+unambiguous supported pairing may enter the existing deterministic conversation intake;
+multiple pairings require focus and invented grounding fails closed. The interpreter
+cannot confirm a tracking specification, create setup, write GTM, classify evidence,
+or claim platform confirmation.
+
 ## Weighted intake evaluation
 
 Schema acceptance proves only that provider output is structurally safe. A separate
@@ -466,6 +476,8 @@ A verified resolution records normalized symptoms, relevant environment attribut
   OpenAI models without exposing credentials or paid execution through HTTP.
 - [x] The loopback backend exposes extension-origin-protected, read-only aggregate and
   detail views of validated intake evaluation reports.
+- [x] An explicitly configured model can ground ordinary outcome language in one
+  reviewable supported intake without receiving setup or evidence authority.
 - [x] `npm run verify` passes without real Google credentials or external services.
 
 ## Success measures

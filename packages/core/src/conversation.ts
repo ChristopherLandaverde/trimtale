@@ -259,7 +259,7 @@ export function interpretConversationIntent(
       { id: "prompt:navigation", label: "Navigation" },
       { id: "prompt:form", label: "Form" },
       { id: "prompt:phone", label: "Phone" },
-      { id: "prompt:outbound links", label: "Outbound links" },
+      { id: "prompt:outbound_links", label: "Outbound links" },
       { id: "prompt:downloads", label: "Downloads" },
       { id: "prompt:email", label: "Email" },
     ],

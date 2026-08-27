@@ -114,9 +114,11 @@ The agent currently supports:
   browser verification, and a structured final result rather than simulated streaming
   response bubbles.
 
-The conversation classifier and state transitions are deterministic. The agent-turn
-contract remains provider-neutral, but no production model interprets visible
-navigation or form tasks.
+Conversation state transitions and every execution boundary remain deterministic. When
+explicitly configured, one backend model call may interpret privacy-filtered outcome
+language into grounded candidates before those candidates re-enter deterministic
+intake. Without that configuration—or when the provider is unavailable—the existing
+deterministic classifier remains usable.
 
 ### Navigation setup generation
 
@@ -390,8 +392,10 @@ abort signal, validates structured provider output, and pairs accepted interpret
 with the deterministic baseline. Its privacy-safe records exclude messages, labels,
 raw responses, prompts, credentials, and exception text.
 
-The evaluation harness remains backend-only and is not a product feature. No model
-output influences the visible workbench or deterministic workflow.
+The evaluation harness remains backend-only and is not a product feature. A separate
+disabled-by-default live route can now influence visible intake, but only one valid,
+unambiguous, supported interpretation may enter the existing deterministic workflow.
+Multiple or invented candidates expose no setup approval.
 
 Each shadow record can now be evaluated against its corpus expectation as `pass`,
 `fail`, `hard_failure`, or `inconclusive`. A pass requires all five weighted dimensions
@@ -484,15 +488,15 @@ The following product actions remain deliberately unimplemented or unexposed:
 - Durable platform-confirmation history beyond the bounded page-session correlation.
 - Scheduled monitoring and incident alerts.
 - A customer-facing model-evaluation report UI; evaluation remains backend-only.
-- Production LLM-based intake or any model influence on visible conversation state.
 - Retrieval from similar verified resolutions or model training.
 
 ## Next implementation boundary
 
-The adapter, owner command, and report API are built but no real model has
-been selected or scored. The next external operation is an explicit owner decision:
+The adapter, owner command, report API, and disabled live intake route are built, but no
+real model has been selected or scored. Before enabling live intake, the owner should
 choose two or three Structured Outputs-compatible models, confirm current rates and the
-28- or 42-request budget, inject the backend credential, and invoke the offline command:
+28- or 42-request evaluation budget, inject the backend credential, and invoke the
+offline command:
 
 ```text
 Privacy-filtered intent plus allowlisted page candidates
@@ -502,12 +506,10 @@ Privacy-filtered intent plus allowlisted page candidates
     -> report accuracy, hard failures, latency, and estimated cost separately
 ```
 
-The comparison remains offline and cannot affect visible intake. Verdict classification,
-GTM mutation, version approval, publication, rollback, and platform claims remain
-deterministic or explicitly human authorized. Evaluation remains an internal release
-gate rather than a customer feature. A later feature-flagged suggestion slice can be
-considered only after the corpus has no hard failures and while preserving
-tracking-specification confirmation.
+The comparison remains offline and cannot affect visible intake. Enabling the separate
+live flag should follow a comparison with no hard failures. Verdict classification, GTM
+mutation, version approval, publication, rollback, and platform claims remain
+deterministic or explicitly human authorized.
 
 ## Related documents
 
