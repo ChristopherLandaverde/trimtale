@@ -364,9 +364,9 @@ setup without weakening approval, privacy, or provider boundaries:
 5. Issue 27 now defines durable provider stages and the projection that distinguishes
    an active request, a display timeout, restart reconciliation, provider failure, and
    an approval wait without permitting duplicate retries.
-6. Issue 28 establishes representative measures for verification time, first-pass
-   success, false verdicts, provider calls, restart recovery, and required human
-   actions.
+6. Issue 28 now defines eight optimization-measure families, separates deterministic
+   local samples from credentialed Google samples, and records an initial five-run
+   local baseline without adding telemetry, targets, or performance gates.
 
 Server-side and mobile measurement remain separate projects. A parent-page Custom HTML
 tag does not bypass the browser's cross-origin boundary; iframe coverage requires a
