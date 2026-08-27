@@ -103,7 +103,7 @@ test("does not adopt invented model grounding", async ({ context }) => {
   await expect(root.getByRole("button", { name: "Approve setup" })).toHaveCount(0);
 });
 
-test("requires one focus before a multi-measurement interpretation can continue", async ({ context }) => {
+test("keeps multi-measurement intake non-authoritative in a plan", async ({ context }) => {
   await context.route("http://127.0.0.1:8787/api/intake/interpretations", (route) => route.fulfill({
     status: 200,
     contentType: "application/json",
@@ -139,7 +139,11 @@ test("requires one focus before a multi-measurement interpretation can continue"
   await root.getByLabel("Tracking request").fill("Track lead generation and form engagement");
   await root.getByRole("button", { name: "Send request" }).click();
 
-  await expect(root.getByText("Define a tracking task", { exact: true })).toBeVisible();
-  await expect(root.getByText("What user outcome should be measured?", { exact: true })).toBeVisible();
+  const plan = root.getByRole("region", { name: "Measurement plan" });
+  await expect(plan).toBeVisible();
+  await expect(plan.getByRole("listitem")).toHaveCount(2);
+  await expect(plan.getByRole("button", { name: "Start Qualified inquiry" })).toBeVisible();
+  await expect(plan.getByRole("button", { name: "Start Form engagement" })).toBeVisible();
   await expect(root.getByRole("button", { name: "Review what will be tracked" })).toHaveCount(0);
+  await expect(root.getByRole("button", { name: "Approve setup" })).toHaveCount(0);
 });

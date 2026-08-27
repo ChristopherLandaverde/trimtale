@@ -74,14 +74,32 @@ The result keeps one open, bounded stated-outcome label and one to twelve propos
 measurements. Each proposed measurement pairs a bounded conversion-outcome label with
 one known observed-interaction candidate and supplied target/evidence aliases. This
 shape can represent more than lead generation without making a lead-specific domain
-contract. It does not expose multi-measurement review in this slice.
+contract.
 
 Only a result with one valid, unambiguous, supported measurement can enter the existing
 deterministic conversation intake. Form adoption resolves aliases back to the locally
 held form and success signal; other known interactions re-enter through their existing
-deterministic capability checks. Multiple, ambiguous, unknown, invented, or invalid
-results expose no setup review or approval. Provider absence and transport failure
-preserve the deterministic classifier as a fallback.
+deterministic capability checks. Ambiguous, unknown, invented, or invalid results
+expose no setup review or approval. Provider absence and transport failure preserve the
+deterministic classifier as a fallback.
+
+## Measurement planning
+
+Two to twelve valid measurements become one runtime-validated measurement plan. Each
+item retains only its bounded conversion-outcome label, interaction type, privacy-
+filtered target and success-evidence labels, deterministic summary, and one of four
+statuses: ready, already covered, needs clarification, or unsupported. Exact GA4
+automatic-coverage state can classify a supported item as already covered without
+granting the interpreter configuration authority.
+
+The plan recommends the first ready item, or the first already-covered item when none
+is ready. It never selects an item or exposes setup approval. Selecting one item uses
+the service worker's bounded in-memory deterministic intake and performs a fresh page
+scan. Form identity, label, selector, page URL, and success evidence must still match;
+known interaction evidence must still exist. Drift or an expired plan fails closed.
+The selection consumes the plan and opens one existing agent task without another
+model request. Plans are not persisted and do not compose, apply, publish, or verify
+multiple setups.
 
 ## Acceptance corpus
 

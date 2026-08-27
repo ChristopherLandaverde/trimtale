@@ -77,6 +77,10 @@ The agent currently supports:
   event, provider, rationale, and readable parameter classifications visible before
   separate setup approval and deterministic planning. This includes a visible GA4
   custom-metric suggestion that remains unapplied when no numeric source is grounded.
+- A bounded measurement plan for two to twelve grounded outcome/interaction pairings.
+  It shows deterministic readiness and exact automatic coverage, recommends one item,
+  and lets the practitioner start exactly one existing agent task without another
+  model request or any plan-level setup approval.
 - Explicit managed-workspace preparation and safe change-plan review for a confirmed
   lead-form setup when connected GTM edit access is available.
 - Separate review and approval of the exact `form_name` custom dimension and
@@ -119,6 +123,12 @@ explicitly configured, one backend model call may interpret privacy-filtered out
 language into grounded candidates before those candidates re-enter deterministic
 intake. Without that configuration—or when the provider is unavailable—the existing
 deterministic classifier remains usable.
+
+Multiple valid candidates remain a non-authoritative measurement plan rather than a
+batch setup. Plan selection performs a fresh page scan, consumes the in-memory plan,
+and enters one existing agent task only when its grounding still matches. Durable
+queues, automatic continuation, combined approval, and batch publication are not
+implemented.
 
 ### Navigation setup generation
 

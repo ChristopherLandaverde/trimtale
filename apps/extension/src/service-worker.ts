@@ -2,7 +2,9 @@ import {
   adoptIntakeInterpretation,
   agentTurnForIntake,
   createIntakeInterpretationInputV2,
+  createMeasurementPlan,
   interpretConversationIntent,
+  selectMeasurementPlanItem,
   validateGa4ActionReceipt,
   validateGa4ConfigurationPlan,
   validateTrackingSetup,
@@ -23,6 +25,7 @@ import {
   type ConversationIntakeResult,
   type ConversationPageContext,
   type KnownInteractionTypeV1,
+  type MeasurementPlanCreation,
   type NavigationElement,
   type ProviderProgressProjectionV1,
   type TrackingRunEvidenceV1,
@@ -87,10 +90,30 @@ function conversationPage(page: AssistantPageInput): ConversationPageContext {
   };
 }
 
+function assistantContext(
+  page: AssistantPageInput,
+  automaticCoverage: unknown,
+  connection?: { publicId: string; measurementId?: string },
+): AgentTurnContext {
+  return {
+    formCount: page.forms.length,
+    navigationCount: page.navigation.length,
+    ...(page.interactionCounts ? { interactionCounts: page.interactionCounts } : {}),
+    calendlyEmbedCount: page.calendlyEmbedCount ?? 0,
+    ...(validAutomaticCoverage(automaticCoverage) ? { automaticCoverage } : {}),
+    ...(connection ? { connection } : {}),
+  };
+}
+
+type InterpretedAssistantResult =
+  | { kind: "intake"; intake: ConversationIntakeResult }
+  | { kind: "measurement_plan"; creation: MeasurementPlanCreation };
+
 async function interpretedIntake(
   prompt: string,
   page: AssistantPageInput,
-): Promise<ConversationIntakeResult> {
+  context: AgentTurnContext,
+): Promise<InterpretedAssistantResult> {
   const pageContext = conversationPage(page);
   const deterministic = interpretConversationIntent(prompt, pageContext);
   const input = createIntakeInterpretationInputV2(prompt, pageContext);
@@ -102,67 +125,124 @@ async function interpretedIntake(
       body: JSON.stringify(input),
     });
   } catch {
-    return deterministic;
+    return { kind: "intake", intake: deterministic };
   }
   if (response.status === 503 || response.status === 401 || response.status === 403) {
-    return deterministic;
+    return { kind: "intake", intake: deterministic };
   }
   if (!response.ok) {
-    return deterministic;
+    return { kind: "intake", intake: deterministic };
   }
 
   let body: unknown;
   try {
     body = await response.json();
   } catch {
-    return interpretConversationIntent("", pageContext);
+    return { kind: "intake", intake: interpretConversationIntent("", pageContext) };
   }
   const result = isRecord(body) ? body.result : undefined;
   if (validateIntakeInterpretationV2(input, result).length > 0) {
-    return interpretConversationIntent("", pageContext);
+    return { kind: "intake", intake: interpretConversationIntent("", pageContext) };
+  }
+  const creation = createMeasurementPlan(input, result, pageContext, context);
+  if (creation) {
+    return { kind: "measurement_plan", creation };
   }
   const adoption = adoptIntakeInterpretation(input, result, pageContext);
-  return adoption.status === "accepted"
-    ? adoption.intake
-    : interpretConversationIntent("", pageContext);
+  return {
+    kind: "intake",
+    intake: adoption.status === "accepted"
+      ? adoption.intake
+      : interpretConversationIntent("", pageContext),
+  };
 }
 
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== "assistant") return;
+  const plans = new Map<string, MeasurementPlanCreation>();
+
+  const postTurn = (
+    requestId: string,
+    intake: ConversationIntakeResult,
+    page: AssistantPageInput,
+    context: AgentTurnContext,
+  ): void => {
+    port.postMessage({
+      type: "AGENT_TURN",
+      requestId,
+      turn: agentTurnForIntake(intake, context),
+      navigation: page.navigation,
+      forms: page.forms,
+      interactionCounts: page.interactionCounts,
+      calendlyEmbedCount: page.calendlyEmbedCount,
+      intake,
+    });
+  };
+
   port.onMessage.addListener((message: {
     type?: string;
     requestId?: string;
+    planRequestId?: string;
+    itemId?: string;
     prompt?: string;
     page?: AssistantPageInput;
     connection?: { publicId: string; measurementId?: string };
     automaticCoverage?: unknown;
   }) => {
-    if (message.type !== "ASSISTANT_REQUEST" || !message.requestId || !message.prompt || !message.page) return;
+    if (message.type === "SELECT_MEASUREMENT_PLAN_ITEM"
+      && message.requestId
+      && message.planRequestId
+      && message.itemId
+      && message.page) {
+      const creation = plans.get(message.planRequestId);
+      const intake = creation
+        ? selectMeasurementPlanItem(creation, message.itemId, conversationPage(message.page))
+        : undefined;
+      if (!creation || !intake) {
+        port.postMessage({ type: "ASSISTANT_ERROR", requestId: message.requestId });
+        return;
+      }
+      plans.delete(message.planRequestId);
+      postTurn(
+        message.requestId,
+        intake,
+        message.page,
+        assistantContext(message.page, message.automaticCoverage, message.connection),
+      );
+      return;
+    }
+    if (message.type !== "ASSISTANT_REQUEST"
+      || !message.requestId
+      || !message.prompt
+      || !message.page) {
+      return;
+    }
     const page = message.page;
-    const postTurn = (intake: ConversationIntakeResult): void => {
-      const turn = agentTurnForIntake(intake, {
-        formCount: page.forms.length,
-        navigationCount: page.navigation.length,
-        ...(page.interactionCounts ? { interactionCounts: page.interactionCounts } : {}),
-        calendlyEmbedCount: page.calendlyEmbedCount ?? 0,
-        ...(validAutomaticCoverage(message.automaticCoverage)
-          ? { automaticCoverage: message.automaticCoverage }
-          : {}),
-        ...(message.connection ? { connection: message.connection } : {}),
-      });
+    const requestId = message.requestId;
+    const context = assistantContext(page, message.automaticCoverage, message.connection);
+    const deterministic = interpretConversationIntent(message.prompt, conversationPage(page));
+    void interpretedIntake(message.prompt, page, context).then((result) => {
+      if (result.kind === "intake") {
+        postTurn(requestId, result.intake, page, context);
+        return;
+      }
+      if (plans.size >= 8) {
+        const oldestPlanId = plans.keys().next().value;
+        if (typeof oldestPlanId === "string") {
+          plans.delete(oldestPlanId);
+        }
+      }
+      plans.set(requestId, result.creation);
       port.postMessage({
-        type: "AGENT_TURN",
-        requestId: message.requestId,
-        turn,
+        type: "MEASUREMENT_PLAN",
+        requestId,
+        plan: result.creation.plan,
         navigation: page.navigation,
         forms: page.forms,
         interactionCounts: page.interactionCounts,
         calendlyEmbedCount: page.calendlyEmbedCount,
-        intake,
       });
-    };
-    const deterministic = interpretConversationIntent(message.prompt, conversationPage(page));
-    void interpretedIntake(message.prompt, page).then(postTurn).catch(() => postTurn(deterministic));
+    }).catch(() => postTurn(requestId, deterministic, page, context));
   });
 });
 

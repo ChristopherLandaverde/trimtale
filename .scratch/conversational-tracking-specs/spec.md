@@ -210,6 +210,20 @@ multiple pairings require focus and invented grounding fails closed. The interpr
 cannot confirm a tracking specification, create setup, write GTM, classify evidence,
 or claim platform confirmation.
 
+## Multi-activity measurement planning
+
+Two or more valid pairings from one intake interpretation produce one measurement plan
+before any agent task begins. The plan names every conversion outcome, observed
+interaction, privacy-filtered grounding, deterministic readiness or automatic-coverage
+status, and the shortest safe next step. It recommends one startable item without
+silently selecting it.
+
+Selecting a startable item uses the already validated interpretation and creates one
+existing agent task without another language-model request. The other items remain
+visible only as plan context. The measurement plan cannot confirm a tracking
+specification, compose setup, apply a change, publish, verify evidence, or authorize a
+second item. Durable queues and automatic continuation remain separate slices.
+
 ## Weighted intake evaluation
 
 Schema acceptance proves only that provider output is structurally safe. A separate
@@ -478,6 +492,8 @@ A verified resolution records normalized symptoms, relevant environment attribut
   detail views of validated intake evaluation reports.
 - [x] An explicitly configured model can ground ordinary outcome language in one
   reviewable supported intake without receiving setup or evidence authority.
+- [x] One multi-activity interpretation produces a bounded measurement plan and lets
+  the practitioner start exactly one grounded item without another model request.
 - [x] `npm run verify` passes without real Google credentials or external services.
 
 ## Success measures

@@ -67,3 +67,6 @@ configuration, approval, publication, and verification.
   grounding. The closing browser gate also exposed a repeatable seven-pixel rounded-
   border anti-alias variance in an existing GA4 coverage snapshot; its assertion now
   allows ten pixels while retaining the original baseline.
+- 2026-08-27: Issue 41 intentionally supersedes this slice's generic multi-result focus
+  fallback with a non-authoritative measurement plan. Multi-result output still cannot
+  create, review, or approve setup until one item is explicitly selected.

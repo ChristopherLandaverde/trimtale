@@ -12,6 +12,7 @@ import {
   determineFormVerdict,
   evaluateBrowserEvidence,
   isAgentTurnV1,
+  isMeasurementPlanV1,
   isCalendlyInlineUrl,
   knownInteractionDefinition,
   normalizeFormRunEvidence,
@@ -32,6 +33,8 @@ import {
   type Ga4ConfigurationPlanV1,
   type KnownInteractionSetupProposalV1,
   type KnownInteractionTypeV1,
+  type MeasurementPlanItemV1,
+  type MeasurementPlanV1,
   type NavigationArea,
   type NavigationElement,
   type ProviderProgressProjectionV1,
@@ -2828,6 +2831,189 @@ function renderAgentTurn(requestId: string, turn: AgentTurnV1, preferredNode?: H
   return task;
 }
 
+function measurementStatus(item: MeasurementPlanItemV1): string {
+  if (item.status === "already_covered") {
+    return "Already covered";
+  }
+  if (item.status === "needs_clarification") {
+    return "Needs clarification";
+  }
+  if (item.status === "unsupported") {
+    return "Not supported";
+  }
+  return "Ready";
+}
+
+function interactionLabel(interaction: MeasurementPlanItemV1["interaction"]): string {
+  const label = interaction.replaceAll("_", " ");
+  return `${label.charAt(0).toUpperCase()}${label.slice(1)}`;
+}
+
+function startMeasurementPlanItem(
+  planRequestId: string,
+  item: MeasurementPlanItemV1,
+  plan: HTMLElement,
+): void {
+  for (const control of plan.querySelectorAll<HTMLButtonElement>(".measurement-plan-start")) {
+    control.disabled = true;
+    if (control.dataset.itemId === item.id) {
+      control.textContent = "Starting…";
+    }
+  }
+  addMessage(`Start with ${item.conversionOutcome}.`, "user");
+  const requestId = crypto.randomUUID();
+  pendingAssistantRequestId = requestId;
+  updateResponseControls();
+  const pending = addAgentPending(requestId);
+  requestTimeouts.set(requestId, window.setTimeout(() => {
+    if (!responseNodes.has(requestId)) {
+      return;
+    }
+    pending.className = "agent-turn status-blocked";
+    pending.textContent = "The measurement-plan selection expired. Send the task again.";
+    responseNodes.delete(requestId);
+    requestTimeouts.delete(requestId);
+    pendingAssistantRequestId = undefined;
+    startNextQueuedPrompt();
+  }, 8_000));
+
+  const scan = scanNavigation();
+  const forms = scanForms();
+  const interactionScan = scanKnownInteractions();
+  const calendlyTargets = scanCalendlyInlineEmbeds();
+  navigationByRequest.set(requestId, scan.navigation);
+  formsByRequest.set(requestId, forms);
+  interactionCountsByRequest.set(requestId, interactionScan.counts);
+  calendlyEmbedCountByRequest.set(requestId, calendlyTargets.length);
+  interactionTargetsByRequest.set(requestId, interactionScan.targets);
+  calendlyTargetsByRequest.set(requestId, calendlyTargets);
+  const coverage = automaticCoverage();
+  // Selection reuses the validated local intake; it never submits another model prompt.
+  connectAssistant().postMessage({
+    type: "SELECT_MEASUREMENT_PLAN_ITEM",
+    requestId,
+    planRequestId,
+    itemId: item.id,
+    page: {
+      title: scan.title,
+      url: scan.pageUrl,
+      navigation: scan.navigation,
+      forms,
+      interactionCounts: interactionScan.counts,
+      calendlyEmbedCount: calendlyTargets.length,
+    },
+    ...(recognizedGtmContext
+      ? {
+          connection: {
+            publicId: recognizedGtmContext.publicId,
+            ...(recognizedGtmContext.measurementIds.length === 1
+              ? { measurementId: recognizedGtmContext.measurementIds[0] }
+              : {}),
+          },
+          ...(coverage ? { automaticCoverage: coverage } : {}),
+        }
+      : {}),
+  });
+}
+
+function renderMeasurementPlan(
+  requestId: string,
+  measurementPlan: MeasurementPlanV1,
+  preferredNode?: HTMLElement,
+): HTMLElement {
+  const plan = preferredNode ?? document.createElement("section");
+  plan.className = "measurement-plan";
+  plan.setAttribute("role", "region");
+  plan.setAttribute("aria-label", "Measurement plan");
+  plan.replaceChildren();
+
+  const heading = document.createElement("div");
+  heading.className = "measurement-plan-heading";
+  appendAgentText(heading, "measurement-plan-kicker", "Measurement plan");
+  appendAgentText(
+    heading,
+    "measurement-plan-count",
+    `${measurementPlan.items.length} activities`,
+  );
+  plan.append(heading);
+  appendAgentText(plan, "measurement-plan-title", "Review measurable activities");
+  appendAgentText(
+    plan,
+    "measurement-plan-summary",
+    "I grounded these activities in the current page and measurement context. Choose one to begin; nothing has been configured.",
+  );
+
+  const items = document.createElement("ul");
+  items.className = "measurement-plan-items";
+  items.setAttribute("aria-label", "Measurement activities");
+  for (const item of measurementPlan.items) {
+    const row = document.createElement("li");
+    row.className = "measurement-plan-item";
+    const recommended = measurementPlan.recommendedItemId === item.id;
+    if (recommended) {
+      row.classList.add("recommended");
+    }
+    const itemHeading = document.createElement("div");
+    itemHeading.className = "measurement-plan-item-heading";
+    appendAgentText(itemHeading, "measurement-plan-outcome", item.conversionOutcome);
+    const badges = document.createElement("div");
+    badges.className = "measurement-plan-badges";
+    if (recommended) {
+      appendAgentText(badges, "measurement-plan-badge covered", "Recommended");
+    }
+    const status = appendAgentText(
+      badges,
+      `measurement-plan-badge${item.status === "already_covered"
+        ? " covered"
+        : item.status === "needs_clarification" || item.status === "unsupported"
+          ? " warning"
+          : ""}`,
+      measurementStatus(item),
+    );
+    status.setAttribute("aria-label", `Activity status: ${status.textContent}`);
+    itemHeading.append(badges);
+    row.append(itemHeading);
+    appendAgentText(row, "measurement-plan-detail", `Interaction · ${interactionLabel(item.interaction)}`);
+    appendAgentText(
+      row,
+      "measurement-plan-detail",
+      `Page evidence · ${item.targetLabels.length > 0 ? item.targetLabels.join(" · ") : "No grounded target"}`,
+    );
+    if (item.successEvidenceLabels.length > 0) {
+      appendAgentText(
+        row,
+        "measurement-plan-detail",
+        `Success evidence · ${item.successEvidenceLabels.join(" · ")}`,
+      );
+    }
+    appendAgentText(row, "measurement-plan-item-summary", item.summary);
+    if (item.action === "start") {
+      const control = document.createElement("button");
+      control.className = "measurement-plan-start";
+      control.dataset.itemId = item.id;
+      control.textContent = `Start ${item.conversionOutcome}`;
+      control.addEventListener("click", () => startMeasurementPlanItem(requestId, item, plan));
+      row.append(control);
+    }
+    items.append(row);
+  }
+  plan.append(items);
+  appendAgentText(
+    plan,
+    "measurement-plan-note",
+    "Starting one activity does not approve setup, application, publication, or verification.",
+  );
+  if (!plan.isConnected) {
+    responseList?.append(plan);
+  }
+  preferences.height = Math.max(preferences.height, 600);
+  applyPreferences();
+  persistPreferences();
+  renderJourney("define");
+  positionAgentTask(plan);
+  return plan;
+}
+
 function addAgentPending(requestId: string): HTMLElement {
   const task = document.createElement("section");
   task.className = "agent-turn agent-loading";
@@ -5092,6 +5278,7 @@ function connectAssistant(): chrome.runtime.Port {
     type?: string;
     requestId?: string;
     turn?: unknown;
+    plan?: unknown;
     navigation?: NavigationElement[];
     forms?: FormCandidate[];
     interactionCounts?: Partial<Record<KnownInteractionTypeV1, number>>;
@@ -5100,6 +5287,43 @@ function connectAssistant(): chrome.runtime.Port {
   }) => {
     if (!message.requestId) return;
     const node = responseNodes.get(message.requestId);
+    if (message.type === "ASSISTANT_ERROR") {
+      if (node) {
+        node.className = "agent-turn status-blocked";
+        node.textContent = "I could not re-confirm that activity on this page. Restore the page evidence, then describe the task again.";
+        responseNodes.delete(message.requestId);
+      }
+      const timeout = requestTimeouts.get(message.requestId);
+      if (timeout !== undefined) {
+        window.clearTimeout(timeout);
+      }
+      requestTimeouts.delete(message.requestId);
+      finishAssistantRequest(message.requestId);
+      return;
+    }
+    if (message.type === "MEASUREMENT_PLAN") {
+      if (!node || !isMeasurementPlanV1(message.plan)) {
+        if (node) {
+          node.classList.remove("streaming");
+          node.textContent = "The measurement plan could not be safely read. Try again.";
+        }
+        finishAssistantRequest(message.requestId);
+        return;
+      }
+      responseNodes.delete(message.requestId);
+      const timeout = requestTimeouts.get(message.requestId);
+      if (timeout !== undefined) {
+        window.clearTimeout(timeout);
+      }
+      requestTimeouts.delete(message.requestId);
+      navigationByRequest.set(message.requestId, message.navigation ?? []);
+      formsByRequest.set(message.requestId, message.forms ?? []);
+      interactionCountsByRequest.set(message.requestId, message.interactionCounts ?? {});
+      calendlyEmbedCountByRequest.set(message.requestId, message.calendlyEmbedCount ?? 0);
+      renderMeasurementPlan(message.requestId, message.plan, node);
+      finishAssistantRequest(message.requestId);
+      return;
+    }
     if (message.type === "AGENT_TURN") {
       if (!node || !isAgentTurnV1(message.turn)) {
         if (node) {
@@ -5311,6 +5535,25 @@ async function mountOverlay(): Promise<void> {
       .agent-turn { align-self: stretch; display: grid; gap: 9px; min-width: 0; padding: 12px; border: 1px solid rgba(167,243,208,.14); border-radius: 15px; background: linear-gradient(145deg, rgba(24,37,36,.9), rgba(21,29,34,.9)); box-shadow: inset 0 1px 0 rgba(255,255,255,.045); }
       .agent-turn.status-blocked, .agent-turn.status-unsupported { border-color: rgba(251,191,36,.18); }
       .agent-turn.status-completed { border-color: rgba(141,232,189,.25); }
+      .measurement-plan { align-self: stretch; display: grid; gap: 10px; min-width: 0; padding: 12px; border: 1px solid rgba(139,188,246,.2); border-radius: 15px; background: linear-gradient(145deg, rgba(23,35,43,.94), rgba(20,29,34,.94)); box-shadow: inset 0 1px 0 rgba(255,255,255,.045); }
+      .measurement-plan-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+      .measurement-plan-kicker { color: #a9cbed; font-size: 9px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
+      .measurement-plan-count { padding: 2px 6px; border-radius: 999px; color: #c7def3; background: rgba(62,101,136,.34); font-size: 8px; font-weight: 700; text-transform: uppercase; }
+      .measurement-plan-title { color: #f2f7f4; font-size: 14px; font-weight: 680; line-height: 1.3; }
+      .measurement-plan-summary, .measurement-plan-note { color: #aebcbd; font-size: 10px; line-height: 1.45; }
+      .measurement-plan-items { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+      .measurement-plan-item { display: grid; gap: 6px; min-width: 0; padding: 9px; border: 1px solid rgba(255,255,255,.08); border-radius: 11px; background: rgba(8,15,19,.34); }
+      .measurement-plan-item.recommended { border-color: rgba(141,232,189,.24); }
+      .measurement-plan-item-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+      .measurement-plan-outcome { min-width: 0; color: #edf5f1; font-size: 11px; font-weight: 660; overflow-wrap: anywhere; }
+      .measurement-plan-badges { display: flex; flex: none; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+      .measurement-plan-badge { padding: 2px 5px; border-radius: 999px; color: #b9c8c5; background: rgba(255,255,255,.06); font-size: 7px; font-weight: 700; text-transform: uppercase; }
+      .measurement-plan-badge.covered { color: #baf3d7; background: rgba(57,113,88,.3); }
+      .measurement-plan-badge.warning { color: #f4cf75; background: rgba(120,77,18,.28); }
+      .measurement-plan-detail { color: #8fa1a5; font-size: 9px; overflow-wrap: anywhere; }
+      .measurement-plan-item-summary { color: #b8c4c2; font-size: 9px; line-height: 1.4; overflow-wrap: anywhere; }
+      .measurement-plan-start { justify-self: start; padding: 6px 8px; border: 1px solid rgba(167,243,208,.25); border-radius: 9px; color: #dff9ec; background: rgba(40,72,61,.58); font-size: 10px; }
+      .measurement-plan-start:disabled { cursor: default; opacity: .55; }
       .agent-turn-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
       .agent-kicker { color: #8de8bd; font-size: 9px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
       .agent-status { padding: 2px 6px; border-radius: 999px; color: #baf3d7; background: rgba(57,113,88,.3); font-size: 8px; font-weight: 700; letter-spacing: .035em; text-transform: uppercase; }

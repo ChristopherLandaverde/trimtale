@@ -40,6 +40,10 @@ _Avoid_: Free-form chatbot, prompt box, agent guess
 A non-authoritative, structured reading of a tracking intent against privacy-filtered observed candidates, identifying one or more plausible conversion-outcome and observed-interaction pairings, their grounding, ambiguity, and the shortest useful clarification.
 _Avoid_: Model decision, confirmed intent, agent plan
 
+**Measurement plan**:
+A reviewable, non-authoritative grouping of multiple proposed conversion-outcome and observed-interaction pairings before any one pairing becomes an agent task. Each selected item starts a separate agent task and approval path.
+_Avoid_: Batch setup, tracking change plan, agent task, setup queue
+
 **Intake acceptance corpus**:
 A versioned collection of privacy-filtered tracking-intent cases with expected intake interpretations and explicit hard-failure rules, used to evaluate deterministic or model-based interpreters before they can influence conversation intake.
 _Avoid_: Training data, prompt set, model benchmark
