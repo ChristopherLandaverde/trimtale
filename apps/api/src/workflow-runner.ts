@@ -56,6 +56,7 @@ export type WorkflowResumeResult =
     };
   }
   | { status: "versioned"; operation: TrackingSetupOperationV1; nextStep: "await_approval" }
+  | { status: "published"; operation: TrackingSetupOperationV1; nextStep: "verify_publication" }
   | {
     status: "blocked" | "paused";
     operation: TrackingSetupOperationV1;
@@ -228,6 +229,9 @@ export class TrackingWorkflowRunner {
     let operation = this.requiredOperation(id);
     if (operation.status === "versioned") {
       return { status: "versioned", operation, nextStep: "await_approval" };
+    }
+    if (operation.status === "published") {
+      return { status: "published", operation, nextStep: "verify_publication" };
     }
     if (operation.status === "planned" && operation.plan.status === "conflict") {
       return {

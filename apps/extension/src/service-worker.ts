@@ -517,14 +517,15 @@ interface WorkflowPlanSummary {
 
 interface WorkflowResumeSummary {
   operationId: string;
-  status: "awaiting_preview" | "versioned" | "blocked" | "paused";
+  status: "awaiting_preview" | "versioned" | "published" | "blocked" | "paused";
   stage?: "planning" | "application" | "validation" | "version";
   validationStatus?: "passed";
   versionFingerprint?: string;
-  nextStep?: "run_tag_assistant_preview" | "await_approval";
+  nextStep?: "run_tag_assistant_preview" | "await_approval" | "verify_publication";
   setupFingerprint?: string;
   workspaceFingerprint?: string;
   previewVersionFingerprint?: string;
+  publishedAt?: string;
 }
 
 interface WorkflowRepairSummary {
@@ -635,7 +636,7 @@ function resumableOperationId(value: unknown): string | undefined {
   if (!isRecord(value)
     || value.status !== "reused"
     || !isRecord(value.operation)
-    || value.operation.status !== "validated"
+    || !["validated", "versioned", "published"].includes(String(value.operation.status))
     || typeof value.operation.id !== "string"
     || !/^operation_[A-Za-z0-9_-]+$/.test(value.operation.id)) {
     return undefined;
@@ -670,7 +671,7 @@ function resumeSummary(
   operationId: string,
 ): WorkflowResumeSummary | undefined {
   if (!isRecord(value)
-    || !["awaiting_preview", "versioned", "blocked", "paused"].includes(String(value.status))
+    || !["awaiting_preview", "versioned", "published", "blocked", "paused"].includes(String(value.status))
     || !isRecord(value.operation)
     || value.operation.id !== operationId) {
     return undefined;
@@ -691,6 +692,27 @@ function resumeSummary(
       validationStatus: "passed",
       versionFingerprint: value.operation.version.fingerprint,
       nextStep: "await_approval",
+    };
+  }
+  if (value.status === "published") {
+    if (value.nextStep !== "verify_publication"
+      || value.operation.status !== "published"
+      || !isRecord(value.operation.validation)
+      || value.operation.validation.status !== "passed"
+      || !isRecord(value.operation.version)
+      || !validFingerprint(value.operation.version.fingerprint)
+      || !isRecord(value.operation.publication)
+      || value.operation.publication.versionFingerprint !== value.operation.version.fingerprint
+      || typeof value.operation.publication.publishedAt !== "string") {
+      return undefined;
+    }
+    return {
+      operationId,
+      status: "published",
+      validationStatus: "passed",
+      versionFingerprint: value.operation.version.fingerprint,
+      publishedAt: value.operation.publication.publishedAt,
+      nextStep: "verify_publication",
     };
   }
   if (value.status === "awaiting_preview") {

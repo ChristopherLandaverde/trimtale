@@ -324,6 +324,132 @@ test("resumes a validated workflow after the browser restarts", async ({ context
     .toHaveCount(0);
 });
 
+test("resumes a versioned workflow after the browser restarts", async ({ context, page }) => {
+  const journey = await openExtensionJourney(context, page, "confirmed_success", "GTM-TEST123");
+  let resumeRequests = 0;
+  await routeWriteAccess(journey, true);
+  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/plan", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        result: {
+          status: "reused",
+          operation: {
+            id: "operation_spec_form_contact",
+            status: "versioned",
+            validation: { status: "passed" },
+            version: {
+              fingerprint: "version-8",
+              priorLiveVersionFingerprint: "live-7",
+            },
+          },
+        },
+      }),
+    });
+  });
+  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/*/resume", async (route) => {
+    resumeRequests += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        result: {
+          status: "versioned",
+          nextStep: "await_approval",
+          operation: {
+            id: "operation_spec_form_contact",
+            status: "versioned",
+            validation: { status: "passed" },
+            version: {
+              fingerprint: "version-8",
+              priorLiveVersionFingerprint: "live-7",
+            },
+          },
+        },
+      }),
+    });
+  });
+
+  await approveLeadSetup(journey);
+  await journey.root.getByRole("button", { name: "Prepare workspace & plan" }).click();
+
+  await expect.poll(() => resumeRequests).toBe(1);
+  await expect(journey.root.getByText("Immutable version version-8 created", { exact: true }))
+    .toBeVisible();
+  await expect(journey.root.getByRole("button", { name: "Review publication" }))
+    .toBeVisible();
+  await expect(journey.root.getByRole("button", { name: "Apply & validate draft" }))
+    .toHaveCount(0);
+});
+
+test("resumes a published workflow for live verification", async ({ context, page }) => {
+  const journey = await openExtensionJourney(context, page, "confirmed_success", "GTM-TEST123");
+  let resumeRequests = 0;
+  await routeWriteAccess(journey, true);
+  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/plan", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        result: {
+          status: "reused",
+          operation: {
+            id: "operation_spec_form_contact",
+            status: "published",
+            validation: { status: "passed" },
+            version: {
+              fingerprint: "version-8",
+              priorLiveVersionFingerprint: "live-7",
+            },
+            publication: {
+              versionFingerprint: "version-8",
+              publishedAt: "2026-08-26T20:00:00.000Z",
+            },
+          },
+        },
+      }),
+    });
+  });
+  await journey.context.route("http://127.0.0.1:8787/api/google/workflows/*/resume", async (route) => {
+    resumeRequests += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        result: {
+          status: "published",
+          nextStep: "verify_publication",
+          operation: {
+            id: "operation_spec_form_contact",
+            status: "published",
+            validation: { status: "passed" },
+            version: {
+              fingerprint: "version-8",
+              priorLiveVersionFingerprint: "live-7",
+            },
+            publication: {
+              versionFingerprint: "version-8",
+              publishedAt: "2026-08-26T20:00:00.000Z",
+            },
+          },
+        },
+      }),
+    });
+  });
+
+  await approveLeadSetup(journey);
+  await journey.root.getByRole("button", { name: "Prepare workspace & plan" }).click();
+
+  await expect.poll(() => resumeRequests).toBe(1);
+  await expect(journey.root.getByText(/Google confirmed publication of immutable version version-8/i))
+    .toBeVisible();
+  await expect(journey.root.getByRole("button", { name: "Run live verification" }))
+    .toBeVisible();
+  await expect(journey.root.getByRole("button", { name: "Review publication" }))
+    .toHaveCount(0);
+});
+
 test("reviews a durable form plan without applying it", async ({ context, page }) => {
   const journey = await openExtensionJourney(context, page, "confirmed_success", "GTM-TEST123");
   let planBody: unknown;

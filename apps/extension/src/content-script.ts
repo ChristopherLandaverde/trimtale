@@ -108,14 +108,15 @@ interface WorkflowPlanResponse {
 
 interface WorkflowResumeSummary {
   operationId: string;
-  status: "awaiting_preview" | "versioned" | "blocked" | "paused";
+  status: "awaiting_preview" | "versioned" | "published" | "blocked" | "paused";
   stage?: "planning" | "application" | "validation" | "version";
   validationStatus?: "passed";
   versionFingerprint?: string;
-  nextStep?: "run_tag_assistant_preview" | "await_approval";
+  nextStep?: "run_tag_assistant_preview" | "await_approval" | "verify_publication";
   setupFingerprint?: string;
   workspaceFingerprint?: string;
   previewVersionFingerprint?: string;
+  publishedAt?: string;
 }
 
 interface WorkflowResumeResponse {
@@ -2832,6 +2833,41 @@ function renderPublicationReview(
   if (plan) renderWorkflowPlan(task, plan);
 }
 
+function renderPublishedVersion(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  publication: {
+    operationId: string;
+    versionFingerprint: string;
+    publishedAt: string;
+  },
+): void {
+  workflowPublicationByRequest.set(requestId, publication);
+  const task = renderFormTaskState(requestId, intake, {
+    status: "completed",
+    summary: `Google confirmed publication of immutable version ${publication.versionFingerprint}.`,
+    verifyStatus: "completed",
+    question: "Run live post-publication verification next. Rollback remains locked unless that evidence fails.",
+    actions: [{
+      id: intake.interaction === "form_submission"
+        ? "start-live-form-verification"
+        : "start-live-interaction-verification",
+      label: "Run live verification",
+    }],
+  });
+  const receipt = document.createElement("div");
+  receipt.className = "agent-specification operation-publication";
+  receipt.setAttribute("role", "region");
+  receipt.setAttribute("aria-label", "Publication result");
+  appendAgentText(receipt, "agent-receipt-heading", "Publication result");
+  appendSpecificationRows(receipt, [
+    ["Version", publication.versionFingerprint],
+    ["Provider", "Google Tag Manager confirmed"],
+    ["Published", publication.publishedAt],
+  ]);
+  task.append(receipt);
+}
+
 async function publishExactVersion(
   requestId: string,
   intake: ConversationIntakeResult,
@@ -2886,34 +2922,11 @@ async function publishExactVersion(
     });
     return;
   }
-  workflowPublicationByRequest.set(requestId, {
+  renderPublishedVersion(requestId, intake, {
     operationId: version.operationId,
     versionFingerprint: version.versionFingerprint,
     publishedAt: publication.result.publishedAt,
   });
-  const task = renderFormTaskState(requestId, intake, {
-    status: "completed",
-    summary: `Google confirmed publication of immutable version ${version.versionFingerprint}.`,
-    verifyStatus: "completed",
-    question: "Run live post-publication verification next. Rollback remains locked unless that evidence fails.",
-    actions: [{
-      id: intake.interaction === "form_submission"
-        ? "start-live-form-verification"
-        : "start-live-interaction-verification",
-      label: "Run live verification",
-    }],
-  });
-  const receipt = document.createElement("div");
-  receipt.className = "agent-specification operation-publication";
-  receipt.setAttribute("role", "region");
-  receipt.setAttribute("aria-label", "Publication result");
-  appendAgentText(receipt, "agent-receipt-heading", "Publication result");
-  appendSpecificationRows(receipt, [
-    ["Version", version.versionFingerprint],
-    ["Provider", "Google Tag Manager confirmed"],
-    ["Published", publication.result.publishedAt],
-  ]);
-  task.append(receipt);
 }
 
 async function completeLiveVerification(
@@ -3477,6 +3490,27 @@ async function planFormWorkflow(
       resumed = await requestWorkflowResume(response.resumeOperationId);
     } catch {
       resumed = { ok: false, error: "service_offline" };
+    }
+    if (resumed.ok
+      && resumed.result?.status === "published"
+      && resumed.result.validationStatus === "passed"
+      && resumed.result.nextStep === "verify_publication"
+      && resumed.result.versionFingerprint
+      && resumed.result.publishedAt) {
+      renderPublishedVersion(requestId, intake, {
+        operationId: resumed.result.operationId,
+        versionFingerprint: resumed.result.versionFingerprint,
+        publishedAt: resumed.result.publishedAt,
+      });
+      return;
+    }
+    if (resumed.ok
+      && resumed.result?.status === "versioned"
+      && resumed.result.validationStatus === "passed"
+      && resumed.result.nextStep === "await_approval"
+      && resumed.result.versionFingerprint) {
+      renderCompletedVersion(requestId, intake, resumed.result);
+      return;
     }
     if (resumed.ok
       && resumed.result?.status === "awaiting_preview"

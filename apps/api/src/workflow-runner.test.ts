@@ -582,6 +582,13 @@ describe("resumable non-publishing tracking workflow", () => {
     expect(client.publishApprovedVersion).toHaveBeenCalledTimes(1);
     expect(await runner.publish(planned.operation.id, "version-8")).toMatchObject({ status: "published" });
     expect(client.publishApprovedVersion).toHaveBeenCalledTimes(1);
+    expect(await runner.resume(planned.operation.id)).toMatchObject({
+      status: "published",
+      nextStep: "verify_publication",
+      operation: {
+        publication: { versionFingerprint: "version-8" },
+      },
+    });
   });
 
   it("binds live evidence and rolls back only after an exact failed publication run", async () => {
