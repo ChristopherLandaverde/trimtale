@@ -19,6 +19,8 @@ describe("API CORS boundary", () => {
       "/api/intake-evaluations",
       "/api/intake-evaluations/intake_report_123",
       "/api/setup-authoring",
+      "/api/auth/status",
+      "/api/setups",
     ]) {
       expect(corsDecision(pathname, "https://attacker.example", undefined)).toEqual({
         allowed: false,
@@ -74,14 +76,16 @@ describe("API CORS boundary", () => {
       .toEqual({ allowed: false });
   });
 
-  it("preserves the public CORS behavior of non-Google local routes", () => {
+  it("keeps health public and protects every browser API route", () => {
     expect(corsDecision("/health", "https://example.test", undefined)).toEqual({
       allowed: true,
       allowOrigin: "*",
     });
-    expect(corsDecision("/api/setups", extensionOrigin, undefined)).toEqual({
+    expect(corsDecision("/api/setups", extensionOrigin, extensionOrigin)).toEqual({
       allowed: true,
-      allowOrigin: "*",
+      allowOrigin: extensionOrigin,
     });
+    expect(corsDecision("/api/auth/status", "https://attacker.example", extensionOrigin))
+      .toEqual({ allowed: false });
   });
 });

@@ -60,6 +60,7 @@ test("mounts the floating tracking agent", async ({ page: site }) => {
   await expect(root.getByText(/Nothing was applied or published/).last()).toBeVisible();
 
   const setupResponse = await site.request.post("http://127.0.0.1:8787/api/setups", {
+    headers: { authorization: "Bearer test_admin_access_token_0001" },
     data: {
       intent: "Track navigation links",
       pageUrl: "http://127.0.0.1:4173/",

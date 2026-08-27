@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import {
+  approvalMembershipRef,
   approveGa4ConfigurationPlan,
   authorTrackingSetup,
   createSetupProposal,
@@ -10,6 +11,7 @@ import {
   type SetupAuthoringInputV1,
   type ExactDraftBrowserRunV1,
   type ManagedReplacementRefV1,
+  type OrganizationAuthorityV1,
   type SetupRequest,
 } from "@gtm-observability/core";
 import { resolve } from "node:path";
@@ -27,6 +29,11 @@ import {
   googleOAuthConfig,
 } from "./google.js";
 import { TrackingOperationRepository } from "./tracking-operations.js";
+import {
+  apiRouteAccess,
+  authenticateOrganization,
+  organizationAuthRuntime,
+} from "./organization-auth.js";
 import { TrackingWorkflowRunner, type TrackingWorkflowRequest } from "./workflow-runner.js";
 import {
   AnalyticsIntegrationError,
@@ -45,7 +52,7 @@ const port = Number.parseInt(process.env.PORT ?? "8787", 10);
 const configuredExtensionOrigin = process.env.EXTENSION_ORIGIN;
 const stage1SmokeSessionId = process.env.STAGE1_SMOKE_SESSION_ID?.trim();
 const maximumBodyBytes = 256_000;
-const websiteChatActor = "website_chat_human";
+const authRuntime = organizationAuthRuntime();
 const oauthConfig = googleOAuthConfig();
 const containerWritesEnabled = googleGtmWritesEnabled();
 const publicationEnabled = googleGtmPublicationEnabled();
@@ -97,12 +104,13 @@ const analyticsWriter = oauthSession && analyticsClient
       analyticsAccess,
     )
   : undefined;
-const workflowRunner = discoveryClient
+const workflowRunner = discoveryClient && authRuntime
   ? new TrackingWorkflowRunner(
       new TrackingOperationRepository(
         process.env.TRACKING_OPERATION_STORE?.trim()
           || resolve(process.cwd(), ".data/tracking-operations.json"),
-      ),
+        authRuntime.organizationId,
+      ).scope(authRuntime.organizationId),
       discoveryClient,
     )
   : undefined;
@@ -116,7 +124,7 @@ function applyCors(request: IncomingMessage, response: ServerResponse, pathname:
   if (decision.allowOrigin) {
     response.setHeader("Access-Control-Allow-Origin", decision.allowOrigin);
   }
-  response.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  response.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
   response.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   response.setHeader("Vary", "Origin");
   return decision.allowed;
@@ -159,6 +167,53 @@ const server = createServer(async (request, response) => {
       status: "ok",
       service: "gtm-observability-api",
       sessionId: stage1SmokeSessionId,
+      authenticationConfigured: authRuntime !== undefined,
+    });
+    return;
+  }
+
+  let organizationAuthority: OrganizationAuthorityV1 | undefined;
+  const routeAccess = apiRouteAccess(request.method ?? "", requestUrl.pathname);
+  if (routeAccess === "internal") {
+    sendJson(response, 403, { error: "This API is unavailable to organization members." });
+    return;
+  }
+  if (routeAccess !== "public") {
+    if (!authRuntime) {
+      sendJson(response, 503, { error: "Product authentication is not configured." });
+      return;
+    }
+    const authentication = await authenticateOrganization({
+      ...(request.headers.authorization ? { authorization: request.headers.authorization } : {}),
+      expectedOrganizationId: authRuntime.organizationId,
+      requiredPermission: routeAccess,
+      verifier: authRuntime.verifier,
+      membership: authRuntime.membership,
+    });
+    if (authentication.status !== "authorized") {
+      const status = authentication.status === "unauthenticated"
+        ? 401
+        : authentication.status === "forbidden" ? 403 : 503;
+      if (status === 401) {
+        response.setHeader("WWW-Authenticate", "Bearer");
+      }
+      sendJson(response, status, {
+        error: status === 401
+          ? "Product sign-in is required."
+          : status === 403
+            ? "Organization permission is required."
+            : "Product authentication is unavailable.",
+      });
+      return;
+    }
+    organizationAuthority = authentication.authority;
+  }
+
+  if (request.method === "GET" && requestUrl.pathname === "/api/auth/status") {
+    sendJson(response, 200, {
+      authenticated: true,
+      role: organizationAuthority!.role,
+      permissions: organizationAuthority!.permissions,
     });
     return;
   }
@@ -326,7 +381,7 @@ const server = createServer(async (request, response) => {
         : undefined;
       const approved = approveGa4ConfigurationPlan(
         plan as Ga4ConfigurationPlanV1,
-        websiteChatActor,
+        approvalMembershipRef(organizationAuthority!),
       );
       sendJson(response, 200, await analyticsWriter.applyConfiguration(approved));
     } catch (integrationError) {
@@ -414,7 +469,7 @@ const server = createServer(async (request, response) => {
   }
 
   if (request.method === "GET" && requestUrl.pathname === "/api/google/oauth/callback") {
-    if (!oauthSession) {
+    if (!oauthSession || !authRuntime) {
       sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
       return;
     }
@@ -701,7 +756,7 @@ const server = createServer(async (request, response) => {
           approveReplacementMatch[1] ?? "",
           record.planFingerprint,
           record.entities as ManagedReplacementRefV1[],
-          websiteChatActor,
+          approvalMembershipRef(organizationAuthority!),
         ),
       });
     } catch (workflowError) {
@@ -756,7 +811,7 @@ const server = createServer(async (request, response) => {
         result: workflowRunner.approvePublication(
           approvePublicationMatch[1] ?? "",
           versionFingerprint,
-          websiteChatActor,
+          approvalMembershipRef(organizationAuthority!),
         ),
       });
     } catch (workflowError) {

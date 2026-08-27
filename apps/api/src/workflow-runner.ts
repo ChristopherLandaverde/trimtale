@@ -30,7 +30,7 @@ import {
   type TrackingRunEvidenceV1,
 } from "@gtm-observability/core";
 import type { GtmDiscoveryClient } from "./google.js";
-import { TrackingOperationRepository } from "./tracking-operations.js";
+import type { OrganizationTrackingOperations } from "./tracking-operations.js";
 
 export type WorkflowGoogleClient = Pick<GtmDiscoveryClient,
   | "planManagedWorkspace"
@@ -152,7 +152,7 @@ export class TrackingWorkflowRunner {
   private readonly liveProviderAttempts = new Set<string>();
 
   constructor(
-    private readonly repository: TrackingOperationRepository,
+    private readonly repository: OrganizationTrackingOperations,
     private readonly google: WorkflowGoogleClient,
     private readonly now: () => Date = () => new Date(),
   ) {}

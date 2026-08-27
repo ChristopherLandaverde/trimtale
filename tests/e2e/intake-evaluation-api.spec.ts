@@ -1,21 +1,20 @@
 import { expect, test } from "@playwright/test";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-
 const endpoint = "http://127.0.0.1:8787/api/intake-evaluations";
 const extensionOrigin = "chrome-extension://gtm-observability-e2e";
-const fixturePath = resolve("tests/fixtures/intake-evaluation-reports.json");
 
-test("serves only read-only intake evaluation reports to the configured browser origin", async ({ request }) => {
-  const before = readFileSync(fixturePath, "utf8");
-
-  const list = await request.get(endpoint, { headers: { origin: extensionOrigin } });
-  expect(list.status()).toBe(200);
+test("keeps operator evaluation reports outside the organization-member API", async ({ request }) => {
+  const list = await request.get(endpoint, {
+    headers: {
+      origin: extensionOrigin,
+      authorization: "Bearer test_admin_access_token_0001",
+    },
+  });
+  expect(list.status()).toBe(403);
   expect(list.headers()["access-control-allow-origin"]).toBe(extensionOrigin);
-  expect(await list.json()).toEqual({ schemaVersion: 1, reports: [] });
+  expect(await list.json()).toEqual({ error: "This API is unavailable to organization members." });
 
   const originless = await request.get(endpoint);
-  expect(originless.status()).toBe(200);
+  expect(originless.status()).toBe(403);
   expect(originless.headers()["access-control-allow-origin"]).toBeUndefined();
 
   const attacker = await request.get(endpoint, { headers: { origin: "https://attacker.example" } });
@@ -26,7 +25,6 @@ test("serves only read-only intake evaluation reports to the configured browser 
     headers: { origin: extensionOrigin },
     data: { run: true },
   });
-  expect(write.status()).toBe(405);
-  expect(await write.json()).toEqual({ error: "Intake evaluation reports are read-only." });
-  expect(readFileSync(fixturePath, "utf8")).toBe(before);
+  expect(write.status()).toBe(403);
+  expect(await write.json()).toEqual({ error: "This API is unavailable to organization members." });
 });

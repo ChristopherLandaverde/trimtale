@@ -288,6 +288,9 @@ Latency targets remain product hypotheses until measured in representative workf
   Enhanced-measurement coverage or its exact gap without creating fallback GTM setup.
 - [x] Email-link requests use observable `mailto:` evidence and the shared scoped setup
   workflow without sending addresses, URL values, subject/body values, or link text.
+- [x] The website agent and API require one exact active organization membership;
+  Member can read/write tracking work and Admin separately adds connections,
+  publication, and rollback without exposing identity or session tokens to the page.
 - [x] Every automatically resolved form and locally matched known link is visibly
   grounded on the page before setup review without crossing the privacy boundary.
 - [ ] One authoritative third-party JavaScript example is generated, reviewed,
@@ -379,6 +382,9 @@ setup without weakening approval, privacy, or provider boundaries:
 8. Issue 30 records the credentialed Calendly production pilot as an external release
    gate. The user deferred that real booking and account-scoped run; local callback
    fixtures remain regression evidence and do not satisfy the gate.
+9. Issue 31 authenticates the single-organization beta with Clerk Organizations,
+   Chrome-hosted OAuth/PKCE, centrally mapped Member/Admin permissions,
+   organization-scoped durable operations, and membership-bound approval receipts.
 
 Server-side and mobile measurement remain separate projects. A parent-page Custom HTML
 tag does not bypass the browser's cross-origin boundary; iframe coverage requires a

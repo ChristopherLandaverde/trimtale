@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "configuredOrganizationId": "org_beta",
+  "roles": {
+    "member": ["org:tracking:read", "org:tracking:write"],
+    "admin": [
+      "org:tracking:read",
+      "org:tracking:write",
+      "org:tracking:publish",
+      "org:connections:manage"
+    ]
+  },
+  "routes": [
+    { "method": "GET", "path": "/health", "access": "public" },
+    { "method": "GET", "path": "/api/google/oauth/callback", "access": "public" },
+    { "method": "GET", "path": "/api/auth/status", "access": "org:tracking:read" },
+    { "method": "GET", "path": "/api/google/status", "access": "org:tracking:read" },
+    { "method": "GET", "path": "/api/google/oauth/start", "access": "org:connections:manage" },
+    { "method": "POST", "path": "/api/setup-authoring", "access": "org:tracking:write" },
+    { "method": "POST", "path": "/api/google/containers/prepare-workspace", "access": "org:tracking:write" },
+    { "method": "POST", "path": "/api/google/workflows/operation_1/approve-publication", "access": "org:tracking:publish" },
+    { "method": "POST", "path": "/api/google/workflows/operation_1/publish", "access": "org:tracking:publish" },
+    { "method": "POST", "path": "/api/google/workflows/operation_1/rollback", "access": "org:tracking:publish" },
+    { "method": "GET", "path": "/api/intake-evaluations", "access": "internal" },
+    { "method": "GET", "path": "/api/unknown", "access": "org:tracking:read" }
+  ],
+  "cases": [
+    { "id": "member_reads", "organizationId": "org_beta", "membershipId": "mem_member", "role": "member", "permission": "org:tracking:read", "authorized": true },
+    { "id": "member_writes", "organizationId": "org_beta", "membershipId": "mem_member", "role": "member", "permission": "org:tracking:write", "authorized": true },
+    { "id": "member_cannot_publish", "organizationId": "org_beta", "membershipId": "mem_member", "role": "member", "permission": "org:tracking:publish", "authorized": false },
+    { "id": "admin_publishes", "organizationId": "org_beta", "membershipId": "mem_admin", "role": "admin", "permission": "org:tracking:publish", "authorized": true },
+    { "id": "admin_manages_connection", "organizationId": "org_beta", "membershipId": "mem_admin", "role": "admin", "permission": "org:connections:manage", "authorized": true },
+    { "id": "wrong_organization", "organizationId": "org_attacker", "membershipId": "mem_attacker", "role": "admin", "permission": "org:tracking:read", "authorized": false },
+    { "id": "missing_membership", "organizationId": "org_beta", "membershipId": "", "role": "admin", "permission": "org:tracking:read", "authorized": false },
+    { "id": "unknown_role", "organizationId": "org_beta", "membershipId": "mem_unknown", "role": "owner", "permission": "org:tracking:read", "authorized": false }
+  ],
+  "forbiddenPersistedIdentityFields": [
+    "PRIVATE_MEMBER_EMAIL",
+    "PRIVATE_MEMBER_NAME",
+    "PRIVATE_ACCESS_TOKEN",
+    "PRIVATE_REFRESH_TOKEN",
+    "website_chat_human"
+  ]
+}

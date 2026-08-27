@@ -1,7 +1,7 @@
 # Authenticate one organization boundary
 
-Delivery mode: specification
-Status: proposed; awaiting identity-provider authorization
+Delivery mode: implementation
+Status: resolved
 
 ## Production outcome
 
@@ -17,16 +17,22 @@ organization-membership identity. A missing, expired, pending, wrong-organizatio
 insufficient-permission session fails closed before a Google, Analytics, model, or
 persistence action.
 
-## Proposed provider boundary
+## Provider boundary
 
-Use Clerk's supported Chrome-extension client and Organizations session claims:
+Use Clerk Organizations through Chrome's built-in OAuth authorization-code flow with
+PKCE and Clerk's supported backend verifier:
 
-- The extension service worker obtains the current short-lived session token and adds
-  it as a bearer token only to protected API requests. Page content and content-script
-  messages never receive the token.
+- A website-agent sign-in action starts Clerk's hosted email-code flow in Chrome through
+  `chrome.identity.launchWebAuthFlow`. The service worker owns access and refresh
+  tokens and adds the access token only to protected API requests. Page content and
+  content-script messages never receive either token.
 - The API verifies the session token with Clerk's supported backend verifier and
-  requires an active session, active organization, exact configured organization ID,
-  and the permission required by the route.
+  requires an active user, active organization membership, exact configured
+  organization ID, and the product permission required by the route.
+- Clerk's free Admin and Member roles map centrally to product permissions: Member can
+  read and write tracking work; Admin adds Google-connection management, publication,
+  and rollback. Routes check the resulting product permission, not the raw provider
+  role.
 - Approval receipts store stable organization and membership identifiers, never an
   email address, display name, browser origin, or the current
   `website_chat_human` placeholder.
@@ -42,8 +48,8 @@ Use Clerk's supported Chrome-extension client and Organizations session claims:
   explicitly approve rollback.
 - `org:connections:manage`: start or replace the organization's Google connection.
 
-The authorization check uses exact permissions rather than inferring product authority
-from a broad provider role. A member may hold more than one permission.
+The authorization check uses exact product permissions. This keeps route policy stable
+if the provider role model changes later.
 
 ## Protected resources
 
@@ -61,19 +67,21 @@ defines a narrower public contract.
 ## Regression contract
 
 - Acceptance fixture: `tests/acceptance/authenticated-organization-boundary.json`
-  will name the public routes, permissions, session cases, and forbidden persisted
+  names the public routes, permissions, session cases, and forbidden persisted
   identity values.
-- Core tests will validate organization authority and versioned operation ownership,
+- Core tests validate organization authority and versioned operation ownership,
   including migration of legacy operations into an explicitly configured owner
   organization rather than silently assigning a caller-selected organization.
-- API tests will prove no-session, expired, pending, wrong-organization,
-  missing-permission, malformed-token, and attacker-origin requests cause no provider
-  call or persistence write. Exact valid sessions will prove each permission family.
-- Repository tests will create colliding operation IDs in two organizations and prove
-  get, list, update, approval, publication, and rollback cannot cross the configured
-  organization boundary.
+- `apps/api/src/organization-auth.test.ts` proves no-session, expired, pending,
+  wrong-organization, missing-permission, malformed-token, and test-boundary behavior.
+  Existing CORS regressions retain the exact-origin browser boundary.
+- `apps/api/src/tracking-operations.test.ts` creates colliding operation IDs in two
+  organizations and proves create, get, list, and update remain scoped. All workflow
+  transitions use that scoped repository abstraction.
 - Chromium will cover signed-out, wrong-organization, read-only, and authorized
-  practitioner states without exposing tokens or member identifiers in the page.
+  practitioner states without exposing tokens or member identifiers in the page in
+  `tests/e2e/authenticated-organization-boundary.spec.ts` and existing connection-card
+  journeys.
 
 ## Non-goals
 
@@ -88,11 +96,22 @@ defines a narrower public contract.
 - Granting any GTM, GA4, publication, or rollback authority merely because sign-in
   succeeded.
 
-## Decision required
+## Authorization
 
-Authorize Clerk Organizations as the first identity provider and the one-organization-
-per-deployment boundary above. A later multi-organization release will require a
-tenant-aware database and Google-connection store rather than widening this issue.
+The user authorized Clerk Organizations with email one-time-code sign-in for the
+single-organization beta on 2026-08-27. The implementation must remain within Clerk's
+free Admin/Member organization boundary. A later multi-organization release requires
+a tenant-aware database and Google-connection store rather than widening this issue.
+
+## Answer
+
+The single-organization product boundary is implemented. Chrome opens Clerk's hosted
+OAuth/PKCE flow, the extension service worker owns the product session, and every
+browser API defaults to exact-origin plus verified organization authorization. Member
+can read/write tracking work; Admin separately adds Google-connection, publication,
+and rollback authority. Tracking operations are organization-scoped and approval
+receipts store stable organization-membership references without private identity or
+session values.
 
 ## Comments
 
@@ -104,3 +123,17 @@ tenant-aware database and Google-connection store rather than widening this issu
   permissions. Supabase offers Chrome-extension authentication and Postgres RLS but
   would require a separate organization-membership product model. Clerk is proposed
   for the narrower first identity slice; durable multi-tenant storage remains separate.
+- 2026-08-27: Installing the current Clerk Chrome-extension SDK introduced 20 reported
+  transitive vulnerabilities, including eight high severity, through unused wallet and
+  React-Native dependencies. The dependency was removed. The accepted implementation
+  instead uses Chrome's native OAuth/PKCE boundary and Clerk's official backend
+  verifier; `npm audit --omit=dev` returned zero findings after removal.
+- 2026-08-27: Implemented the API verifier and default route policy, native
+  service-worker OAuth/PKCE boundary, extension-origin token storage, Member/Admin
+  permission mapping, organization-scoped operation persistence, membership-bound
+  approval references, and explicit signed-out/wrong-organization UI. Focused unit and
+  Chromium regressions pass.
+- 2026-08-27: Final `npm run verify` passed 461 deterministic tests and 82 Chromium
+  journeys. Production dependency audit reports zero vulnerabilities. Exploratory
+  review found and resolved one content-script storage isolation failure; no finding
+  remains. Issue resolved.

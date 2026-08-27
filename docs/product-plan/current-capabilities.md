@@ -14,6 +14,12 @@ agent exposes plan review, exact application and preview confirmation, immutable
 version review, publication approval, live verification, and explicit rollback after
 failed evidence when those guarded backend capabilities are enabled.
 
+The local API now requires an active membership in one deployment-configured Clerk
+Organization. Member can read and write tracking work; Admin additionally controls the
+Google connection, publication, and rollback. The website agent opens Clerk's hosted
+email-code flow through Chrome when product sign-in is required. Product identity and
+Google authorization remain separate, and public pages receive no identity or token.
+
 ## Current product workflow
 
 ```text
@@ -55,6 +61,8 @@ and restored with its saved local preferences.
 
 The agent currently supports:
 
+- A product sign-in state that distinguishes missing authentication, wrong-
+  organization membership, local-service failure, and separate Google authorization.
 - A pre-chat GTM connection card with the observed page container, exact authorized
   account/container match, and effective read-only, edit, or publication capability.
 - Navigation-click tracking requests.
@@ -153,7 +161,8 @@ that this is before/after correlation, not user-level or event-level identity.
 The extension safely inspects script URLs and reports public IDs such as `GTM-ABC123`. This establishes that the container was observed on the current page; it does not establish ownership or API access.
 
 When the practitioner opens the assistant or explicitly refreshes its GTM connection
-card, the extension reads the fixed local authorization-status endpoint. It does not
+card, the extension sends its short-lived product access token to the fixed local API
+and then reads Google authorization status. It does not
 perform account discovery merely because a website loaded. If the backend is connected
 and the page exposes exactly one public ID, the backend:
 
@@ -165,12 +174,14 @@ and the page exposes exactly one public ID, the backend:
 6. Reports whether one managed workspace can be created or reused.
 
 The card distinguishes local-service failure, unconfigured OAuth, disconnected Google
-authorization, no page container, inaccessible IDs, and ambiguous or multiple IDs.
+authorization, required product sign-in, wrong-organization membership, no page
+container, inaccessible IDs, and ambiguous or multiple IDs.
 No match returns `not_accessible`. Multiple matches return `ambiguous`; the assistant
 chooses neither. The public page ID and API-proven access remain separate claims.
 
 The card never inspects browser cookies or infers Google identity from a browser
-session. The OAuth grant does not include profile or email scope, so no email is shown.
+session. Product access is resolved from a verified organization membership, while the
+Google OAuth grant does not include profile or email scope, so no email is shown.
 Account and container names are strictly decoded and rendered as inert text. Opening or
 refreshing the card performs read-only requests only; it never prepares a workspace,
 applies a change, or publishes.

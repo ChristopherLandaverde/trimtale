@@ -19,6 +19,7 @@ import { TrackingOperationRepository } from "./tracking-operations.js";
 import { TrackingWorkflowRunner, type WorkflowGoogleClient } from "./workflow-runner.js";
 
 const directories: string[] = [];
+const organizationId = "org_beta";
 
 afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
@@ -73,7 +74,7 @@ function managedConflictPlan() {
 async function repository() {
   const directory = await mkdtemp(join(tmpdir(), "workflow-runner-"));
   directories.push(directory);
-  return new TrackingOperationRepository(join(directory, "operations.json"));
+  return new TrackingOperationRepository(join(directory, "operations.json")).scope(organizationId);
 }
 
 function google(overrides: Partial<WorkflowGoogleClient> = {}) {
@@ -287,7 +288,8 @@ describe("resumable non-publishing tracking workflow", () => {
         version: { fingerprint: "version-8", priorLiveVersionFingerprint: "live-7" },
       },
     });
-    expect(new TrackingOperationRepository(store.filePath).get(planned.operation.id)?.status).toBe("versioned");
+    expect(new TrackingOperationRepository(store.filePath).scope(organizationId)
+      .get(planned.operation.id)?.status).toBe("versioned");
 
     expect((await runner.plan(request)).status).toBe("reused");
     expect((await runner.resume(planned.operation.id)).status).toBe("versioned");

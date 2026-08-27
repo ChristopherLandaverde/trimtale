@@ -22,6 +22,12 @@ import {
   type ProviderProgressProjectionV1,
   type TrackingRunEvidenceV1,
 } from "@gtm-observability/core";
+import {
+  authenticatedApiFetch,
+  productAuthError,
+  signInProduct,
+  signOutProduct,
+} from "./product-auth.js";
 
 function validAutomaticCoverage(
   value: unknown,
@@ -193,6 +199,53 @@ function exactMeasurementId(value: unknown): string | undefined {
   return measurementIds[0];
 }
 
+function bridgeError(error: unknown, fallback = "service_offline"): string {
+  return productAuthError(error) ?? fallback;
+}
+
+async function productAuthStatus(): Promise<
+  | { ok: true; role: "member" | "admin" }
+  | { ok: false; error: string }
+> {
+  try {
+    const response = await authenticatedApiFetch("http://127.0.0.1:8787/api/auth/status");
+    if (response.status === 403) return { ok: false, error: "organization_forbidden" };
+    if (!response.ok) return { ok: false, error: "authentication_unavailable" };
+    const value: unknown = await response.json();
+    if (!isRecord(value) || value.authenticated !== true
+      || (value.role !== "member" && value.role !== "admin")) {
+      return { ok: false, error: "authentication_unavailable" };
+    }
+    return { ok: true, role: value.role };
+  } catch (error) {
+    return { ok: false, error: bridgeError(error, "authentication_unavailable") };
+  }
+}
+
+chrome.runtime.onMessage.addListener(
+  (message: unknown, _sender, sendResponse) => {
+    if (!isRecord(message)) return undefined;
+    if (message.type === "PRODUCT_AUTH_STATUS_REQUEST") {
+      void productAuthStatus().then(sendResponse);
+      return true;
+    }
+    if (message.type === "PRODUCT_AUTH_SIGN_IN_REQUEST") {
+      void signInProduct()
+        .then(productAuthStatus)
+        .then(sendResponse)
+        .catch((error: unknown) => sendResponse({ ok: false, error: bridgeError(error) }));
+      return true;
+    }
+    if (message.type === "PRODUCT_AUTH_SIGN_OUT_REQUEST") {
+      void signOutProduct()
+        .then(() => sendResponse({ ok: true }))
+        .catch(() => sendResponse({ ok: false, error: "authentication_unavailable" }));
+      return true;
+    }
+    return undefined;
+  },
+);
+
 chrome.runtime.onMessage.addListener(
   (message: unknown, _sender, sendResponse) => {
     if (!isRecord(message) || message.type !== "SETUP_AUTHORING_REQUEST") return undefined;
@@ -200,7 +253,7 @@ chrome.runtime.onMessage.addListener(
       sendResponse({ ok: false, error: "invalid_request" });
       return undefined;
     }
-    void fetch("http://127.0.0.1:8787/api/setup-authoring", {
+    void authenticatedApiFetch("http://127.0.0.1:8787/api/setup-authoring", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ input: message.input, grounding: message.grounding }),
@@ -245,7 +298,7 @@ chrome.runtime.onMessage.addListener(
           setup,
         },
       });
-    }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
+    }).catch((error: unknown) => sendResponse({ ok: false, error: bridgeError(error) }));
     return true;
   },
 );
@@ -282,7 +335,7 @@ chrome.runtime.onMessage.addListener(
       return undefined;
     }
 
-    void fetch(`http://127.0.0.1:8787/api/google/analytics/configuration/${endpoint}`, {
+    void authenticatedApiFetch(`http://127.0.0.1:8787/api/google/analytics/configuration/${endpoint}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -302,7 +355,7 @@ chrome.runtime.onMessage.addListener(
         return;
       }
       sendResponse({ ok: true, result });
-    }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
+    }).catch((error: unknown) => sendResponse({ ok: false, error: bridgeError(error) }));
     return true;
   },
 );
@@ -315,7 +368,7 @@ chrome.runtime.onMessage.addListener(
       || !/^G-[A-Z0-9]+$/.test(message.measurementId)) {
       return undefined;
     }
-    void fetch("http://127.0.0.1:8787/api/google/analytics/enhanced-measurement/enable", {
+    void authenticatedApiFetch("http://127.0.0.1:8787/api/google/analytics/enhanced-measurement/enable", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ measurementId: message.measurementId }),
@@ -326,7 +379,7 @@ chrome.runtime.onMessage.addListener(
       }
       const result: unknown = await response.json();
       sendResponse({ ok: true, result });
-    }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
+    }).catch((error: unknown) => sendResponse({ ok: false, error: bridgeError(error) }));
     return true;
   },
 );
@@ -339,8 +392,12 @@ chrome.runtime.onMessage.addListener(
       return undefined;
     }
     const containerIds = [...new Set(message.containerIds)];
-    void fetch("http://127.0.0.1:8787/api/google/status")
+    void authenticatedApiFetch("http://127.0.0.1:8787/api/google/status")
       .then(async (response) => {
+        if (response.status === 403) {
+          sendResponse({ ok: false, error: "organization_forbidden" });
+          return;
+        }
         if (!response.ok) throw new Error("status_unavailable");
         const status: unknown = await response.json();
         if (!validConnectionStatus(status)) throw new Error("invalid_status");
@@ -358,7 +415,7 @@ chrome.runtime.onMessage.addListener(
           sendResponse({ ok: true, status: safeStatus, containerIds });
           return;
         }
-        const recognitionResponse = await fetch(
+        const recognitionResponse = await authenticatedApiFetch(
           `http://127.0.0.1:8787/api/google/containers/recognize?publicId=${encodeURIComponent(containerIds[0]!)}`,
         );
         if (!recognitionResponse.ok) {
@@ -374,7 +431,7 @@ chrome.runtime.onMessage.addListener(
           return;
         }
         try {
-          const enhancedResponse = await fetch(
+          const enhancedResponse = await authenticatedApiFetch(
             `http://127.0.0.1:8787/api/google/analytics/enhanced-measurement?measurementId=${encodeURIComponent(measurementId)}`,
           );
           if (!enhancedResponse.ok) {
@@ -399,7 +456,10 @@ chrome.runtime.onMessage.addListener(
           });
         }
       })
-      .catch(() => sendResponse({ ok: false, error: "service_offline" }));
+      .catch((error: unknown) => sendResponse({
+        ok: false,
+        error: productAuthError(error) ?? "service_offline",
+      }));
     return true;
   },
 );
@@ -426,7 +486,7 @@ chrome.runtime.onMessage.addListener(
       sendResponse({ ok: false, error: "invalid_request" });
       return undefined;
     }
-    void fetch(`http://127.0.0.1:8787/api/google/analytics/verifications/${endpoint}`, {
+    void authenticatedApiFetch(`http://127.0.0.1:8787/api/google/analytics/verifications/${endpoint}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -455,7 +515,7 @@ chrome.runtime.onMessage.addListener(
       }
       const result: unknown = await response.json();
       sendResponse({ ok: true, result });
-    }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
+    }).catch((error: unknown) => sendResponse({ ok: false, error: bridgeError(error) }));
     return true;
   },
 );
@@ -474,8 +534,8 @@ chrome.runtime.onMessage.addListener(
 
     const operation = message.operation;
     const request = operation === "inspect"
-      ? fetch(`http://127.0.0.1:8787/api/google/containers/recognize?publicId=${encodeURIComponent(message.publicId)}`)
-      : fetch("http://127.0.0.1:8787/api/google/containers/prepare-workspace", {
+      ? authenticatedApiFetch(`http://127.0.0.1:8787/api/google/containers/recognize?publicId=${encodeURIComponent(message.publicId)}`)
+      : authenticatedApiFetch("http://127.0.0.1:8787/api/google/containers/prepare-workspace", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ publicId: message.publicId }),
@@ -489,9 +549,9 @@ chrome.runtime.onMessage.addListener(
     }).catch((error: unknown) => {
       sendResponse({
         ok: false,
-        error: error instanceof Error
+        error: productAuthError(error) ?? (error instanceof Error
           ? error.message
-          : "The local GTM integration could not be reached.",
+          : "The local GTM integration could not be reached."),
       });
     });
     return true;
@@ -953,7 +1013,7 @@ chrome.runtime.onMessage.addListener(
       return undefined;
     }
 
-    void fetch(workflowPlanUrl, {
+    void authenticatedApiFetch(workflowPlanUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(request),
@@ -974,7 +1034,7 @@ chrome.runtime.onMessage.addListener(
         : resumeOperationId
           ? { ok: true, resumeOperationId }
         : { ok: false, error: "invalid_response" });
-    }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
+    }).catch((error: unknown) => sendResponse({ ok: false, error: bridgeError(error) }));
     return true;
   },
 );
@@ -994,7 +1054,7 @@ chrome.runtime.onMessage.addListener(
       sendResponse({ ok: false, error: "invalid_request" });
       return undefined;
     }
-    void fetch(`${workflowBaseUrl}/${encodeURIComponent(operationId)}/approve-replacement`, {
+    void authenticatedApiFetch(`${workflowBaseUrl}/${encodeURIComponent(operationId)}/approve-replacement`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ planFingerprint, entities }),
@@ -1008,7 +1068,7 @@ chrome.runtime.onMessage.addListener(
       sendResponse(summary
         ? { ok: true, result: summary }
         : { ok: false, error: "invalid_response" });
-    }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
+    }).catch((error: unknown) => sendResponse({ ok: false, error: bridgeError(error) }));
     return true;
   },
 );
@@ -1028,7 +1088,7 @@ chrome.runtime.onMessage.addListener(
       sendResponse({ ok: false, error: "invalid_request" });
       return undefined;
     }
-    void fetch(`${workflowBaseUrl}/${encodeURIComponent(operationId)}/repair-draft`, {
+    void authenticatedApiFetch(`${workflowBaseUrl}/${encodeURIComponent(operationId)}/repair-draft`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(run),
@@ -1042,7 +1102,7 @@ chrome.runtime.onMessage.addListener(
       sendResponse(result
         ? { ok: true, result }
         : { ok: false, error: "invalid_response" });
-    }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
+    }).catch((error: unknown) => sendResponse({ ok: false, error: bridgeError(error) }));
     return true;
   },
 );
@@ -1060,7 +1120,7 @@ chrome.runtime.onMessage.addListener(
       sendResponse({ ok: false, error: "invalid_request" });
       return undefined;
     }
-    void fetch(`${workflowBaseUrl}/${encodeURIComponent(operationId)}/apply-repair`, {
+    void authenticatedApiFetch(`${workflowBaseUrl}/${encodeURIComponent(operationId)}/apply-repair`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ planFingerprint }),
@@ -1074,7 +1134,7 @@ chrome.runtime.onMessage.addListener(
       sendResponse(result?.status === "awaiting_preview"
         ? { ok: true, result }
         : { ok: false, error: "invalid_response" });
-    }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
+    }).catch((error: unknown) => sendResponse({ ok: false, error: bridgeError(error) }));
     return true;
   },
 );
@@ -1094,7 +1154,7 @@ chrome.runtime.onMessage.addListener(
       sendResponse({ ok: false, error: "invalid_request" });
       return undefined;
     }
-    void fetch(`${workflowBaseUrl}/${encodeURIComponent(operationId)}/verify-publication`, {
+    void authenticatedApiFetch(`${workflowBaseUrl}/${encodeURIComponent(operationId)}/verify-publication`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ versionFingerprint, evidence: evidence as TrackingRunEvidenceV1 }),
@@ -1110,7 +1170,7 @@ chrome.runtime.onMessage.addListener(
       sendResponse(result
         ? { ok: true, result }
         : { ok: false, error: "invalid_response" });
-    }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
+    }).catch((error: unknown) => sendResponse({ ok: false, error: bridgeError(error) }));
     return true;
   },
 );
@@ -1130,7 +1190,7 @@ chrome.runtime.onMessage.addListener(
       sendResponse({ ok: false, error: "invalid_request" });
       return undefined;
     }
-    void fetch(`${workflowBaseUrl}/${encodeURIComponent(operationId)}/rollback`, {
+    void authenticatedApiFetch(`${workflowBaseUrl}/${encodeURIComponent(operationId)}/rollback`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ versionFingerprint, targetVersionFingerprint }),
@@ -1147,7 +1207,7 @@ chrome.runtime.onMessage.addListener(
       sendResponse(result
         ? { ok: true, result }
         : { ok: false, error: "invalid_response" });
-    }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
+    }).catch((error: unknown) => sendResponse({ ok: false, error: bridgeError(error) }));
     return true;
   },
 );
@@ -1171,7 +1231,7 @@ chrome.runtime.onMessage.addListener(
       ? "approve-publication"
       : "publish";
     const expectedStatus = action === "approve-publication" ? "approved" : "published";
-    void fetch(`${workflowBaseUrl}/${encodeURIComponent(operationId)}/${action}`, {
+    void authenticatedApiFetch(`${workflowBaseUrl}/${encodeURIComponent(operationId)}/${action}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ versionFingerprint }),
@@ -1195,7 +1255,7 @@ chrome.runtime.onMessage.addListener(
       sendResponse(result?.status === expectedStatus || result?.status === "provider_progress"
         ? { ok: true, result }
         : { ok: false, error: "invalid_response" });
-    }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
+    }).catch((error: unknown) => sendResponse({ ok: false, error: bridgeError(error) }));
     return true;
   },
 );
@@ -1212,7 +1272,7 @@ chrome.runtime.onMessage.addListener(
       sendResponse({ ok: false, error: "invalid_request" });
       return undefined;
     }
-    void fetch(`${workflowBaseUrl}/${encodeURIComponent(operationId)}/verify-draft`, {
+    void authenticatedApiFetch(`${workflowBaseUrl}/${encodeURIComponent(operationId)}/verify-draft`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(run),
@@ -1228,7 +1288,7 @@ chrome.runtime.onMessage.addListener(
         && result.nextStep === "create_version"
         ? { ok: true }
         : { ok: false, error: "invalid_response" });
-    }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
+    }).catch((error: unknown) => sendResponse({ ok: false, error: bridgeError(error) }));
     return true;
   },
 );
@@ -1257,7 +1317,7 @@ chrome.runtime.onMessage.addListener(
     if (message.displayTimedOut === true) parameters.set("displayTimedOut", "true");
     if (message.browserReloaded === true) parameters.set("browserReloaded", "true");
     const query = parameters.size > 0 ? `?${parameters.toString()}` : "";
-    void fetch(`${workflowBaseUrl}/${encodeURIComponent(operationId)}/progress${query}`)
+    void authenticatedApiFetch(`${workflowBaseUrl}/${encodeURIComponent(operationId)}/progress${query}`)
       .then(async (response) => {
         if (!response.ok) {
           sendResponse({ ok: false, error: "progress_unavailable" });
@@ -1269,7 +1329,7 @@ chrome.runtime.onMessage.addListener(
           ? { ok: true, result: progress }
           : { ok: false, error: "invalid_response" });
       })
-      .catch(() => sendResponse({ ok: false, error: "service_offline" }));
+      .catch((error: unknown) => sendResponse({ ok: false, error: bridgeError(error) }));
     return true;
   },
 );
@@ -1285,7 +1345,7 @@ chrome.runtime.onMessage.addListener(
       return undefined;
     }
 
-    void fetch(`${workflowBaseUrl}/${encodeURIComponent(operationId)}/resume`, {
+    void authenticatedApiFetch(`${workflowBaseUrl}/${encodeURIComponent(operationId)}/resume`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
     }).then(async (response) => {
@@ -1298,7 +1358,7 @@ chrome.runtime.onMessage.addListener(
       sendResponse(summary
         ? { ok: true, result: summary }
         : { ok: false, error: "invalid_response" });
-    }).catch(() => sendResponse({ ok: false, error: "service_offline" }));
+    }).catch((error: unknown) => sendResponse({ ok: false, error: bridgeError(error) }));
     return true;
   },
 );

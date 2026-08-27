@@ -268,6 +268,9 @@ type GtmConnectionView =
   | { kind: "loading" }
   | { kind: "offline" }
   | { kind: "check_failed" }
+  | { kind: "product_sign_in" }
+  | { kind: "product_unconfigured" }
+  | { kind: "product_forbidden" }
   | { kind: "unconfigured"; containerIds: string[] }
   | { kind: "disconnected"; containerIds: string[] }
   | { kind: "no_container"; status: GtmConnectionStatus }
@@ -1885,6 +1888,41 @@ function renderGtmConnection(view: GtmConnectionView): void {
   if (view.kind === "loading") {
     badge.textContent = "Checking";
     summary.textContent = "Checking authorized GTM access…";
+  } else if (view.kind === "product_sign_in") {
+    badge.textContent = "Sign in";
+    badge.classList.add("warning");
+    summary.textContent = "GTM Observability sign-in required";
+    note.textContent = "Product sign-in and Google authorization are separate.";
+    const signIn = document.createElement("button");
+    signIn.className = "quick primary-quick";
+    signIn.textContent = "Sign in";
+    signIn.addEventListener("click", async () => {
+      signIn.disabled = true;
+      signIn.textContent = "Signing in…";
+      const response: unknown = await chrome.runtime.sendMessage({ type: "PRODUCT_AUTH_SIGN_IN_REQUEST" })
+        .catch(() => undefined);
+      if (isRecord(response) && response.ok === true) {
+        gtmConnectionLoaded = false;
+        await loadGtmConnectionContext(true);
+        return;
+      }
+      signIn.disabled = false;
+      signIn.textContent = "Retry sign-in";
+      note.textContent = isRecord(response) && response.error === "authentication_unconfigured"
+        ? "Product sign-in is not configured for this extension build."
+        : "Sign-in did not complete. No product access was assumed.";
+    });
+    body.append(signIn);
+  } else if (view.kind === "product_unconfigured") {
+    badge.textContent = "Not configured";
+    badge.classList.add("warning");
+    summary.textContent = "GTM Observability sign-in is not configured";
+    note.textContent = "An operator must configure the Clerk public OAuth client for this extension build.";
+  } else if (view.kind === "product_forbidden") {
+    badge.textContent = "Access denied";
+    badge.classList.add("warning");
+    summary.textContent = "Authorized organization membership required";
+    note.textContent = "This account is not an active member of the organization configured for this deployment.";
   } else if (view.kind === "offline") {
     badge.textContent = "Service offline";
     badge.classList.add("warning");
@@ -1985,6 +2023,18 @@ async function loadGtmConnectionContext(force = false): Promise<void> {
   gtmConnectionLoaded = true;
   if (isRecord(raw) && raw.ok === false && raw.error === "service_offline") {
     renderGtmConnection({ kind: "offline" });
+    return;
+  }
+  if (isRecord(raw) && raw.ok === false && raw.error === "authentication_required") {
+    renderGtmConnection({ kind: "product_sign_in" });
+    return;
+  }
+  if (isRecord(raw) && raw.ok === false && raw.error === "authentication_unconfigured") {
+    renderGtmConnection({ kind: "product_unconfigured" });
+    return;
+  }
+  if (isRecord(raw) && raw.ok === false && raw.error === "organization_forbidden") {
+    renderGtmConnection({ kind: "product_forbidden" });
     return;
   }
   const context = parseConnectionContext(raw, containerIds);
