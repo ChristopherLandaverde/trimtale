@@ -292,6 +292,8 @@ Latency targets remain product hypotheses until measured in representative workf
   applied to the managed workspace, positively and negatively verified, versioned,
   approved, and published through the ordinary workflow.
 - [x] The exact workspace draft is exercised in a real browser before version approval.
+- [x] Starting a browser run centers the confirmed target and retains a compact visible
+  verification state so the website agent does not obstruct the required interaction.
 - [x] Failed verification may cause bounded repair without widening the confirmed
   tracking intent or publication authority.
 - [x] A same-name product-owned entity can be replaced only after exact semantic
@@ -348,8 +350,8 @@ The completed Stage 1 workflow proves the supported architecture. Optimization n
 prioritizes fewer false starts, broader evidence reuse, and lower time to verified
 setup without weakening approval, privacy, or provider boundaries:
 
-1. Issue 23 keeps confirmed verification targets operable when the website agent and
-   page controls compete for a narrow viewport.
+1. Issue 23 now keeps confirmed verification targets operable when the website agent
+   and page controls compete for a narrow viewport.
 2. Issue 24 defines an explicit exact-preview readiness receipt before a browser run
    can begin.
 3. Issue 25 defines one generic browser-evidence contract for expected requests,

@@ -88,6 +88,8 @@ The agent currently supports:
 - Clear unsupported handoffs for interaction types that are understood but not implemented.
 - Concise action receipts and final browser/platform verification results without a
   duplicate customer-facing evidence-stage card.
+- A compact active-verification dock centers the confirmed target and keeps narrow
+  viewport interactions operable until the full result returns.
 - Exact connected context carried into setup generation, browser verification, and
   optional aggregate GA4 Realtime confirmation without proprietary page meta tags.
 - One versioned, runtime-validated agent turn containing a bounded task goal, status,

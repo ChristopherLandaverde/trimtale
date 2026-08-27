@@ -67,7 +67,7 @@ for (const acceptance of contract.journeys) {
     expect(artifactText).not.toContain("private@example.com");
 
     await root.getByRole("button", { name: "Verify already-installed setup" }).click();
-    await expect(root.getByText(/Verification is ready/)).toBeVisible();
+    await expect(root.getByText("Verification active", { exact: true })).toBeVisible();
     await page.locator("form#contact button[type='submit']").click();
 
     const result = root.locator(".agent-verification-result");
@@ -267,6 +267,58 @@ async function routeExactPreview(journey: ExtensionJourney): Promise<ExactPrevie
 
   return requests;
 }
+
+test("keeps a narrow exact-preview target operable", async ({ context, page }) => {
+  await page.setViewportSize({ width: 700, height: 560 });
+  const journey = await openExtensionJourney(context, page, "confirmed_success", "GTM-TEST123");
+  await page.addStyleTag({ content: `
+    header { position: sticky; top: 0; z-index: 20; min-height: 90px; background: white; }
+    main { margin-top: 640px; }
+    .fixture-forms { width: 380px; margin-left: 260px; grid-template-columns: 1fr; }
+  ` });
+  const requests = await routeExactPreview(journey);
+
+  await approveLeadSetup(journey);
+  await journey.root.getByRole("button", { name: "Prepare workspace & plan" }).click();
+  await journey.root.getByRole("button", { name: "Apply & validate draft" }).click();
+  await journey.root.getByRole("button", { name: "Confirm apply & validate" }).click();
+  await expect(journey.root.getByRole("region", { name: "Exact preview binding" }))
+    .toContainText("preview-8");
+
+  const submit = page.locator("form#contact button[type='submit']");
+  await page.locator("form#contact input[name='email']").fill("narrow-private@example.test");
+  await journey.root.getByRole("button", { name: "Start exact browser run" }).click();
+
+  await expect(journey.root.getByText("Verification active", { exact: true })).toBeVisible();
+  await expect(journey.root.getByRole("button", {
+    name: "Verification active — open tracking agent",
+  })).toBeVisible();
+  const compactAgent = journey.root.locator(".assistant");
+  await expect(compactAgent).toHaveClass(/verification-active/);
+  await expect.poll(async () => {
+    const bounds = await compactAgent.boundingBox();
+    return bounds && { width: bounds.width, height: bounds.height };
+  }).toEqual({ width: 166, height: 50 });
+  await expect(submit).toBeInViewport();
+  expect(await submit.evaluate((button) => {
+    const bounds = button.getBoundingClientRect();
+    const center = document.elementFromPoint(
+      bounds.left + bounds.width / 2,
+      bounds.top + bounds.height / 2,
+    );
+    return center === button || button.contains(center);
+  })).toBe(true);
+  await page.screenshot({
+    path: test.info().outputPath("narrow-verification-active.png"),
+    animations: "disabled",
+  });
+  await submit.click();
+
+  await expect.poll(() => requests.verifyBodies.length).toBe(1);
+  await expect(journey.root.getByText("Immutable version version-8 created", { exact: true }))
+    .toBeVisible();
+  expect(JSON.stringify(requests.verifyBodies[0])).not.toContain("narrow-private@example.test");
+});
 
 test("resumes a validated workflow after the browser restarts", async ({ context, page }) => {
   const journey = await openExtensionJourney(context, page, "confirmed_success", "GTM-TEST123");

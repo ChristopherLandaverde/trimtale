@@ -138,7 +138,7 @@ test("carries exact GTM context through generation, browser evidence, and GA4 co
   await expect(root.getByRole("region", { name: "GTM connection" })).toContainText("Lead site");
 
   await root.getByRole("button", { name: "Verify already-installed setup" }).click();
-  await expect(task.getByText(/watching for one successful browser run/i)).toBeVisible();
+  await expect(root.getByText("Verification active", { exact: true })).toBeVisible();
   expect(analyticsStarts).toBe(1);
   await page.evaluate(() => {
     const sendBeacon = navigator.sendBeacon.bind(navigator);

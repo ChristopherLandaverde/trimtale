@@ -299,6 +299,7 @@ const analyticsPattern = /(?:google-analytics\.com|analytics\.google\.com)\/g\/c
 const evidence = new Map<string, BrowserEvidence>();
 let verificationScope = new Map<string, NavigationElement>();
 let preferences: OverlayPreferences = { width: 380, height: 260, collapsed: true };
+let verificationPresentationActive = false;
 let host: HTMLDivElement | undefined;
 let frame: HTMLElement | undefined;
 let responseList: HTMLElement | undefined;
@@ -851,6 +852,7 @@ async function prepareFormVerification(requestId: string, intake: ConversationIn
     verifyStatus: "active",
     question: `Submit ${intake.target?.label ?? "the selected form"} once.`,
   });
+  showVerificationPresentation(requestId, intake);
 }
 
 function prepareInteractionVerification(requestId: string, intake: ConversationIntakeResult): void {
@@ -869,6 +871,7 @@ function prepareInteractionVerification(requestId: string, intake: ConversationI
     verifyStatus: "active",
     question: `Click one matching ${knownInteractionDefinition(intake.interaction)?.singular ?? "link"} on this page.`,
   });
+  showVerificationPresentation(requestId, intake);
 }
 
 function ga4EventName(requestUrl: string): string | undefined {
@@ -885,6 +888,7 @@ function finishInteractionVerification(
 ): void {
   if (activeInteractionVerification !== active) return;
   activeInteractionVerification = undefined;
+  restoreVerificationPresentation();
   const proposal = interactionSetupProposal(active.intake);
   if (!proposal) return;
   const urls = analyticsUrlsSince(active.startedAt, active.startedAtPerformance);
@@ -1013,6 +1017,7 @@ function finishFormVerification(
   startedAt: string,
   startedAtPerformance: number,
 ): void {
+  restoreVerificationPresentation();
   const specification = confirmedFormSpecification(result);
   const target = result.target;
   const success = result.successSignal;
@@ -1903,11 +1908,52 @@ function applyPreferences(): void {
   if (!frame) return;
   frame.style.width = `${preferences.width}px`;
   frame.style.height = `${preferences.height}px`;
-  frame.style.left = preferences.x === undefined ? "auto" : `${preferences.x}px`;
-  frame.style.top = preferences.y === undefined ? "auto" : `${preferences.y}px`;
-  frame.style.right = preferences.x === undefined ? "22px" : "auto";
-  frame.style.bottom = preferences.y === undefined ? "22px" : "auto";
-  frame.classList.toggle("collapsed", preferences.collapsed);
+  frame.style.left = verificationPresentationActive || preferences.x === undefined
+    ? "auto"
+    : `${preferences.x}px`;
+  frame.style.top = verificationPresentationActive || preferences.y === undefined
+    ? "auto"
+    : `${preferences.y}px`;
+  frame.style.right = verificationPresentationActive || preferences.x === undefined ? "22px" : "auto";
+  frame.style.bottom = verificationPresentationActive || preferences.y === undefined ? "22px" : "auto";
+  frame.classList.toggle("collapsed", preferences.collapsed || verificationPresentationActive);
+  frame.classList.toggle("verification-active", verificationPresentationActive);
+  frame.querySelector(".orb")?.setAttribute(
+    "aria-label",
+    verificationPresentationActive ? "Verification active — open tracking agent" : "Open tracking agent",
+  );
+}
+
+function verificationTarget(
+  requestId: string,
+  intake: ConversationIntakeResult,
+): Element | undefined {
+  if (intake.target?.selector) {
+    try {
+      return document.querySelector(intake.target.selector) ?? undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  const interaction = knownInteractionDefinition(intake.interaction)?.interaction;
+  return interaction
+    ? interactionTargetsByRequest.get(requestId)?.[interaction]?.find(({ element }) => element)?.element
+    : undefined;
+}
+
+function showVerificationPresentation(
+  requestId: string,
+  intake: ConversationIntakeResult,
+): void {
+  verificationTarget(requestId, intake)?.scrollIntoView({ block: "center", inline: "nearest" });
+  verificationPresentationActive = true;
+  applyPreferences();
+}
+
+function restoreVerificationPresentation(): void {
+  if (!verificationPresentationActive) return;
+  verificationPresentationActive = false;
+  applyPreferences();
 }
 
 function setCollapsed(collapsed: boolean): void {
@@ -4041,11 +4087,18 @@ async function mountOverlay(): Promise<void> {
       .send { width: 38px; height: 38px; border-radius: 12px; color: #0c1b15; background: linear-gradient(145deg, #c4fae0, #8de8bd); box-shadow: 0 5px 16px rgba(86,220,157,.16), inset 0 1px 0 rgba(255,255,255,.5); font-size: 20px; transition: transform .15s ease, box-shadow .15s ease; }
       .send:hover { transform: translateY(-1px); box-shadow: 0 7px 20px rgba(86,220,157,.24), inset 0 1px 0 rgba(255,255,255,.55); }
       .assistant.collapsed { width: 48px !important; height: 48px !important; min-width: 48px; min-height: 48px; resize: none; display: grid; place-items: center; border-radius: 16px; border-color: rgba(255,255,255,.24); background: linear-gradient(145deg, rgba(48,58,67,.76), rgba(17,23,28,.7)); box-shadow: 0 12px 34px rgba(0,0,0,.3), 0 0 0 1px rgba(167,243,208,.05), inset 0 1px 0 rgba(255,255,255,.14); backdrop-filter: blur(18px) saturate(150%); -webkit-backdrop-filter: blur(18px) saturate(150%); }
+      .assistant.verification-active { width: 164px !important; height: 48px !important; min-width: 164px; min-height: 48px; resize: none; display: grid; place-items: center; border-radius: 16px; border-color: rgba(141,232,189,.34); }
       .collapsed .drag, .collapsed .messages, .collapsed .composer { display: none; }
+      .verification-active .drag, .verification-active .messages, .verification-active .composer { display: none; }
       .orb { display: none; position: relative; width: 100%; height: 100%; border-radius: 16px; color: transparent; background: transparent; }
+      .orb span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
       .orb::before { content: ""; position: absolute; inset: 13px; border-radius: 7px; background: conic-gradient(from 210deg, #8de8bd, #8bbcf6, #bd9af8, #8de8bd); filter: saturate(.78); box-shadow: 0 0 16px rgba(141,232,189,.22); }
       .orb::after { content: ""; position: absolute; inset: 17px; border-radius: 5px; background: rgba(17,23,28,.9); box-shadow: inset 0 1px 0 rgba(255,255,255,.2); }
       .collapsed .orb { display: block; }
+      .verification-active .orb { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 13px; color: #dff9ec; font-size: 11px; font-weight: 650; }
+      .verification-active .orb span { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
+      .verification-active .orb::before { position: static; width: 9px; height: 9px; flex: none; border-radius: 50%; background: #8de8bd; box-shadow: 0 0 14px rgba(141,232,189,.55); }
+      .verification-active .orb::after { display: none; }
       .collapsed:hover { transform: translateY(-2px); border-color: rgba(167,243,208,.32); box-shadow: 0 16px 42px rgba(0,0,0,.34), 0 0 24px rgba(141,232,189,.1), inset 0 1px 0 rgba(255,255,255,.16); }
       @keyframes shimmer { to { background-position: -120% 0; } }
       @media (prefers-reduced-motion: reduce) { .assistant, .send { transition: none; } .message.streaming:empty, .agent-loading { animation: none; } }
@@ -4054,14 +4107,17 @@ async function mountOverlay(): Promise<void> {
       <div class="drag" aria-label="Drag agent"><button class="icon collapse" aria-label="Collapse agent">−</button></div>
       <div class="messages" aria-live="polite"><section class="gtm-context" role="region" aria-label="GTM connection"></section><div class="agent-welcome"><strong>What should we set up or check?</strong><small>I use this page and its connected measurement context automatically.</small></div></div>
       <div class="composer"><textarea aria-label="Tracking request" placeholder="Describe an action or outcome…"></textarea><button class="send" aria-label="Send request">↑</button></div>
-      <button class="orb" aria-label="Open tracking agent">G</button>
+      <button class="orb" aria-label="Open tracking agent"><span>Verification active</span></button>
     </section>`;
   frame = shadow.querySelector<HTMLElement>(".assistant")!;
   responseList = shadow.querySelector<HTMLElement>(".messages")!;
   composer = shadow.querySelector<HTMLTextAreaElement>("textarea")!;
   gtmConnectionCard = shadow.querySelector<HTMLElement>(".gtm-context")!;
   renderGtmConnection({ kind: "loading" });
-  shadow.querySelector(".orb")?.addEventListener("click", () => setCollapsed(false));
+  shadow.querySelector(".orb")?.addEventListener("click", () => {
+    restoreVerificationPresentation();
+    setCollapsed(false);
+  });
   shadow.querySelector(".collapse")?.addEventListener("click", () => setCollapsed(true));
   shadow.querySelector(".send")?.addEventListener("click", submitPrompt);
   composer.addEventListener("keydown", (event) => {

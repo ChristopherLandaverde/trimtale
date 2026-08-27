@@ -1,7 +1,7 @@
 # Keep verification targets clear of agent controls
 
-Delivery mode: specification
-Status: open
+Delivery mode: implementation
+Status: resolved
 
 ## Problem
 
@@ -22,6 +22,12 @@ viewport sizes without hiding the evidence state or changing the confirmed targe
 - Changing GTM trigger visibility thresholds.
 - Widening the exact-preview or publication boundary.
 
+## Authorization
+
+The user authorized continuing the agreed product-slice sequence on 2026-08-27. This
+slice is limited to keeping the confirmed target operable while retaining a visible
+verification state.
+
 ## Evidence
 
 The 2026-08-26 real Preview review placed the success element at `y=756` in a
@@ -30,11 +36,18 @@ before activation produced `gtm.elementVisibility` and one `generate_lead` reque
 
 ## Regression contract
 
-A built-extension journey should exercise a confirmed form in the narrow supported
-viewport, use ordinary pointer interaction, and prove the target remains operable
-while private form values remain outside extension evidence.
+`tests/e2e/conversational-form.spec.ts` exercises a confirmed form behind a sticky
+header in a narrow viewport, uses ordinary pointer interaction, and proves the target
+remains operable while the active state stays visible and private form values remain
+outside extension evidence.
 
 ## Comments
 
 - 2026-08-26: Recorded as a medium follow-up. It does not invalidate the durable
   resume or request-classification outcomes.
+- 2026-08-27: The failing-first narrow-viewport journey placed the confirmed form
+  behind a sticky header and the expanded agent. Starting verification now centers
+  that form and exposes a 166-by-50 `Verification active` dock. An ordinary pointer
+  submission completed exact versioning, and the private sentinel remained outside
+  durable evidence. `npm run verify` passed 421 deterministic tests and 74 Chromium
+  journeys; exploratory review found no unresolved finding.
