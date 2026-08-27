@@ -301,6 +301,10 @@ success signal, event name, and privacy boundary and states that nothing will be
 created yet. Action receipts use an opaque, high-contrast card so their labels and
 details remain crisp against the assistant's glass surface.
 
+The controlled Stage 1 interactive demo exercises the same required-parameter
+boundary: its simulated `generate_lead` request contains the demo form ID, form name,
+and page location while excluding the entered email and all other form values.
+
 The exact replies `confirm`, `yes`, `continue`, `ok`, and `okay` remain bound to the
 visible task. They may advance one visible read-only setup-review action. When scope,
 target, evidence, or approval requires a choice, the agent preserves the task and

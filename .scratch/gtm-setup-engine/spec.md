@@ -308,6 +308,8 @@ Latency targets remain product hypotheses until measured in representative workf
   review contents and no-creation boundary visible in the compact journey.
 - [x] Action receipts remain unobscured on an opaque surface with legible type and
   contrast in the compact review journey.
+- [x] The controlled interactive demo emits the required `form_id`, `form_name`, and
+  `page_location` evidence without including entered form values.
 - [x] Failed verification may cause bounded repair without widening the confirmed
   tracking intent or publication authority.
 - [x] A same-name product-owned entity can be replaced only after exact semantic

@@ -16,4 +16,11 @@ describe("safe Stage 1 interactive demo", () => {
     expect(source).toContain("Run live verification and submit the form once more.");
     expect(source).toContain("Finish at the Live and verified receipt.");
   });
+
+  it("emits the complete privacy-safe generate_lead request", () => {
+    expect(source).toContain("en=generate_lead&ep.form_id=demo-lead");
+    expect(source).toContain("ep.form_name=Demo%20lead%20form");
+    expect(source).toContain("&dl=' + encodeURIComponent(location.href)");
+    expect(source).not.toContain("encodeURIComponent(document.querySelector('#work-email')");
+  });
 });

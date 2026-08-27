@@ -246,7 +246,7 @@ await context.route("http://127.0.0.1:4175/stage1-demo", (route) => route.fulfil
           window.dataLayer.push({ event: 'demo_lead_success' });
           var beacon = document.createElement('img');
           beacon.hidden = true;
-          beacon.src = 'https://www.google-analytics.com/g/collect?v=2&en=generate_lead';
+          beacon.src = 'https://www.google-analytics.com/g/collect?v=2&tid=G-DEMO123456&en=generate_lead&ep.form_id=demo-lead&ep.form_name=Demo%20lead%20form&dl=' + encodeURIComponent(location.href);
           document.body.appendChild(beacon);
         });
       </script>
