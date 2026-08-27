@@ -260,6 +260,23 @@ Synchronization conflicts are preserved for review and are never resolved automa
 
 Google integration is read-only by default. Workspace preparation requires explicit backend enablement and OAuth consent for `tagmanager.edit.containers`. Optional owner-only refresh-token persistence allows the backend to reconnect after restart without repeating browser consent; access tokens are not persisted.
 
+## Organization container inventory API
+
+A signed-in Member or Admin can request `GET /api/google/inventory`. The backend uses
+the organization's existing Google connection to capture accessible GTM web
+containers, account/container names, live-version fingerprints, current workspaces,
+and discovered GA4 measurement IDs. The current least-privilege grant does not prove
+container ACLs, so effective access remains explicitly `unavailable` instead of being
+inferred from deployment write flags.
+
+The first request atomically stores one private baseline for the configured
+organization and Google connection. Each later request compares the new provider
+snapshot with that baseline and returns exact container, version, workspace, access,
+or GA4-context differences. Every difference is marked `impactAssessment:
+not_assessed`; inventory changes never imply that website tracking changed or broke.
+Only the latest baseline is retained. The visual portal, scheduled capture, alerts,
+and tag-authoring controls are not part of this API slice.
+
 ## Resumable automation API
 
 With container writes explicitly enabled, the backend can accept a navigation setup

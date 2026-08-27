@@ -400,6 +400,10 @@ setup without weakening approval, privacy, or provider boundaries:
     connection context, separates artifacts, removes review-only confirmation clicks,
     queues conversation prompts safely, and restores exact-origin local journey state
     without persisting prompts, page text, values, credentials, or identity.
+11. Issue 38 composes the existing Google inventory capture and comparison contracts
+    into an authenticated organization read API. The first capture establishes a
+    private durable baseline; later captures identify exact container, live-version,
+    workspace, access, or GA4-context differences without assessing website impact.
 
 Server-side and mobile measurement remain separate projects. A parent-page Custom HTML
 tag does not bypass the browser's cross-origin boundary; iframe coverage requires a

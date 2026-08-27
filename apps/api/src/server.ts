@@ -34,6 +34,10 @@ import {
   authenticateOrganization,
   organizationAuthRuntime,
 } from "./organization-auth.js";
+import {
+  ContainerInventoryService,
+  InventorySnapshotRepository,
+} from "./container-inventory-api.js";
 import { TrackingWorkflowRunner, type TrackingWorkflowRequest } from "./workflow-runner.js";
 import {
   AnalyticsIntegrationError,
@@ -118,6 +122,20 @@ const intakeEvaluationReportStorePath = resolve(
   process.env.INTAKE_EVALUATION_REPORT_STORE?.trim()
     || ".data/intake-evaluations.json",
 );
+const inventoryService = discoveryClient && authRuntime
+  ? new ContainerInventoryService(
+      authRuntime.organizationId,
+      "google_primary",
+      new InventorySnapshotRepository(
+        resolve(process.env.CONTAINER_INVENTORY_STORE?.trim()
+          || ".data/container-inventory.json"),
+      ),
+      (organizationId, googleConnectionId) => discoveryClient.captureContainerInventory(
+        organizationId,
+        googleConnectionId,
+      ),
+    )
+  : undefined;
 
 function applyCors(request: IncomingMessage, response: ServerResponse, pathname: string): boolean {
   const decision = corsDecision(pathname, request.headers.origin, configuredExtensionOrigin);
@@ -515,6 +533,36 @@ const server = createServer(async (request, response) => {
         ? integrationError.message
         : "Unable to discover Google Tag Manager containers.";
       sendJson(response, status, { error: message });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && requestUrl.pathname === "/api/google/inventory") {
+    if (!inventoryService) {
+      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
+      return;
+    }
+    try {
+      sendJson(response, 200, {
+        result: await inventoryService.capture(organizationAuthority!),
+      });
+    } catch (integrationError) {
+      const status = integrationError instanceof GoogleIntegrationError
+        ? integrationError.status
+        : integrationError instanceof Error
+          && integrationError.message.includes("newer than the current baseline")
+          ? 409
+          : integrationError instanceof Error
+            && integrationError.message.includes("Provider inventory")
+            ? 502
+            : 500;
+      sendJson(response, status, {
+        error: status === 409
+          ? "A newer container inventory is already recorded."
+          : status === 500
+            ? "Container inventory storage is unavailable."
+            : "Unable to capture the Google Tag Manager inventory.",
+      });
     }
     return;
   }
