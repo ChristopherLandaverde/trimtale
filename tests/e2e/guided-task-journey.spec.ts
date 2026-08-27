@@ -130,6 +130,33 @@ test("stopping a pending response advances its queued request", async ({ context
     .toHaveCount(0);
 });
 
+test("keeps short confirmations bound to the visible task", async ({ context, page }) => {
+  const journey = await openExtensionJourney(context, page, "confirmed_success");
+  await journey.send("Track leads from the contact form");
+  await expect(journey.root.getByRole("button", { name: "Contact sales" })).toBeVisible();
+
+  await journey.root.getByLabel("Tracking request").fill("confirm");
+  await journey.root.getByRole("button", { name: "Send request" }).click();
+  await expect(journey.root.getByText(/Choose one of the visible actions so I don't guess/))
+    .toBeVisible();
+  await expect(journey.root.getByRole("button", { name: "Contact sales" })).toBeVisible();
+  const assistant = journey.root.locator("section.assistant");
+  await stabilizeSurface(assistant);
+  await expect(assistant).toHaveScreenshot("guided-contextual-confirmation.png", screenshotOptions);
+
+  await journey.root.getByRole("button", { name: "Contact sales" }).click();
+  await expect(journey.root.getByRole("button", { name: "Review setup" })).toBeVisible();
+  await journey.root.getByLabel("Tracking request").fill("continue");
+  await journey.root.getByRole("button", { name: "Send request" }).click();
+  await expect(journey.root.getByText("Reviewable setup", { exact: true })).toBeVisible();
+
+  await expect(journey.root.getByRole("button", { name: "Approve setup" })).toBeVisible();
+  await journey.root.getByLabel("Tracking request").fill("yes");
+  await journey.root.getByRole("button", { name: "Send request" }).click();
+  await expect(journey.root.getByText(/Use the visible “Approve setup” button/)).toBeVisible();
+  await expect(journey.root.getByText(/Setup approved and generated/)).toHaveCount(0);
+});
+
 test("restores a reviewed plan after reload without applying it", async ({ context, page }) => {
   const journey = await openExtensionJourney(context, page, "confirmed_success", "GTM-TEST123");
   await routeConnection(journey);

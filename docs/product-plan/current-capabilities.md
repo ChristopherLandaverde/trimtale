@@ -295,6 +295,11 @@ drawer. A second prompt waits behind the pending conversation response, and stop
 that response advances the queue. These controls do not cancel or steer provider
 mutations.
 
+The exact replies `confirm`, `yes`, `continue`, `ok`, and `okay` remain bound to the
+visible task. They may advance one visible read-only setup-review action. When scope,
+target, evidence, or approval requires a choice, the agent preserves the task and
+directs the practitioner to its visible controls instead of guessing.
+
 After a supported setup is approved, the extension stores one versioned,
 exact-origin continuation snapshot at reviewed provider boundaries. It retains only
 sanitized setup structure and exact operation bindings; prompts, form values, cookies,

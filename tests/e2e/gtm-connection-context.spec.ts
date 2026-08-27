@@ -13,7 +13,15 @@ async function stabilizeSurface(surface: Locator): Promise<void> {
     const target = element as HTMLElement;
     target.style.boxSizing = "border-box";
     target.style.width = `${width}px`;
-    target.closest<HTMLElement>(".messages")?.style.setProperty("overflow-y", "hidden");
+    const assistant = target.closest<HTMLElement>(".assistant");
+    if (assistant && target.classList.contains("gtm-context")) {
+      assistant.style.width = `${width + 50}px`;
+    }
+    if (target.classList.contains("agent-turn")) {
+      target.closest<HTMLElement>(".messages")
+        ?.querySelector<HTMLElement>(".journey")
+        ?.style.setProperty("position", "static");
+    }
   }, visualSurfaceWidth);
   await expect(surface).toHaveCSS("width", `${visualSurfaceWidth}px`);
 }

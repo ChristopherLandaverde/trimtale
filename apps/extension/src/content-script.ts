@@ -4939,6 +4939,7 @@ function renderQuickActions(
       : undefined;
     const control = downloadHref ? document.createElement("a") : document.createElement("button");
     control.className = "quick";
+    control.dataset.actionId = action.id;
     if (index === 0) {
       control.classList.add("primary-quick");
     }
@@ -4979,6 +4980,44 @@ function queuePrompt(prompt: string): void {
   responseList?.append(node);
   queuedPrompts.push({ prompt, node });
   responseList?.scrollTo({ top: responseList.scrollHeight });
+}
+
+const shortConfirmations = new Set(["confirm", "yes", "continue", "ok", "okay"]);
+const readOnlyConfirmActions = new Set([
+  "confirm-specification",
+  "confirm-interaction-specification",
+  "confirm-calendly-specification",
+]);
+
+function handleShortConfirmation(prompt: string): boolean {
+  if (!shortConfirmations.has(prompt.toLowerCase()) || !currentTaskRequestId) {
+    return false;
+  }
+  const task = agentTaskNodes.get(currentTaskRequestId);
+  const controls = task
+    ? [...task.querySelectorAll<HTMLElement>(".quick-actions [data-action-id]")]
+      .filter((control) => !(control instanceof HTMLButtonElement) || !control.disabled)
+    : [];
+  if (controls.length === 0) {
+    return false;
+  }
+  addMessage(prompt, "user");
+  const control = controls[0];
+  const actionId = control?.dataset.actionId;
+  if (controls.length === 1 && actionId && readOnlyConfirmActions.has(actionId)) {
+    control.click();
+    return true;
+  }
+  const labels = controls.map((item) => item.textContent?.trim()).filter(Boolean);
+  if (controls.length > 1) {
+    addMessage(`Choose one of the visible actions so I don't guess: ${labels.join(" · ")}.`, "assistant");
+    return true;
+  }
+  addMessage(
+    `Use the visible “${labels[0] ?? "Continue"}” button so that this choice or approval remains explicit.`,
+    "assistant",
+  );
+  return true;
 }
 
 function startNextQueuedPrompt(): void {
@@ -5107,6 +5146,9 @@ function submitPrompt(): void {
   const prompt = composer?.value.trim();
   if (!prompt) return;
   composer!.value = "";
+  if (handleShortConfirmation(prompt)) {
+    return;
+  }
   if (pendingAssistantRequestId) {
     queuePrompt(prompt);
     return;

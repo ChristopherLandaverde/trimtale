@@ -302,6 +302,8 @@ Latency targets remain product hypotheses until measured in representative workf
 - [x] The website agent keeps Define, Review, Apply, Test, Publish, and Verify visible,
   separates task artifacts from the primary action, and restores a privacy-filtered,
   exact-origin journey after reload without repeating or widening provider authority.
+- [x] Exact short confirmations preserve the visible task, advance only one read-only
+  review action, and never infer a scope choice or approval.
 - [x] Failed verification may cause bounded repair without widening the confirmed
   tracking intent or publication authority.
 - [x] A same-name product-owned entity can be replaced only after exact semantic
