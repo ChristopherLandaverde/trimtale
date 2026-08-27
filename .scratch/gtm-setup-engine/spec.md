@@ -341,3 +341,28 @@ reused unless a later implementation issue demonstrates a concrete incompatibili
 
 These choices do not authorize runtime implementation while this specification remains
 in specification mode.
+
+## Ordered optimization backlog
+
+The completed Stage 1 workflow proves the supported architecture. Optimization now
+prioritizes fewer false starts, broader evidence reuse, and lower time to verified
+setup without weakening approval, privacy, or provider boundaries:
+
+1. Issue 23 keeps confirmed verification targets operable when the website agent and
+   page controls compete for a narrow viewport.
+2. Issue 24 defines an explicit exact-preview readiness receipt before a browser run
+   can begin.
+3. Issue 25 defines one generic browser-evidence contract for expected requests,
+   permitted automatic events, required parameters, and duplicate policy.
+4. Issue 26 proves the callback pattern with one selected cross-origin provider before
+   any generalized adapter framework is proposed.
+5. Issue 27 distinguishes active Google stages from timeouts and prevents UI retries
+   from duplicating in-flight provider work.
+6. Issue 28 establishes representative measures for verification time, first-pass
+   success, false verdicts, provider calls, restart recovery, and required human
+   actions.
+
+Server-side and mobile measurement remain separate projects. A parent-page Custom HTML
+tag does not bypass the browser's cross-origin boundary; iframe coverage requires a
+trusted provider callback, validated `postMessage`, code running on the iframe origin,
+or another supported completion signal.
