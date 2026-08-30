@@ -22,7 +22,7 @@ export default defineConfig({
     {
       name: "api",
       command: "npm run start --workspace @gtm-observability/api",
-      url: "http://127.0.0.1:8787/health",
+      url: "http://127.0.0.1:18787/health",
       env: {
         EXTENSION_ORIGIN: "chrome-extension://gtm-observability-e2e",
         INTAKE_EVALUATION_REPORT_STORE: resolve("tests/fixtures/intake-evaluation-reports.json"),
@@ -34,7 +34,7 @@ export default defineConfig({
     {
       name: "fixture",
       command: "npm run start --workspace @gtm-observability/fixture-site",
-      url: "http://127.0.0.1:4173/health",
+      url: "http://127.0.0.1:14173/health",
       reuseExistingServer,
       stdout: "pipe",
       stderr: "pipe",

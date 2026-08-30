@@ -20,7 +20,7 @@ import {
 const config = {
   clientId: "client-id",
   clientSecret: "client-secret",
-  redirectUri: "http://127.0.0.1:8787/api/google/oauth/callback",
+  redirectUri: "http://127.0.0.1:18787/api/google/oauth/callback",
 };
 
 describe("Google OAuth configuration", () => {

@@ -24,7 +24,7 @@ container unless the user explicitly identifies and authorizes another exact tar
 ## Configuration and readiness
 
 The backend requires an OAuth client ID, client secret, and the exact local callback
-`http://127.0.0.1:8787/api/google/oauth/callback`. CORS separately requires the exact
+`http://127.0.0.1:18787/api/google/oauth/callback`. CORS separately requires the exact
 installed extension origin; a wildcard or a different extension ID fails closed.
 
 Use these controls deliberately:

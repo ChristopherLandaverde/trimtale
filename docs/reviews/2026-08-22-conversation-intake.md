@@ -4,7 +4,7 @@ Date: 2026-08-22
 
 Build: `main` at `205aebb`
 
-Environment: Playwright Chromium 1234 on Linux, unpacked extension from `apps/extension/dist`, local fixture site at `http://127.0.0.1:4173/`.
+Environment: Playwright Chromium 1234 on Linux, unpacked extension from `apps/extension/dist`, local fixture site at `http://127.0.0.1:14173/`.
 
 ## Scenarios exercised
 

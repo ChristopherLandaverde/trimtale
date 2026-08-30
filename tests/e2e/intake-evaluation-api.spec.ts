@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const endpoint = "http://127.0.0.1:8787/api/intake-evaluations";
+const endpoint = "http://127.0.0.1:18787/api/intake-evaluations";
 const extensionOrigin = "chrome-extension://gtm-observability-e2e";
 const fixturePath = resolve("tests/fixtures/intake-evaluation-reports.json");
 

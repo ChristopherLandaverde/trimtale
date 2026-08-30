@@ -8,12 +8,15 @@ import {
   selectConversationTarget,
   type BrowserEvidence,
   type ConversationIntakeResult,
+  type FormSetupRequest,
   type FormCandidate,
   type NavigationArea,
   type NavigationElement,
   type SuccessEvidence,
   type SetupProposal,
+  type SetupRequest,
   type TrackingRunEvidenceV1,
+  type TrackingSetupOperationV1,
   type TrackingSpecificationV1,
 } from "@gtm-observability/core";
 
@@ -37,6 +40,7 @@ interface EvidencePathContext {
   confirmedDetail: string;
   setupGenerated: boolean;
   setupDetail: string;
+  workflowRequest?: TrackingWorkflowRequest;
 }
 
 interface GtmWorkspaceResult {
@@ -64,6 +68,25 @@ interface GtmBridgeResponse {
   result?: GtmContainerResult;
   containerWritesEnabled?: boolean;
 }
+
+type TrackingWorkflowRequest = SetupRequest | FormSetupRequest;
+type WorkflowResult =
+  | {
+    status: "versioned";
+    operation: TrackingSetupOperationV1;
+    nextStep: "await_approval";
+  }
+  | {
+    status: "blocked" | "paused";
+    operation?: TrackingSetupOperationV1;
+    stage?: string;
+    reason: string;
+    details?: unknown;
+  };
+
+type WorkflowBridgeResponse =
+  | { ok: true; result: WorkflowResult }
+  | { ok: false; error: string };
 
 interface GtmConnectionStatus {
   configured: boolean;
@@ -131,6 +154,7 @@ const recentFormRequests: Array<{ url: string; observedAt: string }> = [];
 let activeFormVerification: { requestId: string; intake: ConversationIntakeResult } | undefined;
 let gtmConnectionLoaded = false;
 let gtmConnectionRequestSequence = 0;
+let currentGtmConnection: GtmConnectionContext | undefined;
 
 function successEvidenceFor(result: ConversationIntakeResult): SuccessEvidence | undefined {
   const signal = result.successSignal;
@@ -171,32 +195,42 @@ function fixtureMeta(name: string): string | undefined {
   return document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)?.content || undefined;
 }
 
-function formSetupProposal(result: ConversationIntakeResult) {
+function formSetupRequest(result: ConversationIntakeResult): FormSetupRequest | undefined {
   const specification = confirmedFormSpecification(result);
   const measurementId = fixtureMeta("gtm-observability-measurement-id");
   const publicId = fixtureMeta("gtm-observability-container-id");
   if (!specification || !measurementId || !publicId) return undefined;
-  return createFormSetupProposal({
+  return {
     specification,
     measurementId,
     container: { accountId: "0", containerId: "0", publicId, name: "GTM Observability import" },
-  });
+  };
 }
 
-function navigationSetupProposal(navigation: NavigationElement[]): SetupProposal | undefined {
+function formSetupProposal(result: ConversationIntakeResult) {
+  const request = formSetupRequest(result);
+  return request ? createFormSetupProposal(request) : undefined;
+}
+
+function navigationSetupRequest(navigation: NavigationElement[]): SetupRequest | undefined {
   const measurementId = fixtureMeta("gtm-observability-measurement-id");
   const runtime = inspectGtmRuntime();
   const publicId = runtime.status === "detected" && runtime.containerIds.length === 1
     ? runtime.containerIds[0]
     : fixtureMeta("gtm-observability-container-id");
   if (!measurementId || !publicId || navigation.length === 0) return undefined;
-  return createSetupProposal({
+  return {
     intent: "Track navigation links",
     pageUrl: location.href,
     measurementId,
     navigation,
     container: { accountId: "0", containerId: "0", publicId, name: "GTM Observability import" },
-  });
+  };
+}
+
+function navigationSetupProposal(navigation: NavigationElement[]): SetupProposal | undefined {
+  const request = navigationSetupRequest(navigation);
+  return request ? createSetupProposal(request) : undefined;
 }
 
 function containerFileDownloadHref(containerFile: unknown): string {
@@ -385,6 +419,17 @@ async function requestGtmContainer(
     operation,
     publicId,
   }) as Promise<GtmBridgeResponse>;
+}
+
+async function requestSetupOperation(
+  action: "start" | "resume" | "get",
+  value: TrackingWorkflowRequest | string,
+): Promise<WorkflowBridgeResponse> {
+  return chrome.runtime.sendMessage({
+    type: "GTM_WORKFLOW_REQUEST",
+    action,
+    ...(typeof value === "string" ? { operationId: value } : { request: value }),
+  }) as Promise<WorkflowBridgeResponse>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -598,9 +643,11 @@ async function loadGtmConnectionContext(force = false): Promise<void> {
   }
   const context = parseConnectionContext(raw, containerIds);
   if (!context) {
+    currentGtmConnection = undefined;
     renderGtmConnection({ kind: "check_failed" });
     return;
   }
+  currentGtmConnection = context;
   if (!context.status.configured) {
     renderGtmConnection({ kind: "unconfigured", containerIds });
     return;
@@ -699,6 +746,131 @@ function appendGtmAction(
   }, { once: true });
   parent.append(button);
   return button;
+}
+
+function appendInlineAction(
+  parent: HTMLElement,
+  label: string,
+  action: () => void,
+): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.className = "quick";
+  button.textContent = label;
+  button.addEventListener("click", () => {
+    button.disabled = true;
+    action();
+  }, { once: true });
+  parent.append(button);
+  return button;
+}
+
+function operationStorageKey(request: TrackingWorkflowRequest): string {
+  const specificationId = "specification" in request
+    ? request.specification.id
+    : createSetupProposal(request).specification.id;
+  return `trackingOperation:${request.container.publicId}:${specificationId}`;
+}
+
+function operationSummary(operation: TrackingSetupOperationV1): string {
+  const actions = operation.plan.actions.length;
+  if (operation.status === "versioned" && operation.version) {
+    return `Immutable version ${operation.version.fingerprint} is ready for separate publication approval. Prior live version: ${operation.version.priorLiveVersionFingerprint}.`;
+  }
+  if (operation.status === "validation_failed") return "Workspace validation failed; no version was created.";
+  if (operation.status === "validated") return "Workspace validation passed; immutable version creation is next.";
+  if (operation.status === "applied") return "Owned GTM entities were applied; workspace validation is next.";
+  if (operation.status === "applying") return `Applying owned GTM entities (${operation.completedActionSignatures.length}/${actions} complete).`;
+  return `Tracking change plan is ready with ${actions} action${actions === 1 ? "" : "s"}.`;
+}
+
+function renderSetupOperation(result: WorkflowResult, request?: TrackingWorkflowRequest): void {
+  const path = document.createElement("section");
+  path.className = "evidence-path";
+  path.setAttribute("aria-label", "Setup operation");
+  const heading = document.createElement("div");
+  heading.className = "evidence-heading";
+  const title = document.createElement("span");
+  title.textContent = "Setup operation";
+  const label = document.createElement("small");
+  label.textContent = result.status === "versioned" ? "Awaiting approval" : result.status;
+  heading.append(title, label);
+  path.append(heading);
+
+  const operation = result.operation;
+  const status = operation?.status;
+  const blockedReason = result.status === "versioned" ? "Operation reached version creation" : result.reason;
+  const stages = [
+    { key: "planned", label: "Tracking change plan", detail: operation ? operationSummary(operation) : blockedReason },
+    { key: "applying", label: "Owned entities applied", detail: operation ? `${operation.completedActionSignatures.length}/${operation.plan.actions.length} actions complete` : blockedReason },
+    { key: "validated", label: "Workspace validated", detail: operation?.validation ? `${operation.validation.status} at ${operation.validation.checkedAt}` : "Validation has not run yet" },
+    { key: "versioned", label: "Immutable version created", detail: operation?.version ? `Version fingerprint ${operation.version.fingerprint}` : "No immutable version yet" },
+    { key: "approval", label: "Publication approval", detail: "Separate approval is required; nothing was published" },
+  ];
+  for (const stage of stages) {
+    const row = document.createElement("div");
+    const passed = stage.key === "approval"
+      ? status === "versioned"
+      : stage.key === "planned"
+        ? Boolean(status)
+        : stage.key === "applying"
+          ? Boolean(status && ["applied", "validated", "versioned"].includes(status))
+          : stage.key === "validated"
+            ? Boolean(status && ["validated", "versioned"].includes(status))
+            : status === "versioned";
+    row.className = `evidence-stage ${passed ? "passed" : "pending"}`;
+    const icon = document.createElement("i");
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = passed ? "✓" : "○";
+    const copy = document.createElement("span");
+    const stageLabel = document.createElement("strong");
+    stageLabel.textContent = stage.label;
+    const detail = document.createElement("small");
+    detail.textContent = stage.detail;
+    copy.append(stageLabel, detail);
+    row.append(icon, copy);
+    path.append(row);
+  }
+
+  if (result.status === "blocked" || result.status === "paused") {
+    addMessage(`Setup operation ${result.status}: ${result.reason}. Nothing was published.`, "assistant");
+    if (operation) {
+      appendInlineAction(path, "Resume operation", () => {
+        void runSetupOperation("resume", operation.id, request);
+      });
+    }
+  } else {
+    addMessage("GTM setup operation reached await_approval. Review the version fingerprint before any separate publication step.", "assistant");
+  }
+  responseList?.append(path);
+  responseList?.scrollTo({ top: responseList.scrollHeight });
+}
+
+async function rememberOperation(request: TrackingWorkflowRequest, operationId: string): Promise<void> {
+  await chrome.storage.local.set({ [operationStorageKey(request)]: operationId });
+}
+
+async function renderStoredOperation(request: TrackingWorkflowRequest): Promise<void> {
+  const stored = await chrome.storage.local.get(operationStorageKey(request));
+  const operationId = stored[operationStorageKey(request)];
+  if (typeof operationId !== "string") return;
+  const response = await requestSetupOperation("get", operationId);
+  if (response.ok) renderSetupOperation(response.result, request);
+}
+
+async function runSetupOperation(
+  action: "start" | "resume",
+  value: TrackingWorkflowRequest | string,
+  request?: TrackingWorkflowRequest,
+): Promise<void> {
+  addMessage(action === "start" ? "Preparing a durable GTM setup operation…" : "Resuming the GTM setup operation…", "assistant");
+  const response = await requestSetupOperation(action, value);
+  if (!response.ok) {
+    addMessage(`${response.error} Nothing was published.`, "assistant");
+    return;
+  }
+  const operation = response.result.operation;
+  if (operation && request) await rememberOperation(request, operation.id);
+  renderSetupOperation(response.result, request);
 }
 
 function navigationTargets(navigation: NavigationElement[]): PageTarget[] {
@@ -869,6 +1041,12 @@ function renderEvidencePath(context: EvidencePathContext): void {
         );
         const canPrepare = result.workspace?.status === "available";
         if (canPrepare && response.containerWritesEnabled) {
+          if (context.workflowRequest) {
+            appendInlineAction(path, "Prepare GTM version", () => {
+              void runSetupOperation("start", context.workflowRequest!, context.workflowRequest);
+            });
+            void renderStoredOperation(context.workflowRequest);
+          }
           appendGtmAction(path, "Prepare managed workspace", () => {
             updateEvidenceStage(accessRow!, "pending", `Rechecking ${publicId} capacity and ownership…`);
             void requestGtmContainer("prepare", publicId).then((prepared) => {
@@ -904,7 +1082,8 @@ function renderEvidencePath(context: EvidencePathContext): void {
 function confirmNavigation(navigation: NavigationElement[]): void {
   highlightTargets(navigationTargets(navigation), "confirmed");
   addMessage(`${navigation.length} navigation link${navigation.length === 1 ? "" : "s"} selected and highlighted on the page.`, "assistant");
-  const proposal = navigationSetupProposal(navigation);
+  const request = navigationSetupRequest(navigation);
+  const proposal = request ? createSetupProposal(request) : undefined;
   renderEvidencePath({
     intentDetail: "Navigation clicks → navigation_click",
     inspectedDetail: `${navigation.length} matching link${navigation.length === 1 ? "" : "s"} found`,
@@ -913,6 +1092,7 @@ function confirmNavigation(navigation: NavigationElement[]): void {
     setupDetail: proposal
       ? "Reviewable navigation_click setup generated"
       : "Connect a GTM container and GA4 measurement ID to generate setup",
+    ...(request ? { workflowRequest: request } : {}),
   });
   if (proposal) renderNavigationSetupDownload(proposal);
 }
@@ -1032,7 +1212,8 @@ function handleAssistantAction(actionId: string, requestId: string): void {
   }
   if (actionId === "confirm-form-specification" && intake?.canConfirm) {
     addMessage("Form tracking specification confirmed.", "assistant");
-    const proposal = formSetupProposal(intake);
+    const request = formSetupRequest(intake);
+    const proposal = request ? createFormSetupProposal(request) : undefined;
     renderEvidencePath({
       intentDetail: `Successful ${intake.target?.label ?? "form"} submission → generate_lead`,
       inspectedDetail: `${forms.length} form${forms.length === 1 ? "" : "s"} found`,
@@ -1041,6 +1222,7 @@ function handleAssistantAction(actionId: string, requestId: string): void {
       setupDetail: proposal
         ? "Reviewable generate_lead setup generated"
         : "Connect a GTM container and GA4 measurement ID to generate setup",
+      ...(request ? { workflowRequest: request } : {}),
     });
     renderQuickActions(requestId, [
       { id: "download-form-setup", label: "Download GTM setup" },

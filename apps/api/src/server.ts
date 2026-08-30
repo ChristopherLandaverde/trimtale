@@ -16,7 +16,7 @@ import {
 import { TrackingOperationRepository } from "./tracking-operations.js";
 import { TrackingWorkflowRunner, type TrackingWorkflowRequest } from "./workflow-runner.js";
 
-const port = Number.parseInt(process.env.PORT ?? "8787", 10);
+const port = Number.parseInt(process.env.PORT ?? "18787", 10);
 const configuredExtensionOrigin = process.env.EXTENSION_ORIGIN;
 const maximumBodyBytes = 256_000;
 const oauthConfig = googleOAuthConfig();

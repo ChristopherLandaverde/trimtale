@@ -4,7 +4,7 @@
   "description": "Generate and verify evidence-backed GTM navigation tracking.",
   "version": "0.1.0",
   "minimum_chrome_version": "120",
-  "permissions": ["activeTab", "downloads", "scripting", "storage", "webRequest"],
+  "permissions": ["activeTab", "scripting", "storage", "webRequest"],
   "host_permissions": [
     "http://127.0.0.1:18787/*",
     "http://127.0.0.1:14173/*",
@@ -16,12 +16,17 @@
     "type": "module"
   },
   "action": {
-    "default_title": "Open GTM Observability"
+    "default_title": "Open GTM Observability orb"
   },
-  "web_accessible_resources": [
-    {
-      "resources": ["workbench.html", "workbench.js", "workbench.css"],
-      "matches": ["<all_urls>"]
+  "content_scripts": [{
+    "matches": ["http://*/*", "https://*/*"],
+    "js": ["content-script.js"],
+    "run_at": "document_idle"
+  }],
+  "commands": {
+    "toggle-assistant": {
+      "suggested_key": { "default": "Ctrl+Shift+Y", "mac": "Command+Shift+Y" },
+      "description": "Toggle the GTM Observability assistant"
     }
-  ]
+  }
 }

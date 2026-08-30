@@ -135,7 +135,7 @@ The API can run a separately gated OAuth flow and discover the connected trackin
 ```bash
 GOOGLE_OAUTH_CLIENT_ID=...
 GOOGLE_OAUTH_CLIENT_SECRET=...
-GOOGLE_OAUTH_REDIRECT_URI=http://127.0.0.1:8787/api/google/oauth/callback
+GOOGLE_OAUTH_REDIRECT_URI=http://127.0.0.1:18787/api/google/oauth/callback
 EXTENSION_ORIGIN=chrome-extension://<extension-id>
 npm run dev:api
 ```
@@ -147,7 +147,7 @@ they never emit a wildcard CORS header. Direct OAuth navigation and server-side
 clients that do not send an `Origin` header remain supported.
 
 Register the exact redirect URI in the Google Cloud OAuth client and enable the Tag
-Manager API. Then open `http://127.0.0.1:8787/api/google/oauth/start`; after consent,
+Manager API. Then open `http://127.0.0.1:18787/api/google/oauth/start`; after consent,
 `GET /api/google/accounts` returns each accessible account with its containers. Set
 `GOOGLE_OAUTH_TOKEN_STORE` to a backend-local path to persist only an owner-readable
 refresh token and reconnect after restart without another browser consent. Without that

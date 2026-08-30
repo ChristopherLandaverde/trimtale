@@ -51,7 +51,7 @@ test("clarifies a form intent and requires explicit specification confirmation",
 
   try {
     const site = await context.newPage();
-    await site.goto("http://127.0.0.1:4173/");
+    await site.goto("http://127.0.0.1:14173/");
     await site.addStyleTag({ content: visualStabilityCss });
     const root = site.locator("#gtm-observability-root");
     await root.getByRole("button", { name: "Open tracking assistant" }).click();

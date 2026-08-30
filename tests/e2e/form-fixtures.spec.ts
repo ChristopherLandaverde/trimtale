@@ -10,7 +10,7 @@ for (const fixture of Object.values(formFixtureScenarios)) {
       }
     });
 
-    await page.goto(`http://127.0.0.1:4173/?formScenario=${fixture.id}`);
+    await page.goto(`http://127.0.0.1:14173/?formScenario=${fixture.id}`);
     await expect(page.locator("html")).toHaveAttribute("data-fixture-scenario", fixture.id);
     await expect(page.locator("html")).toHaveAttribute("data-consent", fixture.consent);
     expect(await page.evaluate(() => (window as Window & { __formFixture?: unknown }).__formFixture)).toEqual(fixture);

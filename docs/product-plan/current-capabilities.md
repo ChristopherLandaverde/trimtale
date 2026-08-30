@@ -1,8 +1,8 @@
 # What GTM Observability has today
 
-Status date: 2026-08-23
+Status date: 2026-08-30
 
-GTM Observability currently turns a supported tracking intent into a confirmed tracking specification, generates a reviewable GTM setup, observes the website's GTM runtime, matches the observed container to Google access, and safely prepares one reusable managed workspace. A guarded backend API can durably plan and apply navigation and confirmed lead-form setups, validate the workspace, and create an immutable version. Separate backend clients can publish an exactly approved version and restore its recorded prior-live version. The website assistant does not yet expose those orchestration, approval, publication, or rollback actions.
+GTM Observability currently turns a supported tracking intent into a confirmed tracking specification, generates a reviewable GTM setup, observes the website's GTM runtime, matches the observed container to Google access, and safely prepares one reusable managed workspace. When container-write access is enabled, the website assistant can now start the guarded backend setup operation for confirmed navigation-click and lead-form setups, render the durable operation timeline, create an immutable GTM version, and stop at separate publication approval. Separate backend clients can publish an exactly approved version and restore its recorded prior-live version; the website assistant still does not expose approval, publication, or rollback actions.
 
 ## Current product workflow
 
@@ -17,7 +17,8 @@ Open the assistant and inspect page GTM / authorized access
     -> observe the website's GTM container ID
     -> match that ID to one accessible Google container
     -> create or reuse one managed workspace
-    -> stop before applying or publishing changes
+    -> optionally prepare a durable GTM version
+    -> stop before publication approval or publishing changes
 ```
 
 Each evidence stage is intentionally separate. A generated setup does not mean it was applied. A detected container does not mean the connected Google account can edit it. A prepared workspace does not mean the setup passed browser verification or was published.
@@ -38,6 +39,11 @@ The assistant currently supports:
 - Explicit target and tracking-specification confirmation.
 - Clear unsupported handoffs for interaction types that are understood but not implemented.
 - An evidence path that separates intent, page inspection, target confirmation, setup generation, GTM runtime, GTM access, browser verification, and platform confirmation.
+- A write-gated **Prepare GTM version** action for confirmed navigation-click and
+  lead-form setup requests when one recognized container is available.
+- A durable setup-operation timeline that separates planning, owned entity
+  application, workspace validation, immutable version creation, and publication
+  approval.
 
 The conversation classifier and state transitions are deterministic today. Model-backed conversation intake is the next product slice, but no production model currently interprets tracking intents or decides whether evidence passed.
 
@@ -128,9 +134,17 @@ immutable version creation. Each transition is recorded in a file-backed operati
 an interrupted application resumes from freshly read Google state and completed action
 signatures.
 
-The runner stops at the `versioned` state and returns `await_approval`. The extension
-does not yet expose this orchestration in its visible conversation. Publication remains
-behind its separate backend flag, OAuth scope, and exact fingerprint approval.
+The website assistant exposes this orchestration only after the practitioner has
+confirmed the specification, generated setup, observed exactly one GTM runtime ID,
+and matched that ID to one accessible container with write access. The assistant stores
+the operation ID locally for the confirmed setup and re-reads the latest operation
+detail from the local workflow API when the same setup is opened again.
+
+The runner stops at the `versioned` state and returns `await_approval`. The assistant
+displays the immutable version fingerprint and prior live fingerprint, labels
+publication approval as a separate required step, and never publishes or labels the
+setup as platform-confirmed. Publication remains behind its separate backend flag,
+OAuth scope, and exact fingerprint approval.
 
 ## Evidence and diagnosis foundations
 

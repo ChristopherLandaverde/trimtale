@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { getFormFixtureScenario, type FormFixtureScenario } from "./form-scenarios.js";
 
-const port = Number.parseInt(process.env.FIXTURE_PORT ?? "4173", 10);
+const port = Number.parseInt(process.env.FIXTURE_PORT ?? "14173", 10);
 
 function page(pathname: string, fixture: FormFixtureScenario, gtmContainerId?: string): string {
   return `<!doctype html>

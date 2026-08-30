@@ -91,7 +91,7 @@ for (const acceptance of contract.journeys) {
 
 test("a confirmed lead form can recognize the page container", async () => {
   const journey = await openExtensionJourney("confirmed_success", "GTM-TEST123");
-  await journey.context.route("http://127.0.0.1:8787/api/google/containers/**", async (route) => {
+  await journey.context.route("http://127.0.0.1:18787/api/google/containers/**", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",

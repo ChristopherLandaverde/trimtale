@@ -69,7 +69,7 @@ describe("workflow preflight", () => {
     const environment = {
       GOOGLE_OAUTH_CLIENT_ID: "client-id-sensitive",
       GOOGLE_OAUTH_CLIENT_SECRET: "client-secret-sensitive",
-      GOOGLE_OAUTH_REDIRECT_URI: "http://127.0.0.1:8787/api/google/oauth/callback",
+      GOOGLE_OAUTH_REDIRECT_URI: "http://127.0.0.1:18787/api/google/oauth/callback",
       EXTENSION_ORIGIN: `chrome-extension://${"a".repeat(32)}`,
       GOOGLE_GTM_CONTAINER_WRITES_ENABLED: "true",
       GOOGLE_OAUTH_TOKEN_STORE: "/var/lib/gtm-observability/google-oauth.json",
@@ -104,7 +104,7 @@ describe("workflow preflight", () => {
     const base = {
       GOOGLE_OAUTH_CLIENT_ID: "client-id",
       GOOGLE_OAUTH_CLIENT_SECRET: "client-secret",
-      GOOGLE_OAUTH_REDIRECT_URI: "http://127.0.0.1:8787/api/google/oauth/callback",
+      GOOGLE_OAUTH_REDIRECT_URI: "http://127.0.0.1:18787/api/google/oauth/callback",
       EXTENSION_ORIGIN: `chrome-extension://${"a".repeat(32)}`,
       GOOGLE_GTM_CONTAINER_WRITES_ENABLED: "true",
       GOOGLE_OAUTH_TOKEN_STORE: "/var/lib/gtm-observability/google-oauth.json",

@@ -2,7 +2,9 @@ import {
   interpretConversationIntent,
   type BrowserEvidence,
   type FormCandidate,
+  type FormSetupRequest,
   type NavigationElement,
+  type SetupRequest,
 } from "@gtm-observability/core";
 
 async function toggleAssistant(tab: chrome.tabs.Tab): Promise<void> {
@@ -81,6 +83,8 @@ chrome.runtime.onConnect.addListener((port) => {
 });
 
 type GtmContainerOperation = "inspect" | "prepare";
+type GtmWorkflowAction = "start" | "resume" | "get";
+type TrackingWorkflowRequest = SetupRequest | FormSetupRequest;
 
 const gtmPublicIdPattern = /^GTM-[A-Z0-9]+$/;
 
@@ -121,7 +125,7 @@ chrome.runtime.onMessage.addListener(
       return undefined;
     }
     const containerIds = [...new Set(message.containerIds)];
-    void fetch("http://127.0.0.1:8787/api/google/status")
+    void fetch("http://127.0.0.1:18787/api/google/status")
       .then(async (response) => {
         if (!response.ok) throw new Error("status_unavailable");
         const status: unknown = await response.json();
@@ -140,7 +144,7 @@ chrome.runtime.onMessage.addListener(
           return;
         }
         const recognitionResponse = await fetch(
-          `http://127.0.0.1:8787/api/google/containers/recognize?publicId=${encodeURIComponent(containerIds[0]!)}`,
+          `http://127.0.0.1:18787/api/google/containers/recognize?publicId=${encodeURIComponent(containerIds[0]!)}`,
         );
         if (!recognitionResponse.ok) {
           sendResponse({ ok: true, status: safeStatus, containerIds, recognitionError: "recognition_unavailable" });
@@ -168,8 +172,8 @@ chrome.runtime.onMessage.addListener(
 
     const operation = message.operation;
     const request = operation === "inspect"
-      ? fetch(`http://127.0.0.1:8787/api/google/containers/recognize?publicId=${encodeURIComponent(message.publicId)}`)
-      : fetch("http://127.0.0.1:8787/api/google/containers/prepare-workspace", {
+      ? fetch(`http://127.0.0.1:18787/api/google/containers/recognize?publicId=${encodeURIComponent(message.publicId)}`)
+      : fetch("http://127.0.0.1:18787/api/google/containers/prepare-workspace", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ publicId: message.publicId }),
@@ -188,6 +192,98 @@ chrome.runtime.onMessage.addListener(
           : "The local GTM integration could not be reached.",
       });
     });
+    return true;
+  },
+);
+
+function workflowError(status: number): string {
+  if (status === 403) return "Container-write access is disabled for this backend.";
+  if (status === 404) return "The tracking setup operation was not found.";
+  if (status === 409) return "The tracking setup operation is blocked and needs review.";
+  if (status === 503) return "Google OAuth is not configured or connected for setup operations.";
+  return "The tracking setup operation could not continue.";
+}
+
+async function readJsonResponse(response: Response): Promise<Record<string, unknown>> {
+  try {
+    const body = await response.json();
+    return isRecord(body) ? body : {};
+  } catch {
+    return {};
+  }
+}
+
+chrome.runtime.onMessage.addListener(
+  (
+    message: {
+      type?: string;
+      action?: GtmWorkflowAction;
+      request?: TrackingWorkflowRequest;
+      operationId?: string;
+    },
+    _sender,
+    sendResponse,
+  ) => {
+    if (message.type !== "GTM_WORKFLOW_REQUEST") return undefined;
+    void (async () => {
+      try {
+        let operationId = message.operationId;
+        if (message.action === "start") {
+          if (!message.request) {
+            sendResponse({ ok: false, error: "A confirmed tracking setup is required." });
+            return;
+          }
+          const planned = await fetch("http://127.0.0.1:18787/api/google/workflows/plan", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(message.request),
+          });
+          const plannedBody = await readJsonResponse(planned);
+          if (!planned.ok) {
+            sendResponse({ ok: false, error: workflowError(planned.status) });
+            return;
+          }
+          const result = isRecord(plannedBody.result) ? plannedBody.result : {};
+          const operation = isRecord(result.operation) ? result.operation : undefined;
+          operationId = typeof operation?.id === "string" ? operation.id : undefined;
+        }
+
+        if (message.action === "get") {
+          if (!operationId) {
+            sendResponse({ ok: false, error: "A tracking setup operation ID is required." });
+            return;
+          }
+          const detail = await fetch(`http://127.0.0.1:18787/api/google/workflows/${encodeURIComponent(operationId)}`);
+          const detailBody = await readJsonResponse(detail);
+          const operation = isRecord(detailBody.operation) ? detailBody.operation : undefined;
+          const result = operation?.status === "versioned"
+            ? { status: "versioned", operation, nextStep: "await_approval" }
+            : { status: "paused", operation, reason: "loaded" };
+          sendResponse(detail.ok
+            ? { ok: true, result }
+            : { ok: false, error: workflowError(detail.status) });
+          return;
+        }
+
+        if (message.action !== "start" && message.action !== "resume") {
+          sendResponse({ ok: false, error: "Unsupported tracking setup operation action." });
+          return;
+        }
+        if (!operationId) {
+          sendResponse({ ok: false, error: "A tracking setup operation ID is required." });
+          return;
+        }
+        const resumed = await fetch(`http://127.0.0.1:18787/api/google/workflows/${encodeURIComponent(operationId)}/resume`, {
+          method: "POST",
+        });
+        const resumedBody = await readJsonResponse(resumed);
+        sendResponse(resumed.ok
+          ? { ok: true, result: resumedBody.result }
+          : { ok: false, error: workflowError(resumed.status) });
+      } catch {
+        sendResponse({ ok: false, error: "The local GTM workflow service could not be reached." });
+      }
+    })();
     return true;
   },
 );
@@ -264,7 +360,7 @@ chrome.webRequest.onBeforeRequest.addListener(
     urls: [
       "*://*.google-analytics.com/g/collect*",
       "*://analytics.google.com/g/collect*",
-      "http://127.0.0.1:4173/g/collect*",
+      "http://127.0.0.1:14173/g/collect*",
     ],
   },
 );

@@ -54,7 +54,7 @@ function validOAuthCallback(value) {
     const url = new URL(value ?? "");
     return url.protocol === "http:"
       && url.hostname === "127.0.0.1"
-      && url.port === "8787"
+      && url.port === "18787"
       && url.pathname === "/api/google/oauth/callback"
       && url.search === "";
   } catch {
@@ -74,7 +74,7 @@ export function evaluateGoogleReadiness(environment) {
       "OAuth callback",
       validOAuthCallback(environment.GOOGLE_OAUTH_REDIRECT_URI),
       "exact local callback configured",
-      "expected http://127.0.0.1:8787/api/google/oauth/callback",
+      "expected http://127.0.0.1:18787/api/google/oauth/callback",
     ),
     check(
       "extension origin",

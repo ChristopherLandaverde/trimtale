@@ -23,7 +23,7 @@ export async function openExtensionJourney(
     args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
   });
   const page = await context.newPage();
-  const url = new URL("http://127.0.0.1:4173/");
+  const url = new URL("http://127.0.0.1:14173/");
   url.searchParams.set("formScenario", fixtureState);
   if (gtmContainerId) url.searchParams.set("gtm", gtmContainerId);
   await page.goto(url.toString());

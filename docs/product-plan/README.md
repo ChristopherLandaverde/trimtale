@@ -36,6 +36,8 @@ GTM Observability has three layers:
 
 The agent UX is the delight layer. The recurring scans and evidence history are the retention layer.
 
+The future product direction is captured as **Tracking Proof**: an owner-only overlay that proves each critical conversion through an evidence path from the real interaction to data layer, GTM, browser request, server-side routing, and destination receipt. Tracking Proof should remain contract-driven: a conversion is verified only when the expected proof chain passes, not merely because a tag exists or fires.
+
 These are product capabilities, not three separate interfaces. Internally, the browser overlay, extension service worker, backend, shared tracking logic, and GTM integration remain separate security and reliability boundaries. Customers should not need a proprietary SDK for browser-observable conversion setup and verification.
 
 ## Documents
@@ -45,3 +47,4 @@ These are product capabilities, not three separate interfaces. Internally, the b
 - [Build Stages](./build-stages.md) - MVP-to-full-product sequence.
 - [Technical Architecture](./technical-architecture.md) - System components and agent/workflow design.
 - [Go-To-Market Timing](./go-to-market.md) - When to build the website, market, sell, and narrow positioning.
+- [Tracking Proof Product Concept](./tracking-proof.md) - Future owner-only proof overlay, conversion contracts, evidence trails, status model, WordPress/WooCommerce wedge, positioning, and validation plan.

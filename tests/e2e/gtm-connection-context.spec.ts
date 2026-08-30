@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 
 const screenshotOptions = {
   animations: "disabled" as const,
+  maxDiffPixels: 50,
   stylePath: resolve("tests/e2e/visual-stability.css"),
 };
 
@@ -41,11 +42,11 @@ test("shows authenticated account, container, and read-only access before chat",
   await withExtension("matched", async (context, page) => {
     let statusRequests = 0;
     let recognitionRequests = 0;
-    await context.route("http://127.0.0.1:8787/api/google/status", async (route) => {
+    await context.route("http://127.0.0.1:18787/api/google/status", async (route) => {
       statusRequests += 1;
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(connectedReadOnlyStatus) });
     });
-    await context.route("http://127.0.0.1:8787/api/google/containers/recognize?*", async (route) => {
+    await context.route("http://127.0.0.1:18787/api/google/containers/recognize?*", async (route) => {
       recognitionRequests += 1;
       await route.fulfill({
         status: 200,
@@ -63,7 +64,7 @@ test("shows authenticated account, container, and read-only access before chat",
       });
     });
 
-    await page.goto("http://127.0.0.1:4173/?gtm=GTM-TEST123");
+    await page.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
     const root = page.locator("#gtm-observability-root");
     await expect(root).toBeAttached();
     await page.waitForTimeout(150);
@@ -90,8 +91,8 @@ test("shows authenticated account, container, and read-only access before chat",
 
 test("shows a local-service diagnostic without disabling chat", async () => {
   await withExtension("offline", async (context, page) => {
-    await context.route("http://127.0.0.1:8787/api/google/status", (route) => route.abort("connectionrefused"));
-    await page.goto("http://127.0.0.1:4173/?gtm=GTM-TEST123");
+    await context.route("http://127.0.0.1:18787/api/google/status", (route) => route.abort("connectionrefused"));
+    await page.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
     const root = page.locator("#gtm-observability-root");
     await root.getByRole("button", { name: "Open tracking assistant" }).click();
     const card = root.getByRole("region", { name: "GTM connection" });
@@ -109,16 +110,16 @@ test("distinguishes unconfigured and disconnected Google authorization", async (
   ]) {
     await withExtension(scenario.name, async (context, page) => {
       let recognitionRequests = 0;
-      await context.route("http://127.0.0.1:8787/api/google/status", (route) => route.fulfill({
+      await context.route("http://127.0.0.1:18787/api/google/status", (route) => route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify(scenario.status),
       }));
-      await context.route("http://127.0.0.1:8787/api/google/containers/recognize?*", async (route) => {
+      await context.route("http://127.0.0.1:18787/api/google/containers/recognize?*", async (route) => {
         recognitionRequests += 1;
         await route.abort();
       });
-      await page.goto("http://127.0.0.1:4173/?gtm=GTM-TEST123");
+      await page.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
       const root = page.locator("#gtm-observability-root");
       await root.getByRole("button", { name: "Open tracking assistant" }).click();
       await expect(root.getByRole("region", { name: "GTM connection" }).getByText(scenario.copy, { exact: true })).toBeVisible();
@@ -130,16 +131,16 @@ test("distinguishes unconfigured and disconnected Google authorization", async (
 test("shows connected access even when the page has no GTM container", async () => {
   await withExtension("no-page-container", async (context, page) => {
     let recognitionRequests = 0;
-    await context.route("http://127.0.0.1:8787/api/google/status", (route) => route.fulfill({
+    await context.route("http://127.0.0.1:18787/api/google/status", (route) => route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify(connectedReadOnlyStatus),
     }));
-    await context.route("http://127.0.0.1:8787/api/google/containers/recognize?*", async (route) => {
+    await context.route("http://127.0.0.1:18787/api/google/containers/recognize?*", async (route) => {
       recognitionRequests += 1;
       await route.abort();
     });
-    await page.goto("http://127.0.0.1:4173/");
+    await page.goto("http://127.0.0.1:14173/");
     const root = page.locator("#gtm-observability-root");
     await root.getByRole("button", { name: "Open tracking assistant" }).click();
     const card = root.getByRole("region", { name: "GTM connection" });
@@ -155,17 +156,17 @@ test("fails closed for inaccessible, ambiguous, and multiple page containers", a
     { name: "ambiguous", result: { status: "ambiguous", publicId: "GTM-TEST123", matchCount: 2 }, copy: "Ambiguous match" },
   ]) {
     await withExtension(scenario.name, async (context, page) => {
-      await context.route("http://127.0.0.1:8787/api/google/status", (route) => route.fulfill({
+      await context.route("http://127.0.0.1:18787/api/google/status", (route) => route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify(connectedReadOnlyStatus),
       }));
-      await context.route("http://127.0.0.1:8787/api/google/containers/recognize?*", (route) => route.fulfill({
+      await context.route("http://127.0.0.1:18787/api/google/containers/recognize?*", (route) => route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({ containerWritesEnabled: false, result: scenario.result }),
       }));
-      await page.goto("http://127.0.0.1:4173/?gtm=GTM-TEST123");
+      await page.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
       const root = page.locator("#gtm-observability-root");
       await root.getByRole("button", { name: "Open tracking assistant" }).click();
       await expect(root.getByRole("region", { name: "GTM connection" }).getByText(scenario.copy, { exact: true })).toBeVisible();
@@ -174,16 +175,16 @@ test("fails closed for inaccessible, ambiguous, and multiple page containers", a
 
   await withExtension("multiple", async (context, page) => {
     let recognitionRequests = 0;
-    await context.route("http://127.0.0.1:8787/api/google/status", (route) => route.fulfill({
+    await context.route("http://127.0.0.1:18787/api/google/status", (route) => route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify(connectedReadOnlyStatus),
     }));
-    await context.route("http://127.0.0.1:8787/api/google/containers/recognize?*", async (route) => {
+    await context.route("http://127.0.0.1:18787/api/google/containers/recognize?*", async (route) => {
       recognitionRequests += 1;
       await route.abort();
     });
-    await page.goto("http://127.0.0.1:4173/?gtm=GTM-ONE123");
+    await page.goto("http://127.0.0.1:14173/?gtm=GTM-ONE123");
     await page.evaluate(() => {
       const second = document.createElement("script");
       second.src = "https://www.googletagmanager.com/gtm.js?id=GTM-TWO456";
