@@ -149,6 +149,11 @@ operation card with the latest durable state. Validation failures and other bloc
 states remain separate from publication and include review guidance instead of raw
 Google response details.
 
+The visible blocked-state matrix now covers managed workspace capacity, ownership
+conflict, synchronization conflict, stale workspace, stale plan, inaccessible
+container, validation failure, and publication-disabled responses. These states do
+not create versions, publish, roll back, or claim platform confirmation.
+
 The setup runner stops at the `versioned` state and returns `await_approval`. The
 assistant displays the immutable version fingerprint and prior live fingerprint before
 rendering a fingerprint-specific publish action. The publish route approves and

@@ -205,7 +205,8 @@ chrome.runtime.onMessage.addListener(
   },
 );
 
-function workflowError(status: number): string {
+function workflowError(status: number, action?: GtmWorkflowAction): string {
+  if (status === 403 && action === "publish") return "GTM publication is disabled for this backend.";
   if (status === 403) return "Container-write access is disabled for this backend.";
   if (status === 404) return "The tracking setup operation was not found.";
   if (status === 409) return "The tracking setup operation is blocked and needs review.";
@@ -317,7 +318,7 @@ chrome.runtime.onMessage.addListener(
           const publishedBody = await readJsonResponse(published);
           sendResponse(published.ok
             ? { ok: true, result: publishedBody.result }
-            : { ok: false, error: workflowError(published.status) });
+            : { ok: false, error: workflowError(published.status, "publish") });
           return;
         }
 

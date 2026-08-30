@@ -121,6 +121,8 @@ async function mockWritableContainerAndWorkflow(
   options: {
     resumeResults?: Array<Record<string, unknown>>;
     publishResult?: Record<string, unknown>;
+    publishStatus?: number;
+    publishError?: string;
     storedOperation?: Record<string, unknown>;
     onResume?: () => void;
     onPublish?: () => void;
@@ -183,6 +185,14 @@ async function mockWritableContainerAndWorkflow(
   });
   await context.route("http://127.0.0.1:18787/api/google/workflows/*/publish", async (route) => {
     options.onPublish?.();
+    if (options.publishStatus && options.publishStatus >= 400) {
+      await route.fulfill({
+        status: options.publishStatus,
+        contentType: "application/json",
+        body: JSON.stringify({ error: options.publishError ?? "Publication blocked." }),
+      });
+      return;
+    }
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -413,6 +423,64 @@ test("matches the observed container and explicitly prepares one managed workspa
   }
 });
 
+test("does not start operations when managed workspace inspection is blocked", async () => {
+  const cases = [
+    {
+      workspace: { status: "capacity_blocked", workspaceCount: 3 },
+      expected: /All 3 workspace slots are occupied/,
+    },
+    {
+      workspace: { status: "ownership_conflict" },
+      expected: /Multiple managed ownership markers found/,
+    },
+    {
+      workspace: { status: "sync_conflict" },
+      expected: /Managed workspace has synchronization conflicts/,
+    },
+  ];
+  for (const [index, item] of cases.entries()) {
+    const profile = await mkdtemp(join(tmpdir(), `gtm-observability-workspace-block-${index}-`));
+    const extensionPath = resolve("apps/extension/dist");
+    const context = await chromium.launchPersistentContext(profile, {
+      channel: "chromium",
+      headless: true,
+      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+    });
+    await context.route("http://127.0.0.1:18787/api/google/containers/**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          containerWritesEnabled: true,
+          result: {
+            status: "recognized",
+            publicId: "GTM-TEST123",
+            container: { name: "Lead site", publicId: "GTM-TEST123" },
+            workspace: item.workspace,
+          },
+        }),
+      });
+    });
+    try {
+      const site = await context.newPage();
+      await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
+      const root = site.locator("#gtm-observability-root");
+      await root.getByRole("button", { name: "Open tracking assistant" }).click();
+      await root.getByLabel("Tracking request").fill("navigation");
+      await root.getByRole("button", { name: "Send request" }).click();
+      await root.getByRole("button", { name: "Track all" }).click();
+      await root.getByRole("button", { name: "Check GTM access" }).click();
+
+      await expect(root.getByText(item.expected)).toBeVisible();
+      await expect(root.getByRole("button", { name: "Prepare GTM version" })).toHaveCount(0);
+      await expect(root.getByRole("button", { name: "Prepare managed workspace" })).toHaveCount(0);
+    } finally {
+      await context.close();
+      await rm(profile, { recursive: true, force: true });
+    }
+  }
+});
+
 test("starts a navigation setup operation and stops at approval", async () => {
   const profile = await mkdtemp(join(tmpdir(), "gtm-observability-navigation-operation-"));
   const extensionPath = resolve("apps/extension/dist");
@@ -613,6 +681,67 @@ test("renders blocked validation state with bounded guidance and no publish clai
   }
 });
 
+test("renders stale and conflict resume blocks with bounded guidance", async () => {
+  const cases = [
+    {
+      reason: "stale_workspace",
+      expected: /The managed workspace changed since planning/,
+    },
+    {
+      reason: "stale_plan",
+      expected: /The GTM entities no longer match the saved plan/,
+    },
+    {
+      reason: "ownership_conflict",
+      expected: /An existing GTM entity conflicts with the owned plan/,
+    },
+    {
+      reason: "sync_conflict",
+      expected: /The managed workspace has synchronization conflicts/,
+    },
+    {
+      reason: "not_accessible",
+      expected: /cannot uniquely access the observed container/,
+    },
+  ];
+  for (const [index, item] of cases.entries()) {
+    const profile = await mkdtemp(join(tmpdir(), `gtm-observability-resume-block-${index}-`));
+    const extensionPath = resolve("apps/extension/dist");
+    const context = await chromium.launchPersistentContext(profile, {
+      channel: "chromium",
+      headless: true,
+      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+    });
+    await mockWritableContainerAndWorkflow(context, {
+      resumeResults: [{
+        status: "blocked",
+        stage: "application",
+        reason: item.reason,
+        operation: operation("applying"),
+      }],
+    });
+    try {
+      const site = await context.newPage();
+      await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
+      const root = site.locator("#gtm-observability-root");
+      await root.getByRole("button", { name: "Open tracking assistant" }).click();
+      await root.getByLabel("Tracking request").fill("navigation");
+      await root.getByRole("button", { name: "Send request" }).click();
+      await root.getByRole("button", { name: "Track all" }).click();
+      await root.getByRole("button", { name: "Check GTM access" }).click();
+
+      await root.getByRole("button", { name: "Prepare GTM version" }).click();
+      const operationRegion = root.getByRole("region", { name: "Setup operation" });
+      await expect(operationRegion.getByText(item.expected).first()).toBeVisible();
+      await expect(operationRegion.getByText(/Version fingerprint version-8/)).toHaveCount(0);
+      await expect(root.getByText(/platform-confirmed/i)).toHaveCount(0);
+    } finally {
+      await context.close();
+      await rm(profile, { recursive: true, force: true });
+    }
+  }
+});
+
 test("publishes only from an approved immutable version and keeps verification pending", async () => {
   const profile = await mkdtemp(join(tmpdir(), "gtm-observability-operation-publish-"));
   const extensionPath = resolve("apps/extension/dist");
@@ -650,6 +779,45 @@ test("publishes only from an approved immutable version and keeps verification p
     await expect(operationRegion.getByText("Run browser verification after publication")).toBeVisible();
     await expect(operationRegion.getByText(/Platform confirmation requires separate receipt evidence/)).toBeVisible();
     await expect(operationRegion.getByRole("button", { name: "Publish version-8" })).toHaveCount(0);
+    await expect(root.getByText(/platform-confirmed/i)).toHaveCount(0);
+    expect(publishCount).toBe(1);
+  } finally {
+    await context.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});
+
+test("keeps publication failures bounded without advancing verification", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "gtm-observability-publication-block-"));
+  const extensionPath = resolve("apps/extension/dist");
+  const context = await chromium.launchPersistentContext(profile, {
+    channel: "chromium",
+    headless: true,
+    args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+  });
+  let publishCount = 0;
+  await mockWritableContainerAndWorkflow(context, {
+    onPublish: () => {
+      publishCount += 1;
+    },
+    publishStatus: 403,
+  });
+  try {
+    const site = await context.newPage();
+    await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
+    const root = site.locator("#gtm-observability-root");
+    await root.getByRole("button", { name: "Open tracking assistant" }).click();
+    await root.getByLabel("Tracking request").fill("navigation");
+    await root.getByRole("button", { name: "Send request" }).click();
+    await root.getByRole("button", { name: "Track all" }).click();
+    await root.getByRole("button", { name: "Check GTM access" }).click();
+    await root.getByRole("button", { name: "Prepare GTM version" }).click();
+
+    const operationRegion = root.getByRole("region", { name: "Setup operation" });
+    await operationRegion.getByRole("button", { name: "Publish version-8" }).click();
+    await expect(root.getByText(/GTM publication is disabled for this backend/)).toBeVisible();
+    await expect(operationRegion.getByText(/Published version version-8/)).toHaveCount(0);
+    await expect(operationRegion.getByText(/Run browser verification after publication/)).toBeVisible();
     await expect(root.getByText(/platform-confirmed/i)).toHaveCount(0);
     expect(publishCount).toBe(1);
   } finally {

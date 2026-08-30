@@ -217,6 +217,28 @@ describe("resumable non-publishing tracking workflow", () => {
     expect(publishApprovedVersion).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the operation versioned when Google publication fails", async () => {
+    const store = await repository();
+    const client = google({
+      publishApprovedVersion: vi.fn().mockRejectedValue(new Error("publication disabled")),
+    });
+    const runner = new TrackingWorkflowRunner(store, client);
+    const planned = await runner.plan(request);
+    if (planned.status === "blocked") throw new Error(planned.reason);
+    const versioned = await runner.resume(planned.operation.id);
+    if (versioned.status !== "versioned") throw new Error(versioned.status);
+
+    await expect(runner.approveAndPublish(
+      planned.operation.id,
+      "version-8",
+      "practitioner@example.test",
+    )).rejects.toThrow("publication disabled");
+    const persisted = store.get(planned.operation.id);
+    expect(persisted?.status).toBe("versioned");
+    expect(persisted?.approval).toBeUndefined();
+    expect(persisted?.publication).toBeUndefined();
+  });
+
   it("persists partial application evidence and resumes safely", async () => {
     const client = google({
       applyManagedWorkspace: vi.fn()

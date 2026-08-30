@@ -240,14 +240,16 @@ export class TrackingWorkflowRunner {
         reason: "fingerprint_mismatch",
       };
     }
-    const approved = this.save(operation, approveTrackingVersion(
+    const approved = approveTrackingVersion(
       operation,
       approvedBy,
       nextTimestamp(operation.updatedAt, this.now),
-    ));
+    );
+    if (!approved.approval) throw new Error("Publication approval was not recorded.");
     const publication = await this.google.publishApprovedVersion(approved);
-    const published = this.save(approved, {
+    const published = this.save(operation, {
       status: "published",
+      approval: approved.approval,
       publication,
     });
     return { status: "published", operation: published, nextStep: "verify_publication" };

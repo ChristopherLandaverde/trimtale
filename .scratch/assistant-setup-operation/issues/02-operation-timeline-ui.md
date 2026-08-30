@@ -1,6 +1,6 @@
 # Render durable setup operation timeline
 
-Status: in progress
+Status: resolved
 
 Blocked by: 01
 
@@ -28,7 +28,7 @@ Add unit and E2E coverage for:
 The assistant should read operation state from the backend response or detail endpoint.
 Conversation state may trigger the action, but it must not become the source of truth.
 
-Initial versioned timeline and validation-blocked guidance are implemented for the
-assistant workflow. Remaining work is the full blocked-state visual matrix and
-dedicated baselines for capacity, ownership, synchronization, stale workspace,
-stale plan, quota, and revoked OAuth states.
+Resolved for the assistant setup-operation matrix. The workflow now renders versioned,
+published, partial-resume, validation-blocked, workspace capacity, ownership,
+synchronization, stale workspace, stale plan, inaccessible container, and publication
+blocked states with bounded guidance and no platform-confirmed claim.

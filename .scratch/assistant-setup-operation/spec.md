@@ -95,7 +95,7 @@ to the practitioner.
       run from non-versioned, stale, or mismatched operation state.
 - [x] Read-only, disconnected, inaccessible, ambiguous, and multiple-container states
       do not render an operation-start action.
-- [ ] Capacity, ownership, synchronization, stale-workspace, stale-plan, validation,
+- [x] Capacity, ownership, synchronization, stale-workspace, stale-plan, validation,
       and quota blocks are visible, bounded, and non-destructive.
 - [x] The assistant never publishes and never labels the setup as platform-confirmed.
 - [x] Permanent unit and E2E regression coverage runs in the ordinary harness.
