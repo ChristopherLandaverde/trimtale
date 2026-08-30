@@ -5,6 +5,7 @@ import {
   type FormSetupRequest,
   type NavigationElement,
   type SetupRequest,
+  type TrackingRunEvidenceV1,
 } from "@gtm-observability/core";
 
 async function toggleAssistant(tab: chrome.tabs.Tab): Promise<void> {
@@ -83,11 +84,13 @@ chrome.runtime.onConnect.addListener((port) => {
 });
 
 type GtmContainerOperation = "inspect" | "prepare";
-type GtmWorkflowAction = "start" | "resume" | "get" | "publish";
+type GtmWorkflowAction = "start" | "resume" | "get" | "publish" | "browserVerification";
 type TrackingWorkflowRequest = SetupRequest | FormSetupRequest;
 type StoredWorkflowResult =
   | { status: "versioned"; operation: Record<string, unknown>; nextStep: "await_approval" }
   | { status: "published"; operation: Record<string, unknown>; nextStep: "verify_publication" }
+  | { status: "completed"; operation: Record<string, unknown>; nextStep: "platform_unavailable" }
+  | { status: "rollback_required"; operation: Record<string, unknown>; nextStep: "rollback_approval" }
   | {
     status: "blocked" | "paused";
     operation: Record<string, unknown>;
@@ -231,6 +234,12 @@ function workflowResultFromStoredOperation(operation: Record<string, unknown>): 
   if (status === "published") {
     return { status: "published", operation, nextStep: "verify_publication" };
   }
+  if (status === "completed") {
+    return { status: "completed", operation, nextStep: "platform_unavailable" };
+  }
+  if (status === "rollback_required") {
+    return { status: "rollback_required", operation, nextStep: "rollback_approval" };
+  }
   if (status === "planned") {
     return { status: "paused", operation, stage: "planning", reason: "ready_to_apply" };
   }
@@ -258,6 +267,7 @@ chrome.runtime.onMessage.addListener(
       operationId?: string;
       versionFingerprint?: string;
       approvedBy?: string;
+      evidence?: TrackingRunEvidenceV1;
     },
     _sender,
     sendResponse,
@@ -319,6 +329,23 @@ chrome.runtime.onMessage.addListener(
           sendResponse(published.ok
             ? { ok: true, result: publishedBody.result }
             : { ok: false, error: workflowError(published.status, "publish") });
+          return;
+        }
+
+        if (message.action === "browserVerification") {
+          if (!operationId || !message.evidence) {
+            sendResponse({ ok: false, error: "Browser verification requires an operation ID and evidence." });
+            return;
+          }
+          const verified = await fetch(`http://127.0.0.1:18787/api/google/workflows/${encodeURIComponent(operationId)}/browser-verification`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ evidence: message.evidence }),
+          });
+          const verifiedBody = await readJsonResponse(verified);
+          sendResponse(verified.ok
+            ? { ok: true, result: verifiedBody.result }
+            : { ok: false, error: workflowError(verified.status) });
           return;
         }
 
@@ -387,7 +414,7 @@ chrome.runtime.onMessage.addListener(
     };
     pending = { tabId: sender.tab.id, evidence, startedAt: Date.now() };
     if (evidence.requests.length > message.evidence.requests.length) {
-      void chrome.runtime.sendMessage({ type: "VERIFICATION_EVIDENCE", evidence });
+      void chrome.tabs.sendMessage(sender.tab.id, { type: "VERIFICATION_EVIDENCE", evidence }).catch(() => undefined);
     }
   },
 );
@@ -410,7 +437,7 @@ chrome.webRequest.onBeforeRequest.addListener(
       requests: mergeRequests(pending.evidence.requests, [request]),
     };
     pending = { ...pending, evidence: updated };
-    void chrome.runtime.sendMessage({ type: "VERIFICATION_EVIDENCE", evidence: updated });
+    void chrome.tabs.sendMessage(details.tabId, { type: "VERIFICATION_EVIDENCE", evidence: updated }).catch(() => undefined);
     return undefined;
   },
   {

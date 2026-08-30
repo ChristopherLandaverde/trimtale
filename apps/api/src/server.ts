@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { createSetupProposal, type SetupRequest } from "@gtm-observability/core";
+import { assertTrackingRunEvidence, createSetupProposal, type SetupRequest } from "@gtm-observability/core";
 import { resolve } from "node:path";
 import { corsDecision } from "./cors.js";
 import { intakeEvaluationApiResponse } from "./intake-evaluation-api.js";
@@ -327,6 +327,38 @@ const server = createServer(async (request, response) => {
       const message = workflowError instanceof Error
         ? workflowError.message
         : "Unable to publish the tracking workflow.";
+      sendJson(response, status, { error: message });
+    }
+    return;
+  }
+
+  const browserVerificationMatch = requestUrl.pathname.match(
+    /^\/api\/google\/workflows\/([A-Za-z0-9_-]+)\/browser-verification$/,
+  );
+  if (request.method === "POST" && browserVerificationMatch) {
+    if (!workflowRunner) {
+      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
+      return;
+    }
+    try {
+      const body = await readJson(request);
+      const evidence = typeof body === "object" && body !== null && "evidence" in body
+        ? (body as { evidence?: unknown }).evidence
+        : undefined;
+      assertTrackingRunEvidence(evidence);
+      const result = await workflowRunner.recordBrowserVerification(browserVerificationMatch[1] ?? "", evidence);
+      sendJson(response, 200, { result });
+    } catch (workflowError) {
+      const status = workflowError instanceof Error && workflowError.message.includes("not found")
+        ? 404
+        : workflowError instanceof SyntaxError
+          ? 400
+          : 409;
+      const message = status === 404
+        ? "Tracking operation was not found."
+        : status === 400
+          ? "Browser verification evidence must be valid JSON."
+          : "Unable to record browser verification for the tracking workflow.";
       sendJson(response, status, { error: message });
     }
     return;

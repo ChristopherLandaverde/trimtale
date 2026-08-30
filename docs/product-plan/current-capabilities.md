@@ -2,7 +2,7 @@
 
 Status date: 2026-08-30
 
-GTM Observability currently turns a supported tracking intent into a confirmed tracking specification, generates a reviewable GTM setup, observes the website's GTM runtime, matches the observed container to Google access, and safely prepares one reusable managed workspace. When container-write access is enabled, the website assistant can now start the guarded backend setup operation for confirmed navigation-click and lead-form setups, render the durable operation timeline, create an immutable GTM version, and publish only after exact fingerprint approval. Separate backend clients can restore a recorded prior-live version; the website assistant still does not expose rollback, browser-verification automation after publication, or platform confirmation.
+GTM Observability currently turns a supported tracking intent into a confirmed tracking specification, generates a reviewable GTM setup, observes the website's GTM runtime, matches the observed container to Google access, and safely prepares one reusable managed workspace. When container-write access is enabled, the website assistant can now start the guarded backend setup operation for confirmed navigation-click and lead-form setups, render the durable operation timeline, create an immutable GTM version, publish only after exact fingerprint approval, and record post-publication browser evidence. Separate backend clients can restore a recorded prior-live version; the website assistant still does not expose rollback approval or platform confirmation.
 
 ## Current product workflow
 
@@ -19,7 +19,8 @@ Open the assistant and inspect page GTM / authorized access
     -> create or reuse one managed workspace
     -> optionally prepare a durable GTM version
     -> optionally publish the exact approved version fingerprint
-    -> stop before browser verification or platform confirmation
+    -> optionally verify the browser-to-Google collection request
+    -> stop before platform confirmation
 ```
 
 Each evidence stage is intentionally separate. A generated setup does not mean it was applied. A detected container does not mean the connected Google account can edit it. A prepared workspace does not mean the setup passed browser verification or was published.
@@ -47,6 +48,8 @@ The assistant currently supports:
   approval.
 - A publication action that appears only from a versioned operation card and submits
   the exact immutable version fingerprint to the backend approval/publish route.
+- A post-publication **Start browser verification** action that records whether the
+  confirmed interaction produced exactly one expected Google collection request.
 
 The conversation classifier and state transitions are deterministic today. Model-backed conversation intake is the next product slice, but no production model currently interprets tracking intents or decides whether evidence passed.
 
@@ -161,9 +164,12 @@ publishes only that exact fingerprint and remains behind its separate backend fl
 OAuth scope, approval lifetime, live-version drift check, and Google publish
 confirmation.
 
-After publication, the assistant marks only the publication stage complete. Browser
-verification and platform confirmation remain pending until separate proof evidence
-exists.
+After publication, the assistant can run browser verification for the confirmed
+navigation or lead-form interaction. Passing evidence marks the operation completed
+with `Google request verified`; failed evidence marks it `rollback_required` and
+shows the prior live version fingerprint for a future rollback approval workflow.
+Platform confirmation remains unavailable because browser evidence cannot prove GA4
+processing, reporting, attribution, or destination receipt.
 
 ## Evidence and diagnosis foundations
 

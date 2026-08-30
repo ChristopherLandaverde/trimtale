@@ -9,7 +9,10 @@ const screenshotOptions = {
   stylePath: resolve("tests/e2e/visual-stability.css"),
 };
 
-function operation(status: "planned" | "applying" | "validation_failed" | "versioned" | "published" = "versioned") {
+const navigationSpecId = "spec_e8d91c6baf9f";
+const navigationOperationId = `operation_${navigationSpecId}`;
+
+function operation(status: "planned" | "applying" | "validation_failed" | "versioned" | "published" | "completed" | "rollback_required" = "versioned") {
   const completedActionSignatures = status === "planned"
     ? []
     : status === "applying"
@@ -17,13 +20,13 @@ function operation(status: "planned" | "applying" | "validation_failed" | "versi
       : ["tag:navigation_click", "trigger:navigation_click"];
   return {
     schemaVersion: 1,
-    id: "operation_spec_navigation_test",
+    id: navigationOperationId,
     status,
     createdAt: "2026-08-30T20:00:00.000Z",
     updatedAt: "2026-08-30T20:01:00.000Z",
     specification: {
       schemaVersion: 1,
-      id: "spec_navigation_test",
+      id: navigationSpecId,
       status: "confirmed",
       originalIntent: "Track navigation clicks",
       interaction: { type: "navigation_click" },
@@ -86,7 +89,7 @@ function operation(status: "planned" | "applying" | "validation_failed" | "versi
       }],
     },
     completedActionSignatures,
-    ...((status === "validation_failed" || status === "versioned" || status === "published") ? {
+    ...((status === "validation_failed" || status === "versioned" || status === "published" || status === "completed" || status === "rollback_required") ? {
       validation: {
         status: status === "validation_failed" ? "failed" : "passed",
         checkedAt: "2026-08-30T20:01:00.000Z",
@@ -94,7 +97,7 @@ function operation(status: "planned" | "applying" | "validation_failed" | "versi
         errors: status === "validation_failed" ? ["The preview compiler rejected the generated trigger."] : [],
       },
     } : {}),
-    ...((status === "versioned" || status === "published") ? {
+    ...((status === "versioned" || status === "published" || status === "completed" || status === "rollback_required") ? {
       version: {
         path: "accounts/1/containers/10/versions/8",
         fingerprint: "version-8",
@@ -102,7 +105,7 @@ function operation(status: "planned" | "applying" | "validation_failed" | "versi
         priorLiveVersionFingerprint: "live-7",
       },
     } : {}),
-    ...(status === "published" ? {
+    ...((status === "published" || status === "completed" || status === "rollback_required") ? {
       approval: {
         approvedAt: "2026-08-30T20:02:00.000Z",
         approvedBy: "website assistant",
@@ -112,6 +115,13 @@ function operation(status: "planned" | "applying" | "validation_failed" | "versi
         publishedAt: "2026-08-30T20:03:00.000Z",
         versionFingerprint: "version-8",
       },
+    } : {}),
+    ...(status === "completed" ? {
+      postPublicationEvidenceId: "run_nav_services_1798646400000",
+    } : {}),
+    ...(status === "rollback_required" ? {
+      postPublicationEvidenceId: "run_nav_services_1798646400000",
+      rollback: { targetVersionFingerprint: "live-7", status: "required" },
     } : {}),
   };
 }
@@ -123,6 +133,8 @@ async function mockWritableContainerAndWorkflow(
     publishResult?: Record<string, unknown>;
     publishStatus?: number;
     publishError?: string;
+    browserVerificationResult?: Record<string, unknown>;
+    onBrowserVerification?: (body: Record<string, unknown>) => void;
     storedOperation?: Record<string, unknown>;
     onResume?: () => void;
     onPublish?: () => void;
@@ -176,7 +188,7 @@ async function mockWritableContainerAndWorkflow(
       body: JSON.stringify({ result: resumeResult }),
     });
   });
-  await context.route(/http:\/\/127\.0\.0\.1:18787\/api\/google\/workflows\/operation_spec_navigation_test$/, async (route) => {
+  await context.route(new RegExp(`http://127\\.0\\.0\\.1:18787/api/google/workflows/${navigationOperationId}$`), async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -201,6 +213,26 @@ async function mockWritableContainerAndWorkflow(
           status: "published",
           nextStep: "verify_publication",
           operation: operation("published"),
+        },
+      }),
+    });
+  });
+  await context.route("http://127.0.0.1:18787/api/google/workflows/*/browser-verification", async (route) => {
+    let raw: unknown = {};
+    try {
+      raw = route.request().postDataJSON();
+    } catch {
+      raw = {};
+    }
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) options.onBrowserVerification?.(raw as Record<string, unknown>);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        result: options.browserVerificationResult ?? {
+          status: "completed",
+          nextStep: "platform_unavailable",
+          operation: operation("completed"),
         },
       }),
     });
@@ -777,10 +809,58 @@ test("publishes only from an approved immutable version and keeps verification p
     await expect(operationRegion.getByText("Approved fingerprint version-8")).toBeVisible();
     await expect(operationRegion.getByText("Published version version-8")).toBeVisible();
     await expect(operationRegion.getByText("Run browser verification after publication")).toBeVisible();
-    await expect(operationRegion.getByText(/Platform confirmation requires separate receipt evidence/)).toBeVisible();
+    await expect(operationRegion.getByText(/Platform confirmation unavailable/)).toBeVisible();
     await expect(operationRegion.getByRole("button", { name: "Publish version-8" })).toHaveCount(0);
     await expect(root.getByText(/platform-confirmed/i)).toHaveCount(0);
     expect(publishCount).toBe(1);
+  } finally {
+    await context.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});
+
+test("records post-publication navigation browser verification without platform confirmation", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "gtm-observability-operation-browser-verify-"));
+  const extensionPath = resolve("apps/extension/dist");
+  const context = await chromium.launchPersistentContext(profile, {
+    channel: "chromium",
+    headless: true,
+    args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+  });
+  let postedEvidence: Record<string, unknown> | undefined;
+  await mockWritableContainerAndWorkflow(context, {
+    onBrowserVerification: (body) => {
+      postedEvidence = body;
+    },
+  });
+  try {
+    const site = await context.newPage();
+    await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
+    const root = site.locator("#gtm-observability-root");
+    await root.getByRole("button", { name: "Open tracking assistant" }).click();
+    await root.getByLabel("Tracking request").fill("navigation");
+    await root.getByRole("button", { name: "Send request" }).click();
+    await root.getByRole("button", { name: "Track all" }).click();
+    await root.getByRole("button", { name: "Check GTM access" }).click();
+    await root.getByRole("button", { name: "Prepare GTM version" }).click();
+
+    let operationRegion = root.getByRole("region", { name: "Setup operation" });
+    await operationRegion.getByRole("button", { name: "Publish version-8" }).click();
+    operationRegion = root.getByRole("region", { name: "Setup operation" });
+    await operationRegion.getByRole("button", { name: "Start browser verification" }).click();
+    await site.getByRole("link", { name: "Services" }).click();
+
+    await expect.poll(() => postedEvidence?.evidence && typeof postedEvidence.evidence === "object"
+      ? (postedEvidence.evidence as Record<string, unknown>).verdict
+      : undefined).toMatchObject({
+      code: "browser_verified",
+      browserVerification: "passed",
+      platformConfirmation: "unverified",
+    });
+    await expect.poll(() => postedEvidence?.evidence && typeof postedEvidence.evidence === "object"
+      ? (postedEvidence.evidence as Record<string, unknown>).specificationId
+      : undefined).toBe(navigationSpecId);
+    await expect(root.getByText(/platform-confirmed/i)).toHaveCount(0);
   } finally {
     await context.close();
     await rm(profile, { recursive: true, force: true });

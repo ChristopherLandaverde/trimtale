@@ -2,6 +2,7 @@ import {
   createFormSetupProposal,
   createSetupProposal,
   determineFormVerdict,
+  evaluateEvidence,
   normalizeFormRunEvidence,
   observeGtmRuntime,
   selectConversationSuccess,
@@ -82,9 +83,19 @@ type WorkflowResult =
     nextStep: "verify_publication";
   }
   | {
+    status: "completed";
+    operation: TrackingSetupOperationV1;
+    nextStep: "platform_unavailable";
+  }
+  | {
+    status: "rollback_required";
+    operation: TrackingSetupOperationV1;
+    nextStep: "rollback_approval";
+  }
+  | {
     status: "blocked" | "paused";
     operation?: TrackingSetupOperationV1;
-    stage?: "planning" | "application" | "validation" | "version" | "approval" | "publication";
+    stage?: "planning" | "application" | "validation" | "version" | "approval" | "publication" | "browser_verification";
     reason: string;
     details?: unknown;
   };
@@ -133,6 +144,7 @@ type ExtensionRequest =
   | { type: "SCAN_NAVIGATION" }
   | { type: "START_VERIFICATION"; navigation: NavigationElement[] }
   | { type: "GET_EVIDENCE" }
+  | { type: "VERIFICATION_EVIDENCE"; evidence: BrowserEvidence }
   | { type: "FORM_ANALYTICS_REQUEST"; request: { url: string; observedAt: string } }
   | { type: "TOGGLE_OVERLAY" };
 
@@ -157,6 +169,8 @@ const intakeByRequest = new Map<string, ConversationIntakeResult>();
 const formsByRequest = new Map<string, FormCandidate[]>();
 const recentFormRequests: Array<{ url: string; observedAt: string }> = [];
 let activeFormVerification: { requestId: string; intake: ConversationIntakeResult } | undefined;
+let activePostPublicationFormVerification: { operationId: string; request: FormSetupRequest } | undefined;
+let activePostPublicationNavigationVerification: { operationId: string; request: SetupRequest } | undefined;
 let gtmConnectionLoaded = false;
 let gtmConnectionRequestSequence = 0;
 let currentGtmConnection: GtmConnectionContext | undefined;
@@ -251,12 +265,12 @@ function formSetupDownloadHref(result: ConversationIntakeResult): string | undef
 
 function formExplanation(verdict: TrackingRunEvidenceV1["verdict"]): string {
   if (verdict.code === "browser_verified") {
-    return "Browser verification passed because one generate_lead request was observed. Platform confirmation remains unverified.";
+    return "Browser-to-Google request verified because one generate_lead request was observed. Platform confirmation remains unavailable.";
   }
   if (verdict.code === "expected_non_conversion") {
-    return "The form was stopped by validation, so this attempt was not counted. Correct the input and submit again. Platform confirmation remains unverified.";
+    return "The form was stopped by validation, so this attempt was not counted. Correct the input and submit again. Platform confirmation remains unavailable.";
   }
-  return `${verdict.code.replaceAll("_", " ")}. ${verdict.nextAction} Platform confirmation remains unverified.`;
+  return `${verdict.code.replaceAll("_", " ")}. ${verdict.nextAction} Platform confirmation remains unavailable.`;
 }
 
 function classifySubmissionResult(value: string | undefined): "success" | "validation_error" | "server_error" | "unknown" {
@@ -271,11 +285,12 @@ function classifyConsent(value: string | undefined): "granted" | "denied" | "unk
   return value === "granted" || value === "denied" ? value : "unknown";
 }
 
-function finishFormVerification(result: ConversationIntakeResult, startedAt: string): void {
-  const specification = confirmedFormSpecification(result);
-  const target = result.target;
-  const success = result.successSignal;
-  if (!specification || !target || !success) return;
+function formRunEvidence(
+  specification: TrackingSpecificationV1,
+  target: TrackingSpecificationV1["targets"][number],
+  success: SuccessEvidence,
+  startedAt: string,
+): TrackingRunEvidenceV1 {
   const pageState = document.documentElement.dataset;
   const requestUrls = recentFormRequests
     .filter((request) => Date.parse(request.observedAt) >= Date.parse(startedAt))
@@ -305,13 +320,51 @@ function finishFormVerification(result: ConversationIntakeResult, startedAt: str
     consent: classifyConsent(pageState.consent),
   }, provisionalVerdict);
   const verdict = determineFormVerdict(provisional.observations);
+  return { ...provisional, verdict };
+}
+
+function renderFormEvidence(evidence: TrackingRunEvidenceV1): HTMLElement {
   const verdictMessage = addMessage(
-    `Verdict: ${verdict.code}\nBrowser verification: ${verdict.browserVerification}\nPlatform confirmation: ${verdict.platformConfirmation}\nNext action: ${verdict.nextAction}`,
+    `Verdict: ${evidence.verdict.code}\nBrowser verification: ${evidence.verdict.browserVerification}\nPlatform confirmation: ${evidence.verdict.platformConfirmation}\nNext action: ${evidence.verdict.nextAction}`,
     "assistant",
   );
-  addMessage(formExplanation(verdict), "assistant").classList.add("explanation");
+  addMessage(formExplanation(evidence.verdict), "assistant").classList.add("explanation");
   window.requestAnimationFrame(() => verdictMessage.scrollIntoView({ block: "start" }));
+  return verdictMessage;
+}
+
+function finishFormVerification(result: ConversationIntakeResult, startedAt: string): void {
+  const specification = confirmedFormSpecification(result);
+  const target = result.target;
+  const success = successEvidenceFor(result);
+  if (!specification || !target || !success) return;
+  renderFormEvidence(formRunEvidence(specification, target, success, startedAt));
   activeFormVerification = undefined;
+}
+
+function finishPostPublicationFormVerification(startedAt: string): void {
+  const active = activePostPublicationFormVerification;
+  const target = active?.request.specification.targets[0];
+  const success = active?.request.specification.successEvidence[0];
+  if (!active || !target || !success) return;
+  const evidence = formRunEvidence(active.request.specification, target, success, startedAt);
+  renderFormEvidence(evidence);
+  activePostPublicationFormVerification = undefined;
+  void recordPostPublicationBrowserEvidence(active.operationId, evidence, active.request);
+}
+
+function finishPostPublicationNavigationVerification(expected: NavigationElement, item: BrowserEvidence): void {
+  const active = activePostPublicationNavigationVerification;
+  if (!active) return;
+  const verdict = evaluateEvidence(expected, item, createSetupProposal(active.request).specification.id);
+  if (!verdict.runEvidence) return;
+  activePostPublicationNavigationVerification = undefined;
+  verificationScope.clear();
+  addMessage(
+    `Verdict: ${verdict.runEvidence.verdict.code}\nBrowser verification: ${verdict.runEvidence.verdict.browserVerification}\nPlatform confirmation: ${verdict.runEvidence.verdict.platformConfirmation}\nNext action: ${verdict.runEvidence.verdict.nextAction}`,
+    "assistant",
+  );
+  void recordPostPublicationBrowserEvidence(active.operationId, verdict.runEvidence, active.request);
 }
 
 function areaFor(element: Element): NavigationArea {
@@ -436,6 +489,18 @@ async function requestSetupOperation(
     action,
     ...(typeof value === "string" ? { operationId: value } : { request: value }),
     ...approval,
+  }) as Promise<WorkflowBridgeResponse>;
+}
+
+async function requestBrowserVerification(
+  operationId: string,
+  evidence: TrackingRunEvidenceV1,
+): Promise<WorkflowBridgeResponse> {
+  return chrome.runtime.sendMessage({
+    type: "GTM_WORKFLOW_REQUEST",
+    action: "browserVerification",
+    operationId,
+    evidence,
   }) as Promise<WorkflowBridgeResponse>;
 }
 
@@ -780,6 +845,12 @@ function operationStorageKey(request: TrackingWorkflowRequest): string {
 
 function operationSummary(operation: TrackingSetupOperationV1): string {
   const actions = operation.plan.actions.length;
+  if (operation.status === "completed") {
+    return "Google collection request verified from browser evidence. Platform confirmation unavailable.";
+  }
+  if (operation.status === "rollback_required") {
+    return `Browser verification failed; rollback approval is required for prior live version ${operation.rollback?.targetVersionFingerprint ?? "unknown"}.`;
+  }
   if (operation.status === "published" && operation.publication) {
     return `Published approved version ${operation.publication.versionFingerprint}. Browser verification is next.`;
   }
@@ -798,6 +869,10 @@ function setupOperationGuidance(result: WorkflowResult): string {
     ? "await_approval"
     : result.status === "published"
       ? "verify_publication"
+      : result.status === "completed"
+        ? "platform_unavailable"
+        : result.status === "rollback_required"
+          ? "rollback_approval"
       : result.reason;
   if (reason === "ready_to_apply") return "Ready to apply owned GTM entities from the saved plan.";
   if (reason === "partial_application" || reason === "partial_failure") {
@@ -820,10 +895,20 @@ function setupOperationGuidance(result: WorkflowResult): string {
   }
   if (reason === "version_creation_blocked") return "GTM refused version creation. Review validation evidence and current workspace state.";
   if (reason === "await_approval") return "Review the immutable version fingerprint before any separate publication step.";
-  if (reason === "verify_publication") return "Approved GTM version was published. Browser verification is required before platform confirmation.";
+  if (reason === "verify_publication") return "Approved GTM version was published. Run browser verification to confirm the Google collection request.";
+  if (reason === "platform_unavailable") return "Google request verified from browser evidence. Platform confirmation remains unavailable.";
+  if (reason === "rollback_approval") return "Browser verification failed. Rollback approval is required before restoring the prior live version.";
   if (reason === "fingerprint_mismatch") return "The approved fingerprint did not match the immutable version. Publication was not attempted.";
   if (reason === "operation_not_versioned") return "Only a versioned operation can be approved for publication.";
   return "Review the saved operation state before continuing. Nothing was published.";
+}
+
+function workflowReason(result: WorkflowResult): string {
+  if (result.status === "versioned") return "await_approval";
+  if (result.status === "published") return "verify_publication";
+  if (result.status === "completed") return "platform_unavailable";
+  if (result.status === "rollback_required") return "rollback_approval";
+  return result.reason;
 }
 
 function renderSetupOperation(result: WorkflowResult, request?: TrackingWorkflowRequest): void {
@@ -840,20 +925,22 @@ function renderSetupOperation(result: WorkflowResult, request?: TrackingWorkflow
     ? "Awaiting approval"
     : result.status === "published"
       ? "Published"
+      : result.status === "completed"
+        ? "Google request verified"
+        : result.status === "rollback_required"
+          ? "Rollback required"
       : result.status;
   heading.append(title, label);
   path.append(heading);
 
   const operation = result.operation;
   const status = operation?.status;
-  const blockedReason = result.status === "versioned" || result.status === "published"
-    ? "Operation reached version creation"
-    : result.reason;
-  const resultReason = result.status === "versioned"
-    ? "await_approval"
-    : result.status === "published"
-      ? "verify_publication"
-      : result.reason;
+  const terminalWorkflow = result.status === "versioned"
+    || result.status === "published"
+    || result.status === "completed"
+    || result.status === "rollback_required";
+  const blockedReason = terminalWorkflow ? "Operation reached version creation" : result.reason;
+  const resultReason = workflowReason(result);
   const guidanceText = setupOperationGuidance(result);
   const stages = [
     { key: "planned", label: "Tracking change plan", detail: operation ? operationSummary(operation) : blockedReason },
@@ -890,8 +977,16 @@ function renderSetupOperation(result: WorkflowResult, request?: TrackingWorkflow
         ? `Published version ${operation.publication.versionFingerprint}`
         : "No version was published",
     },
-    { key: "browser", label: "Browser verification", detail: "Run browser verification after publication" },
-    { key: "platform", label: "Platform confirmation", detail: "Platform confirmation requires separate receipt evidence" },
+    {
+      key: "browser",
+      label: "Browser verification",
+      detail: operation?.status === "completed"
+        ? "Google request verified"
+        : operation?.status === "rollback_required"
+          ? `Verification failed; prior live version ${operation.rollback?.targetVersionFingerprint ?? "unknown"} is ready for rollback approval`
+          : "Run browser verification after publication",
+    },
+    { key: "platform", label: "Platform confirmation", detail: "Platform confirmation unavailable" },
   ];
   for (const stage of stages) {
     const row = document.createElement("div");
@@ -901,8 +996,8 @@ function renderSetupOperation(result: WorkflowResult, request?: TrackingWorkflow
         ? Boolean(status && ["published", "verification_failed", "rollback_required", "rolled_back", "completed"].includes(status))
         : stage.key === "browser"
           ? Boolean(status && ["verification_failed", "rollback_required", "rolled_back", "completed"].includes(status))
-          : stage.key === "platform"
-            ? status === "completed"
+        : stage.key === "platform"
+            ? false
       : stage.key === "planned"
         ? Boolean(status)
         : stage.key === "applying"
@@ -944,8 +1039,15 @@ function renderSetupOperation(result: WorkflowResult, request?: TrackingWorkflow
         void runPublishOperation(versionedOperation.id, versionedOperation.version!.fingerprint, request);
       });
     }
-  } else {
-    addMessage("Approved GTM version was published. Browser verification is next; platform confirmation remains pending.", "assistant");
+  } else if (result.status === "published") {
+    addMessage("Approved GTM version was published. Browser verification is next; platform confirmation remains unavailable.", "assistant");
+    appendInlineAction(path, "Start browser verification", () => {
+      void startPostPublicationBrowserVerification(result.operation, request);
+    });
+  } else if (result.status === "completed") {
+    addMessage("Google request verified from browser evidence. Platform confirmation remains unavailable.", "assistant");
+  } else if (result.status === "rollback_required") {
+    addMessage(`Browser verification failed. Rollback approval is required before restoring ${result.operation.rollback?.targetVersionFingerprint ?? "the prior live version"}.`, "assistant");
   }
   responseList?.append(path);
   responseList?.scrollTo({ top: responseList.scrollHeight });
@@ -996,6 +1098,50 @@ async function runPublishOperation(
   const operation = response.result.operation;
   if (operation && request) await rememberOperation(request, operation.id);
   renderSetupOperation(response.result, request);
+}
+
+function isNavigationWorkflowRequest(request: TrackingWorkflowRequest | undefined): request is SetupRequest {
+  return Boolean(request && "navigation" in request);
+}
+
+function isFormWorkflowRequest(request: TrackingWorkflowRequest | undefined): request is FormSetupRequest {
+  return Boolean(request && "specification" in request && request.specification.interaction.type === "form_submission");
+}
+
+async function recordPostPublicationBrowserEvidence(
+  operationId: string,
+  evidence: TrackingRunEvidenceV1,
+  request: TrackingWorkflowRequest,
+): Promise<void> {
+  const response = await requestBrowserVerification(operationId, evidence);
+  if (!response.ok) {
+    addMessage(`${response.error} The published version still needs review; platform confirmation remains unavailable.`, "assistant");
+    return;
+  }
+  renderSetupOperation(response.result, request);
+}
+
+async function startPostPublicationBrowserVerification(
+  operation: TrackingSetupOperationV1,
+  request?: TrackingWorkflowRequest,
+): Promise<void> {
+  if (isNavigationWorkflowRequest(request)) {
+    activePostPublicationNavigationVerification = { operationId: operation.id, request };
+    evidence.clear();
+    verificationScope = new Map(request.navigation.map((item) => [item.id, item]));
+    highlightTargets(navigationTargets(request.navigation), "confirmed");
+    addMessage("Browser verification is ready. Click one confirmed navigation link once.", "assistant");
+    return;
+  }
+  if (isFormWorkflowRequest(request)) {
+    recentFormRequests.length = 0;
+    activePostPublicationFormVerification = { operationId: operation.id, request };
+    const target = request.specification.targets[0];
+    if (target) highlightTargets([{ id: target.id, label: target.label, selector: target.selector }], "confirmed");
+    addMessage(`Browser verification is ready. Submit ${target?.label ?? "the selected form"} once.`, "assistant");
+    return;
+  }
+  addMessage("Reload the confirmed tracking request before starting browser verification for this published operation.", "assistant");
 }
 
 function navigationTargets(navigation: NavigationElement[]): PageTarget[] {
@@ -1619,17 +1765,32 @@ document.addEventListener("click", (event) => {
   const initial: BrowserEvidence = { navigationId: expected.id, clickedAt: new Date().toISOString(), pageUrl: location.href, linkText: (anchor.innerText || expected.text).trim(), linkUrl: anchor.href, requests: [] };
   evidence.set(expected.id, initial);
   void chrome.runtime.sendMessage({ type: "VERIFICATION_EVIDENCE", evidence: initial });
+  if (activePostPublicationNavigationVerification) {
+    window.setTimeout(() => {
+      const item = { ...initial, requests: recentAnalyticsRequests(startedAt) };
+      evidence.set(expected.id, item);
+      if (item.requests.length > 0) finishPostPublicationNavigationVerification(expected, item);
+    }, 180);
+  }
   window.setTimeout(() => {
     const item = { ...initial, requests: recentAnalyticsRequests(startedAt) };
     evidence.set(expected.id, item);
     void chrome.runtime.sendMessage({ type: "VERIFICATION_EVIDENCE", evidence: item });
+    if (item.requests.length > 0) finishPostPublicationNavigationVerification(expected, item);
   }, 1200);
 }, true);
 
 document.addEventListener("submit", (event) => {
   const active = activeFormVerification;
+  const postPublication = activePostPublicationFormVerification;
   const form = event.target instanceof HTMLFormElement ? event.target : undefined;
   const target = active?.intake.target;
+  const postPublicationTarget = postPublication?.request.specification.targets[0];
+  if (postPublication && form && postPublicationTarget && form.matches(postPublicationTarget.selector)) {
+    const startedAt = new Date().toISOString();
+    window.setTimeout(() => finishPostPublicationFormVerification(startedAt), 800);
+    return;
+  }
   if (!active || !form || !target || !form.matches(target.selector)) return;
   const startedAt = new Date().toISOString();
   window.setTimeout(() => finishFormVerification(active.intake, startedAt), 800);
@@ -1642,6 +1803,13 @@ if (!window.__gtmObservabilityInstalled) {
     if (request.type === "TOGGLE_OVERLAY") { void mountOverlay().then(() => setCollapsed(!preferences.collapsed)); sendResponse({ toggled: true }); return true; }
     if (request.type === "SCAN_NAVIGATION") { sendResponse(scanNavigation()); return; }
     if (request.type === "START_VERIFICATION") { evidence.clear(); verificationScope = new Map(request.navigation.map((item) => [item.id, item])); sendResponse({ started: true, count: verificationScope.size }); return; }
+    if (request.type === "VERIFICATION_EVIDENCE" && request.evidence) {
+      evidence.set(request.evidence.navigationId, request.evidence);
+      const expected = verificationScope.get(request.evidence.navigationId);
+      if (expected) finishPostPublicationNavigationVerification(expected, request.evidence);
+      sendResponse({ recorded: true });
+      return;
+    }
     if (request.type === "FORM_ANALYTICS_REQUEST") { recentFormRequests.push(request.request); sendResponse({ recorded: true }); return; }
     if (request.type === "GET_EVIDENCE") sendResponse({ evidence: [...evidence.values()] });
   });

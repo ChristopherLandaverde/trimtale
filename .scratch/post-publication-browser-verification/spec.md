@@ -1,6 +1,6 @@
 # Post-Publication Browser Verification
 
-Status: proposed
+Status: implemented for API recording, assistant UI, navigation E2E, and shared form evidence recording; remaining expansion covers lead-form E2E, broader privacy sentinels, and rollback approval automation.
 
 ## Objective
 
@@ -111,20 +111,22 @@ live version fingerprint visible for explicit rollback approval.
 
 ## Acceptance criteria
 
-- [ ] A published navigation operation can start browser verification and record
+- [x] A published navigation operation can start browser verification and record
       `Google request verified` from deterministic E2E evidence.
 - [ ] A published lead-form operation can start browser verification and record
       `Google request verified` from deterministic E2E evidence.
-- [ ] Failed post-publication browser evidence moves the operation to
+- [x] Failed post-publication browser evidence moves the operation to
       `rollback_required` with the prior live fingerprint visible.
-- [ ] Duplicate, missing, and wrong-event Google requests are permanent regressions.
-- [ ] Platform confirmation is labelled unavailable, not pending or confirmed.
+- [x] Duplicate and missing Google requests are permanent regressions through the
+      existing verdict engine and workflow-runner rollback tests; wrong-event
+      expansion remains for a later fixture.
+- [x] Platform confirmation is labelled unavailable, not pending or confirmed.
 - [ ] Privacy sentinels prove form values, cookies, credentials, arbitrary labels,
       hostile URLs, and raw browser errors do not enter persisted evidence.
-- [ ] Completed and rollback-required operation states reload from durable API state.
-- [ ] Exploratory Chromium review covers one passing path, one rollback-required path,
+- [x] Completed and rollback-required operation states reload from durable API state.
+- [x] Exploratory Chromium review covers one passing path, one rollback-required path,
       and one adversarial page state.
-- [ ] `npm run verify` passes.
+- [x] `npm run verify` passes.
 
 ## Open decisions
 

@@ -2,8 +2,10 @@ import {
   approveTrackingVersion,
   createFormSetupProposal,
   createSetupProposal,
+  recordPostPublicationEvidence,
   type FormSetupRequest,
   type SetupRequest,
+  type TrackingRunEvidenceV1,
   type TrackingSetupOperationV1,
 } from "@gtm-observability/core";
 import type { GtmDiscoveryClient } from "./google.js";
@@ -43,6 +45,10 @@ export type WorkflowPublishResult =
     reason: string;
     details?: unknown;
   };
+
+export type WorkflowBrowserVerificationResult =
+  | { status: "completed"; operation: TrackingSetupOperationV1; nextStep: "platform_unavailable" }
+  | { status: "rollback_required"; operation: TrackingSetupOperationV1; nextStep: "rollback_approval" };
 
 function nextTimestamp(previous: string, now: () => Date): string {
   const candidate = now().getTime();
@@ -253,6 +259,22 @@ export class TrackingWorkflowRunner {
       publication,
     });
     return { status: "published", operation: published, nextStep: "verify_publication" };
+  }
+
+  async recordBrowserVerification(
+    id: string,
+    evidence: TrackingRunEvidenceV1,
+  ): Promise<WorkflowBrowserVerificationResult> {
+    const operation = this.requiredOperation(id);
+    const updated = recordPostPublicationEvidence(
+      operation,
+      evidence,
+      nextTimestamp(operation.updatedAt, this.now),
+    );
+    const saved = this.save(operation, updated);
+    return saved.status === "completed"
+      ? { status: "completed", operation: saved, nextStep: "platform_unavailable" }
+      : { status: "rollback_required", operation: saved, nextStep: "rollback_approval" };
   }
 
   private requiredOperation(id: string): TrackingSetupOperationV1 {
