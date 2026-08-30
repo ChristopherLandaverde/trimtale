@@ -1,56 +1,42 @@
 import { randomBytes } from "node:crypto";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname } from "node:path";
+import {
+  assertTrackingOperation,
+  createTrackingChangePlan,
+  fingerprintTrackingChangeActions,
+  GTM_MANAGED_ENTITY_NOTE,
+  GTM_MANAGED_WORKSPACE_DESCRIPTION,
+  GTM_MANAGED_WORKSPACE_NAME,
+  inspectManagedWorkspace,
+  normalizePublicContainerId,
+  publicationApprovalCurrent,
+  recognizeContainer,
+  type GtmContainerExport,
+  type GtmEntitySet,
+  type ManagedWorkspaceInspection,
+  type TrackingChangePlan,
+  type TrackingChangeAction,
+  type TrackingSetupOperationV1,
+} from "@gtm-observability/core";
 
 export const GTM_READONLY_SCOPE = "https://www.googleapis.com/auth/tagmanager.readonly";
+export const GTM_EDIT_CONTAINERS_SCOPE = "https://www.googleapis.com/auth/tagmanager.edit.containers";
+export const GTM_EDIT_CONTAINER_VERSIONS_SCOPE = "https://www.googleapis.com/auth/tagmanager.edit.containerversions";
+export const GTM_PUBLISH_SCOPE = "https://www.googleapis.com/auth/tagmanager.publish";
 
 const authorizationEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
 const tokenEndpoint = "https://oauth2.googleapis.com/token";
+const tagManagerEndpoint = "https://tagmanager.googleapis.com/tagmanager/v2";
 const stateLifetimeMs = 10 * 60 * 1_000;
-
-export interface GoogleIntegrationConfig {
-  enabled: boolean;
-  accessToken?: string;
-  baseUrl: string;
-}
-
-export interface GoogleIntegrationStatus {
-  enabled: boolean;
-  baseUrl: string;
-  requiredEnv: string[];
-}
-
-export interface GtmAccountSummary {
-  accountId: string;
-  name: string;
-  path: string;
-}
-
-export interface GtmContainerSummary {
-  accountId: string;
-  containerId: string;
-  publicId: string;
-  name: string;
-  path: string;
-  usageContext: string[];
-}
-
-export interface GtmDiscoveryResult {
-  accounts: GtmAccountSummary[];
-  containers: GtmContainerSummary[];
-}
-
-export interface GtmSiteResolutionRequest {
-  pageUrl: string;
-  detected?: {
-    gtmContainers?: string[];
-    ga4MeasurementIds?: string[];
-  };
-}
-
-export interface GtmSiteResolutionResult {
-  matchedBy: "detected-container" | "none";
-  container?: GtmContainerSummary;
-  measurementIds: string[];
-}
 
 export interface GoogleOAuthConfig {
   clientId: string;
@@ -62,6 +48,7 @@ interface GoogleTokenResponse {
   access_token: string;
   expires_in: number;
   refresh_token?: string;
+  scope?: string;
   token_type: string;
 }
 
@@ -71,8 +58,23 @@ interface StoredTokens {
   refreshToken?: string;
 }
 
-export interface GtmAccountDiscovery extends GtmAccountSummary {
-  containers: GtmContainerSummary[];
+export interface GtmAccount {
+  accountId: string;
+  name: string;
+  path: string;
+}
+
+export interface GtmContainer {
+  accountId: string;
+  containerId: string;
+  name: string;
+  path: string;
+  publicId: string;
+  usageContext: string[];
+}
+
+export interface GtmAccountDiscovery extends GtmAccount {
+  containers: GtmContainer[];
 }
 
 export interface GtmWorkspace {
@@ -101,65 +103,88 @@ export interface GtmContainerVersion {
 }
 
 export interface GtmContainerEntityContext {
-  container: GtmContainerSummary;
+  container: GtmContainer;
   workspaces: GtmWorkspace[];
   liveVersion: GtmContainerVersion;
 }
 
-interface TagManagerAccountResponse {
-  account?: Array<Partial<GtmAccountSummary>>;
-  nextPageToken?: string;
-}
+export type GtmObservedContainerInspection =
+  | { status: "not_accessible"; publicId: string }
+  | { status: "ambiguous"; publicId: string; matchCount: number }
+  | {
+    status: "recognized";
+    publicId: string;
+    account: Pick<GtmAccount, "accountId" | "name">;
+    container: GtmContainer;
+    liveVersion: GtmContainerVersion;
+    workspace: ManagedWorkspaceInspection<GtmWorkspace>;
+  };
 
-interface TagManagerContainerResponse {
-  container?: Array<Partial<GtmContainerSummary>>;
-  nextPageToken?: string;
-}
+export type GtmManagedWorkspacePreparation =
+  | { status: "not_accessible"; publicId: string }
+  | { status: "ambiguous"; publicId: string; matchCount: number }
+  | {
+    status: "recognized";
+    publicId: string;
+    container: GtmContainer;
+    liveVersion: GtmContainerVersion;
+    workspace:
+      | { status: "created" | "reused"; workspaceCount: number; workspace: GtmWorkspace }
+      | { status: "capacity_blocked"; workspaceCount: number }
+      | {
+        status: "ownership_conflict";
+        workspaceCount: number;
+        managedWorkspaceCount: number;
+        reservedNameCount: number;
+      }
+      | { status: "sync_conflict"; workspaceCount: number; workspace: GtmWorkspace };
+  };
 
-interface WorkspaceListResponse {
-  workspace?: GtmWorkspace[];
-  nextPageToken?: string;
-}
+export type GtmManagedWorkspacePlanning =
+  | { status: "not_accessible"; publicId: string }
+  | { status: "ambiguous"; publicId: string; matchCount: number }
+  | {
+    status: "workspace_required" | "workspace_unavailable";
+    publicId: string;
+    container: GtmContainer;
+    workspace: ManagedWorkspaceInspection<GtmWorkspace>;
+  }
+  | {
+    status: "planned";
+    publicId: string;
+    container: GtmContainer;
+    workspace: GtmWorkspace;
+    workspaceFingerprint?: string;
+    plan: TrackingChangePlan;
+  };
+
+export type GtmManagedWorkspaceApplication =
+  | {
+    status: "applied";
+    completedActionSignatures: string[];
+    workspaceFingerprint?: string;
+    plan: TrackingChangePlan;
+  }
+  | {
+    status: "blocked";
+    reason:
+      | "not_accessible"
+      | "ambiguous"
+      | "workspace_unavailable"
+      | "ownership_conflict"
+      | "sync_conflict"
+      | "stale_workspace"
+      | "stale_plan";
+    completedActionSignatures: string[];
+  }
+  | {
+    status: "partial_failure";
+    failedActionSignature: string;
+    completedActionSignatures: string[];
+    message: string;
+  };
 
 type Fetch = typeof fetch;
-
-const accessTokenEnv = "GOOGLE_OAUTH_ACCESS_TOKEN";
-const defaultBaseUrl = "https://tagmanager.googleapis.com";
-const gtmPublicIdPattern = /\bGTM-[A-Z0-9]+\b/gi;
-const ga4MeasurementIdPattern = /\bG-(?=[A-Z0-9]*\d)[A-Z0-9]{8,15}\b/gi;
-
-export function loadGoogleIntegrationConfig(
-  env: NodeJS.ProcessEnv = process.env,
-): GoogleIntegrationConfig {
-  const accessToken = env[accessTokenEnv]?.trim();
-  const baseUrl = env.GOOGLE_TAG_MANAGER_API_BASE_URL?.trim() || defaultBaseUrl;
-  return accessToken
-    ? { enabled: true, accessToken, baseUrl }
-    : { enabled: false, baseUrl };
-}
-
-export function googleIntegrationStatus(config: GoogleIntegrationConfig): GoogleIntegrationStatus {
-  return {
-    enabled: config.enabled,
-    baseUrl: config.baseUrl,
-    requiredEnv: config.enabled ? [] : [accessTokenEnv],
-  };
-}
-
-export class GoogleIntegrationDisabledError extends Error {
-  constructor() {
-    super(`${accessTokenEnv} is required before real Google Tag Manager discovery can run.`);
-  }
-}
-
-export class GoogleIntegrationError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
-    super(message);
-  }
-}
 
 export function googleOAuthConfig(
   environment: NodeJS.ProcessEnv = process.env,
@@ -171,113 +196,100 @@ export function googleOAuthConfig(
   return { clientId, clientSecret, redirectUri };
 }
 
-async function getJson<T>(
-  fetchImpl: Fetch,
-  config: GoogleIntegrationConfig,
-  path: string,
-): Promise<T> {
-  if (!config.enabled || !config.accessToken) throw new GoogleIntegrationDisabledError();
+export function googleGtmWritesEnabled(
+  environment: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return environment.GOOGLE_GTM_CONTAINER_WRITES_ENABLED === "true";
+}
 
-  const response = await fetchImpl(new URL(path, config.baseUrl), {
-    headers: {
-      Authorization: `Bearer ${config.accessToken}`,
-      Accept: "application/json",
-    },
-  });
+export function googleGtmPublicationEnabled(environment: NodeJS.ProcessEnv = process.env): boolean {
+  return environment.GOOGLE_GTM_PUBLICATION_ENABLED === "true";
+}
 
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`Google Tag Manager API returned ${response.status}: ${detail}`);
+export function googleGtmPublicationScopeRequested(
+  environment: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return environment.GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED === "true";
+}
+
+export class GoogleIntegrationError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
   }
-
-  return response.json() as Promise<T>;
 }
 
 async function responseJson<T>(response: Response): Promise<T> {
-  const value = (await response.json()) as T & { error?: string; error_description?: string };
+  const value = (await response.json()) as T & {
+    error?: string | { message?: string; status?: string };
+    error_description?: string;
+  };
   if (!response.ok) {
-    const detail = value.error_description ?? value.error ?? `HTTP ${response.status}`;
+    const detail = value.error_description
+      ?? (typeof value.error === "string" ? value.error : value.error?.message)
+      ?? `HTTP ${response.status}`;
     throw new GoogleIntegrationError(`Google API request failed: ${detail}`, response.status);
   }
   return value;
 }
 
-function pagedPath(path: string, pageToken: string | undefined): string {
-  if (!pageToken) return path;
-  const url = new URL(path, defaultBaseUrl);
-  url.searchParams.set("pageToken", pageToken);
-  return `${url.pathname}${url.search}`;
+export interface GoogleOAuthTokenStore {
+  load(): string | undefined;
+  save(refreshToken: string): void;
+  clear(): void;
 }
 
-function accountSummary(account: Partial<GtmAccountSummary>): GtmAccountSummary | undefined {
-  if (!account.accountId || !account.name || !account.path) return undefined;
-  return {
-    accountId: account.accountId,
-    name: account.name,
-    path: account.path,
-  };
+interface StoredRefreshTokenV1 {
+  schemaVersion: 1;
+  clientId: string;
+  refreshToken: string;
 }
 
-function containerSummary(container: Partial<GtmContainerSummary>): GtmContainerSummary | undefined {
-  if (!container.accountId || !container.containerId || !container.publicId || !container.name || !container.path) {
-    return undefined;
+export class FileGoogleOAuthTokenStore implements GoogleOAuthTokenStore {
+  constructor(
+    readonly filePath: string,
+    private readonly clientId: string,
+  ) {}
+
+  load(): string | undefined {
+    if (!existsSync(this.filePath)) return undefined;
+    if ((statSync(this.filePath).mode & 0o077) !== 0) {
+      throw new Error("Google OAuth token store must not be readable by group or other users.");
+    }
+    let value: unknown;
+    try {
+      value = JSON.parse(readFileSync(this.filePath, "utf8"));
+    } catch {
+      throw new Error("Google OAuth token store is corrupted.");
+    }
+    if (!isJsonRecord(value) || value.schemaVersion !== 1
+      || value.clientId !== this.clientId
+      || typeof value.refreshToken !== "string" || !value.refreshToken.trim()) {
+      throw new Error("Google OAuth token store is invalid for this OAuth client.");
+    }
+    return value.refreshToken;
   }
-  return {
-    accountId: container.accountId,
-    containerId: container.containerId,
-    publicId: container.publicId,
-    name: container.name,
-    path: container.path,
-    usageContext: container.usageContext ?? [],
-  };
-}
 
-export async function discoverGtmContainers(
-  config: GoogleIntegrationConfig,
-  fetchImpl: Fetch = fetch,
-): Promise<GtmDiscoveryResult> {
-  const accounts: GtmAccountSummary[] = [];
-  let accountPageToken: string | undefined;
-  do {
-    const accountResponse = await getJson<TagManagerAccountResponse>(
-      fetchImpl,
-      config,
-      pagedPath("/tagmanager/v2/accounts", accountPageToken),
-    );
-    accounts.push(
-      ...(accountResponse.account ?? []).flatMap((account) => {
-        const summary = accountSummary(account);
-        return summary ? [summary] : [];
-      }),
-    );
-    accountPageToken = accountResponse.nextPageToken;
-  } while (accountPageToken);
+  save(refreshToken: string): void {
+    const value: StoredRefreshTokenV1 = {
+      schemaVersion: 1,
+      clientId: this.clientId,
+      refreshToken,
+    };
+    mkdirSync(dirname(this.filePath), { recursive: true });
+    const temporaryPath = `${this.filePath}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
+    writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+    renameSync(temporaryPath, this.filePath);
+  }
 
-  const containers = (
-    await Promise.all(
-      accounts.map(async (account) => {
-        const accountContainers: GtmContainerSummary[] = [];
-        let containerPageToken: string | undefined;
-        do {
-          const containerResponse = await getJson<TagManagerContainerResponse>(
-            fetchImpl,
-            config,
-            pagedPath(`/tagmanager/v2/${account.path}/containers`, containerPageToken),
-          );
-          accountContainers.push(
-            ...(containerResponse.container ?? []).flatMap((container) => {
-              const summary = containerSummary(container);
-              return summary ? [summary] : [];
-            }),
-          );
-          containerPageToken = containerResponse.nextPageToken;
-        } while (containerPageToken);
-        return accountContainers;
-      }),
-    )
-  ).flat();
-
-  return { accounts, containers };
+  clear(): void {
+    if (existsSync(this.filePath)) unlinkSync(this.filePath);
+  }
 }
 
 export class GoogleOAuthSession {
@@ -288,7 +300,15 @@ export class GoogleOAuthSession {
     private readonly config: GoogleOAuthConfig,
     private readonly fetcher: Fetch = fetch,
     private readonly now: () => number = Date.now,
-  ) {}
+    private readonly containerWritesEnabled = false,
+    private readonly publicationScopeRequested = false,
+    private readonly tokenStore?: GoogleOAuthTokenStore,
+  ) {
+    const refreshToken = tokenStore?.load();
+    if (refreshToken) {
+      this.tokens = { accessToken: "", expiresAt: 0, refreshToken };
+    }
+  }
 
   isConnected(): boolean {
     return this.tokens !== undefined;
@@ -303,7 +323,9 @@ export class GoogleOAuthSession {
       client_id: this.config.clientId,
       redirect_uri: this.config.redirectUri,
       response_type: "code",
-      scope: GTM_READONLY_SCOPE,
+      scope: this.containerWritesEnabled
+        ? `${GTM_READONLY_SCOPE} ${GTM_EDIT_CONTAINERS_SCOPE} ${GTM_EDIT_CONTAINER_VERSIONS_SCOPE}${this.publicationScopeRequested ? ` ${GTM_PUBLISH_SCOPE}` : ""}`
+        : GTM_READONLY_SCOPE,
       access_type: "offline",
       include_granted_scopes: "true",
       prompt: "consent",
@@ -329,7 +351,8 @@ export class GoogleOAuthSession {
         grant_type: "authorization_code",
       }),
     });
-    this.tokens = this.store(await responseJson<GoogleTokenResponse>(response));
+    const result = await responseJson<GoogleTokenResponse>(response);
+    this.tokens = this.store(result, this.tokens?.refreshToken);
   }
 
   async accessToken(): Promise<string> {
@@ -339,18 +362,27 @@ export class GoogleOAuthSession {
       this.tokens = undefined;
       throw new GoogleIntegrationError("Google authorization expired. Connect again.", 401);
     }
-    const response = await this.fetcher(tokenEndpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        refresh_token: this.tokens.refreshToken,
-        client_id: this.config.clientId,
-        client_secret: this.config.clientSecret,
-        grant_type: "refresh_token",
-      }),
-    });
-    this.tokens = this.store(await responseJson<GoogleTokenResponse>(response), this.tokens.refreshToken);
-    return this.tokens.accessToken;
+    try {
+      const response = await this.fetcher(tokenEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          refresh_token: this.tokens.refreshToken,
+          client_id: this.config.clientId,
+          client_secret: this.config.clientSecret,
+          grant_type: "refresh_token",
+        }),
+      });
+      const result = await responseJson<GoogleTokenResponse>(response);
+      this.tokens = this.store(result, this.tokens.refreshToken);
+      return this.tokens.accessToken;
+    } catch (error) {
+      if (error instanceof GoogleIntegrationError && (error.status === 400 || error.status === 401)) {
+        this.tokens = undefined;
+        this.tokenStore?.clear();
+      }
+      throw error;
+    }
   }
 
   private store(result: GoogleTokenResponse, existingRefreshToken?: string): StoredTokens {
@@ -358,6 +390,10 @@ export class GoogleOAuthSession {
       throw new GoogleIntegrationError("Google returned an invalid OAuth token response.", 502);
     }
     const refreshToken = result.refresh_token ?? existingRefreshToken;
+    if (this.tokenStore && !refreshToken) {
+      throw new GoogleIntegrationError("Google did not return the required offline refresh token.", 502);
+    }
+    if (refreshToken) this.tokenStore?.save(refreshToken);
     return {
       accessToken: result.access_token,
       expiresAt: this.now() + result.expires_in * 1_000,
@@ -372,23 +408,111 @@ export class GoogleOAuthSession {
   }
 }
 
+interface AccountListResponse {
+  account?: GtmAccount[];
+  nextPageToken?: string;
+}
+
+interface ContainerListResponse {
+  container?: GtmContainer[];
+  nextPageToken?: string;
+}
+
+interface WorkspaceListResponse {
+  workspace?: GtmWorkspace[];
+  nextPageToken?: string;
+}
+
+interface WorkspaceSyncResponse {
+  syncStatus?: { mergeConflict?: boolean; syncError?: boolean };
+  mergeConflict?: unknown[];
+}
+
+interface WorkspaceStatusResponse {
+  workspaceChange?: unknown[];
+  mergeConflict?: unknown[];
+}
+
+interface WorkspacePreviewResponse {
+  containerVersion?: GtmContainerVersion;
+  syncStatus?: { mergeConflict?: boolean; syncError?: boolean };
+  compilerError?: boolean;
+}
+
+interface WorkspaceCreateVersionResponse extends WorkspacePreviewResponse {
+  newWorkspacePath?: string;
+}
+
+interface PublishVersionResponse {
+  containerVersion?: GtmContainerVersion;
+  compilerError?: boolean;
+}
+
+export interface GtmWorkspaceValidationEvidence {
+  status: "passed" | "failed";
+  checkedAt: string;
+  workspaceFingerprint: string;
+  errors: string[];
+  workspaceChanges: unknown[];
+  previewVersionFingerprint?: string;
+}
+
+export type GtmValidatedVersionResult =
+  | {
+    status: "versioned";
+    validation: GtmWorkspaceValidationEvidence;
+    version: {
+      path: string;
+      fingerprint: string;
+      priorLiveVersionPath: string;
+      priorLiveVersionFingerprint: string;
+    };
+  }
+  | { status: "blocked"; validation: GtmWorkspaceValidationEvidence };
+
+interface TagListResponse {
+  tag?: unknown[];
+  nextPageToken?: string;
+}
+
+interface TriggerListResponse {
+  trigger?: unknown[];
+  nextPageToken?: string;
+}
+
+interface VariableListResponse {
+  variable?: unknown[];
+  nextPageToken?: string;
+}
+
+interface BuiltInVariableListResponse {
+  builtInVariable?: unknown[];
+  nextPageToken?: string;
+}
+
 export class GtmDiscoveryClient {
+  private readonly preparations = new Map<string, Promise<GtmManagedWorkspacePreparation>>();
+
   constructor(
     private readonly getAccessToken: () => Promise<string>,
     private readonly fetcher: Fetch = fetch,
-    private readonly baseUrl: string = defaultBaseUrl,
+    private readonly containerWritesEnabled = false,
+    private readonly publicationEnabled = false,
+    private readonly now: () => number = Date.now,
+    private readonly wait: (milliseconds: number) => Promise<void> = (milliseconds) =>
+      new Promise((resolve) => setTimeout(resolve, milliseconds)),
   ) {}
 
   async discover(): Promise<GtmAccountDiscovery[]> {
-    const accounts = await this.listAll<GtmAccountSummary, TagManagerAccountResponse>(
-      "/tagmanager/v2/accounts",
+    const accounts = await this.listAll<GtmAccount, AccountListResponse>(
+      "/accounts",
       "account",
     );
     return Promise.all(
       accounts.map(async (account) => ({
         ...account,
-        containers: await this.listAll<GtmContainerSummary, TagManagerContainerResponse>(
-          `/tagmanager/v2/${account.path}/containers`,
+        containers: await this.listAll<GtmContainer, ContainerListResponse>(
+          `/${account.path}/containers`,
           "container",
         ),
       })),
@@ -402,18 +526,553 @@ export class GtmDiscoveryClient {
     if (!/^\d+$/.test(accountId) || !/^\d+$/.test(containerId)) {
       throw new GoogleIntegrationError("GTM account and container IDs must be numeric.", 400);
     }
-    const parent = `/tagmanager/v2/accounts/${accountId}/containers/${containerId}`;
+    const parent = `/accounts/${accountId}/containers/${containerId}`;
     const [container, workspaces, liveVersion] = await Promise.all([
-      this.get<GtmContainerSummary>(parent),
+      this.get<GtmContainer>(parent),
       this.listAll<GtmWorkspace, WorkspaceListResponse>(`${parent}/workspaces`, "workspace"),
       this.get<GtmContainerVersion>(`${parent}/versions:live`),
     ]);
     return { container, workspaces, liveVersion };
   }
 
+  async inspectObservedContainer(publicId: string): Promise<GtmObservedContainerInspection> {
+    const recognition = await this.recognizeObservedContainer(publicId);
+    if (recognition.status !== "recognized") return recognition;
+    const context = await this.containerEntityContext(
+      recognition.container.accountId,
+      recognition.container.containerId,
+    );
+    return {
+      ...recognition,
+      container: context.container,
+      liveVersion: context.liveVersion,
+      workspace: inspectManagedWorkspace(context.workspaces),
+    };
+  }
+
+  async workspaceEntitySet(workspace: GtmWorkspace): Promise<GtmEntitySet> {
+    if (!/^accounts\/\d+\/containers\/\d+\/workspaces\/\d+$/.test(workspace.path)) {
+      throw new GoogleIntegrationError("GTM workspace path is malformed.", 400);
+    }
+    const parent = `/${workspace.path}`;
+    const [tag, trigger, variable, builtInVariable] = await Promise.all([
+      this.listAll<unknown, TagListResponse>(`${parent}/tags`, "tag"),
+      this.listAll<unknown, TriggerListResponse>(`${parent}/triggers`, "trigger"),
+      this.listAll<unknown, VariableListResponse>(`${parent}/variables`, "variable"),
+      this.listAll<unknown, BuiltInVariableListResponse>(
+        `${parent}/built_in_variables`,
+        "builtInVariable",
+      ),
+    ]);
+    return { tag, trigger, variable, builtInVariable };
+  }
+
+  async planManagedWorkspace(
+    publicId: string,
+    generatedSetup: GtmContainerExport,
+  ): Promise<GtmManagedWorkspacePlanning> {
+    const normalizedPublicId = normalizePublicContainerId(publicId);
+    if (
+      normalizePublicContainerId(generatedSetup.containerVersion.container.publicId)
+      !== normalizedPublicId
+    ) {
+      throw new GoogleIntegrationError(
+        "Generated tracking setup does not belong to the observed GTM container.",
+        400,
+      );
+    }
+
+    const inspection = await this.inspectObservedContainer(normalizedPublicId);
+    if (inspection.status !== "recognized") return inspection;
+    if (inspection.workspace.status !== "available") {
+      return {
+        status: "workspace_unavailable",
+        publicId: inspection.publicId,
+        container: inspection.container,
+        workspace: inspection.workspace,
+      };
+    }
+    if (inspection.workspace.action === "create") {
+      return {
+        status: "workspace_required",
+        publicId: inspection.publicId,
+        container: inspection.container,
+        workspace: inspection.workspace,
+      };
+    }
+
+    this.assertWorkspacePath(inspection.workspace.workspace, inspection.container);
+    const entities = await this.workspaceEntitySet(inspection.workspace.workspace);
+    return {
+      status: "planned",
+      publicId: inspection.publicId,
+      container: inspection.container,
+      workspace: inspection.workspace.workspace,
+      ...(inspection.workspace.workspace.fingerprint
+        ? { workspaceFingerprint: inspection.workspace.workspace.fingerprint }
+        : {}),
+      plan: createTrackingChangePlan(generatedSetup, entities),
+    };
+  }
+
+  async prepareManagedWorkspace(publicId: string): Promise<GtmManagedWorkspacePreparation> {
+    if (!this.containerWritesEnabled) {
+      throw new GoogleIntegrationError("GTM container writes are disabled on this backend.", 403);
+    }
+    const normalized = normalizePublicContainerId(publicId);
+    const pending = this.preparations.get(normalized);
+    if (pending) return pending;
+    const preparation = this.prepareManagedWorkspaceOnce(normalized).finally(() => {
+      this.preparations.delete(normalized);
+    });
+    this.preparations.set(normalized, preparation);
+    return preparation;
+  }
+
+  async applyManagedWorkspace(
+    operation: TrackingSetupOperationV1,
+  ): Promise<GtmManagedWorkspaceApplication> {
+    if (!this.containerWritesEnabled) {
+      throw new GoogleIntegrationError("GTM container writes are disabled on this backend.", 403);
+    }
+    assertTrackingOperation(operation);
+    if (operation.status !== "planned" && operation.status !== "applying") {
+      throw new GoogleIntegrationError("Only planned or applying tracking operations can be applied.", 409);
+    }
+    const completed = new Set(operation.completedActionSignatures);
+    const blocked = (reason: Extract<GtmManagedWorkspaceApplication, { status: "blocked" }>["reason"]): GtmManagedWorkspaceApplication => ({
+      status: "blocked",
+      reason,
+      completedActionSignatures: [...completed],
+    });
+    if (fingerprintTrackingChangeActions(operation.plan.actions) !== operation.plan.fingerprint) {
+      return blocked("stale_plan");
+    }
+    if (operation.plan.status === "conflict") return blocked("ownership_conflict");
+
+    const inspection = await this.inspectObservedContainer(operation.container.publicId);
+    if (inspection.status === "not_accessible") return blocked("not_accessible");
+    if (inspection.status === "ambiguous") return blocked("ambiguous");
+    if (inspection.workspace.status !== "available" || inspection.workspace.action !== "reuse") {
+      return blocked(inspection.workspace.status === "ownership_conflict"
+        ? "ownership_conflict"
+        : "workspace_unavailable");
+    }
+    if (inspection.workspace.workspace.path !== operation.workspace.path
+      || inspection.workspace.workspace.fingerprint !== operation.workspace.fingerprint) {
+      return blocked("stale_workspace");
+    }
+
+    const sync = await this.post<WorkspaceSyncResponse>(`/${operation.workspace.path}:sync`);
+    const status = await this.get<WorkspaceStatusResponse>(`/${operation.workspace.path}/status`);
+    if (sync.syncStatus?.mergeConflict || sync.syncStatus?.syncError
+      || (sync.mergeConflict?.length ?? 0) > 0 || (status.mergeConflict?.length ?? 0) > 0) {
+      return blocked("sync_conflict");
+    }
+
+    for (const expected of operation.plan.actions) {
+      const fresh = await this.planBoundManagedWorkspace(operation);
+      if (fresh.status !== "planned" || fresh.workspace.path !== operation.workspace.path) {
+        return blocked(fresh.status === "workspace_unavailable" ? "ownership_conflict" : "stale_workspace");
+      }
+      const current = fresh.plan.actions.find((candidate) => sameActionIdentity(candidate, expected));
+      if (!current) return blocked("stale_plan");
+      if (current.action === "conflict") return blocked("ownership_conflict");
+
+      if (completed.has(expected.entitySignature)) {
+        if (current.action === "create" || current.action === "update") return blocked("stale_plan");
+        continue;
+      }
+      if (current.action === "reuse" || current.action === "no_op") {
+        completed.add(expected.entitySignature);
+        continue;
+      }
+      if ((current.action !== "create" && current.action !== "update") || current.action !== expected.action) {
+        return blocked("stale_plan");
+      }
+
+      try {
+        await this.applyEntityAction(
+          operation.generatedSetup,
+          fresh,
+          current as TrackingChangeAction & { action: "create" | "update" },
+        );
+        completed.add(expected.entitySignature);
+      } catch (error) {
+        return {
+          status: "partial_failure",
+          failedActionSignature: expected.entitySignature,
+          completedActionSignatures: [...completed],
+          message: error instanceof Error ? error.message : "Google entity write failed.",
+        };
+      }
+    }
+
+    const finalPlan = await this.planBoundManagedWorkspace(operation);
+    if (finalPlan.status !== "planned"
+      || finalPlan.plan.actions.some(({ action }) => action !== "reuse" && action !== "no_op")) {
+      return blocked("stale_plan");
+    }
+    return {
+      status: "applied",
+      completedActionSignatures: [...completed],
+      ...(finalPlan.workspaceFingerprint ? { workspaceFingerprint: finalPlan.workspaceFingerprint } : {}),
+      plan: finalPlan.plan,
+    };
+  }
+
+  async validateManagedWorkspace(
+    operation: TrackingSetupOperationV1,
+  ): Promise<GtmWorkspaceValidationEvidence> {
+    if (!this.containerWritesEnabled) {
+      throw new GoogleIntegrationError("GTM container-version writes are disabled on this backend.", 403);
+    }
+    assertTrackingOperation(operation);
+    if (!["applied", "validation_failed", "validated"].includes(operation.status)) {
+      throw new GoogleIntegrationError("Only applied tracking operations can be validated.", 409);
+    }
+    const checkedAt = new Date().toISOString();
+    const failed = (workspaceFingerprint: string, workspaceChanges: unknown[], errors: string[]): GtmWorkspaceValidationEvidence => ({
+      status: "failed", checkedAt, workspaceFingerprint, errors, workspaceChanges,
+    });
+    const inspection = await this.inspectObservedContainer(operation.container.publicId);
+    if (inspection.status !== "recognized" || inspection.workspace.status !== "available"
+      || inspection.workspace.action !== "reuse") {
+      return failed(operation.workspace.fingerprint, [], ["The recognized managed workspace is unavailable."]);
+    }
+    const currentWorkspace = inspection.workspace.workspace;
+    if (currentWorkspace.path !== operation.workspace.path
+      || currentWorkspace.fingerprint !== operation.workspace.fingerprint) {
+      return failed(currentWorkspace.fingerprint ?? "unknown", [], ["The managed workspace fingerprint changed."]);
+    }
+    const status = await this.get<WorkspaceStatusResponse>(`/${currentWorkspace.path}/status`);
+    const changes = status.workspaceChange ?? [];
+    if ((status.mergeConflict?.length ?? 0) > 0) {
+      return failed(currentWorkspace.fingerprint ?? "unknown", changes, ["The managed workspace has merge conflicts."]);
+    }
+    const unexpected = changes.filter((change) => !expectedWorkspaceChange(change, operation.generatedSetup));
+    if (unexpected.length > 0) {
+      return failed(currentWorkspace.fingerprint ?? "unknown", changes, ["The managed workspace contains unexpected changes."]);
+    }
+    const freshPlan = await this.planManagedWorkspace(operation.container.publicId, operation.generatedSetup);
+    if (freshPlan.status !== "planned" || freshPlan.workspace.path !== operation.workspace.path
+      || freshPlan.plan.actions.some(({ action }) => action !== "reuse" && action !== "no_op")) {
+      return failed(currentWorkspace.fingerprint ?? "unknown", changes, ["Workspace entities do not match the approved tracking change plan."]);
+    }
+    const preview = await this.post<WorkspacePreviewResponse>(`/${currentWorkspace.path}:quick_preview`);
+    if (preview.syncStatus?.mergeConflict || preview.syncStatus?.syncError) {
+      return failed(currentWorkspace.fingerprint ?? "unknown", changes, ["GTM could not synchronize the validation preview."]);
+    }
+    if (preview.compilerError || !preview.containerVersion?.fingerprint) {
+      return failed(currentWorkspace.fingerprint ?? "unknown", changes, ["GTM reported compiler errors for the workspace preview."]);
+    }
+    return {
+      status: "passed",
+      checkedAt,
+      workspaceFingerprint: currentWorkspace.fingerprint ?? "unknown",
+      errors: [],
+      workspaceChanges: changes,
+      previewVersionFingerprint: preview.containerVersion.fingerprint,
+    };
+  }
+
+  private async planBoundManagedWorkspace(
+    operation: TrackingSetupOperationV1,
+  ): Promise<GtmManagedWorkspacePlanning> {
+    const container = await this.get<GtmContainer>(`/${operation.container.path}`);
+    if (container.path !== operation.container.path
+      || normalizePublicContainerId(container.publicId)
+        !== normalizePublicContainerId(operation.container.publicId)) {
+      return { status: "not_accessible", publicId: operation.container.publicId };
+    }
+    const workspaces = await this.listAll<GtmWorkspace, WorkspaceListResponse>(
+      `/${container.path}/workspaces`,
+      "workspace",
+    );
+    const decision = inspectManagedWorkspace(workspaces);
+    if (decision.status !== "available" || decision.action !== "reuse") {
+      return {
+        status: "workspace_unavailable",
+        publicId: operation.container.publicId,
+        container,
+        workspace: decision,
+      };
+    }
+    this.assertWorkspacePath(decision.workspace, container);
+    if (decision.workspace.path !== operation.workspace.path) {
+      return {
+        status: "workspace_unavailable",
+        publicId: operation.container.publicId,
+        container,
+        workspace: decision,
+      };
+    }
+    const entities = await this.workspaceEntitySet(decision.workspace);
+    return {
+      status: "planned",
+      publicId: operation.container.publicId,
+      container,
+      workspace: decision.workspace,
+      ...(decision.workspace.fingerprint
+        ? { workspaceFingerprint: decision.workspace.fingerprint }
+        : {}),
+      plan: createTrackingChangePlan(operation.generatedSetup, entities),
+    };
+  }
+
+  async createValidatedVersion(
+    operation: TrackingSetupOperationV1,
+  ): Promise<GtmValidatedVersionResult> {
+    if (!this.containerWritesEnabled) {
+      throw new GoogleIntegrationError("GTM container-version writes are disabled on this backend.", 403);
+    }
+    assertTrackingOperation(operation);
+    if (operation.status !== "validated") {
+      throw new GoogleIntegrationError("Only validated tracking operations can create a version.", 409);
+    }
+    const validation = await this.validateManagedWorkspace(operation);
+    if (validation.status !== "passed") return { status: "blocked", validation };
+    const inspection = await this.inspectObservedContainer(operation.container.publicId);
+    if (inspection.status !== "recognized" || !inspection.liveVersion.path
+      || !inspection.liveVersion.fingerprint) {
+      return {
+        status: "blocked",
+        validation: { ...validation, status: "failed", errors: ["The prior live version is missing immutable evidence."] },
+      };
+    }
+    const created = await this.post<WorkspaceCreateVersionResponse>(
+      `/${operation.workspace.path}:create_version`,
+      {
+        name: `GTM Observability - ${operation.specification.id}`,
+        notes: `Tracking setup operation ${operation.id}`,
+      },
+    );
+    if (created.compilerError || created.syncStatus?.mergeConflict || created.syncStatus?.syncError
+      || !created.containerVersion?.path || !created.containerVersion.fingerprint) {
+      return {
+        status: "blocked",
+        validation: { ...validation, status: "failed", errors: ["GTM did not create a clean immutable container version."] },
+      };
+    }
+    return {
+      status: "versioned",
+      validation,
+      version: {
+        path: created.containerVersion.path,
+        fingerprint: created.containerVersion.fingerprint,
+        priorLiveVersionPath: inspection.liveVersion.path,
+        priorLiveVersionFingerprint: inspection.liveVersion.fingerprint,
+      },
+    };
+  }
+
+  async publishApprovedVersion(operation: TrackingSetupOperationV1): Promise<{
+    publishedAt: string;
+    versionFingerprint: string;
+  }> {
+    if (!this.publicationEnabled) throw new GoogleIntegrationError("GTM publication is disabled on this backend.", 403);
+    assertTrackingOperation(operation);
+    if (operation.status !== "approved" || !operation.version || !publicationApprovalCurrent(operation, this.now())) {
+      throw new GoogleIntegrationError("Publication requires current approval for the exact version fingerprint.", 409);
+    }
+    const [version, inspection] = await Promise.all([
+      this.get<GtmContainerVersion>(`/${operation.version.path}`),
+      this.inspectObservedContainer(operation.container.publicId),
+    ]);
+    if (version.fingerprint !== operation.version.fingerprint) {
+      throw new GoogleIntegrationError("The approved immutable version fingerprint changed.", 409);
+    }
+    if (inspection.status !== "recognized"
+      || inspection.liveVersion.fingerprint !== operation.version.priorLiveVersionFingerprint) {
+      throw new GoogleIntegrationError("The live container changed after version review.", 409);
+    }
+    const published = await this.post<PublishVersionResponse>(
+      `/${operation.version.path}:publish?fingerprint=${encodeURIComponent(operation.version.fingerprint)}`,
+    );
+    if (published.compilerError || published.containerVersion?.fingerprint !== operation.version.fingerprint) {
+      throw new GoogleIntegrationError("Google did not confirm publication of the approved version.", 502);
+    }
+    return { publishedAt: new Date(this.now()).toISOString(), versionFingerprint: operation.version.fingerprint };
+  }
+
+  async rollbackPublishedVersion(operation: TrackingSetupOperationV1): Promise<{
+    targetVersionFingerprint: string;
+    status: "completed";
+    completedAt: string;
+  }> {
+    if (!this.publicationEnabled) throw new GoogleIntegrationError("GTM publication is disabled on this backend.", 403);
+    assertTrackingOperation(operation);
+    if (operation.status !== "rollback_required" || !operation.version || !operation.rollback) {
+      throw new GoogleIntegrationError("Rollback requires failed publication evidence and a recorded target.", 409);
+    }
+    const [target, inspection] = await Promise.all([
+      this.get<GtmContainerVersion>(`/${operation.version.priorLiveVersionPath}`),
+      this.inspectObservedContainer(operation.container.publicId),
+    ]);
+    if (target.fingerprint !== operation.version.priorLiveVersionFingerprint
+      || operation.rollback.targetVersionFingerprint !== target.fingerprint) {
+      throw new GoogleIntegrationError("The rollback target fingerprint is stale.", 409);
+    }
+    if (inspection.status !== "recognized" || inspection.liveVersion.fingerprint !== operation.version.fingerprint) {
+      throw new GoogleIntegrationError("The live container no longer matches the failed publication.", 409);
+    }
+    const restored = await this.post<PublishVersionResponse>(
+      `/${operation.version.priorLiveVersionPath}:publish?fingerprint=${encodeURIComponent(target.fingerprint)}`,
+    );
+    if (restored.compilerError || restored.containerVersion?.fingerprint !== target.fingerprint) {
+      throw new GoogleIntegrationError("Google did not confirm rollback publication.", 502);
+    }
+    return {
+      targetVersionFingerprint: target.fingerprint,
+      status: "completed",
+      completedAt: new Date(this.now()).toISOString(),
+    };
+  }
+
+  private async prepareManagedWorkspaceOnce(
+    publicId: string,
+  ): Promise<GtmManagedWorkspacePreparation> {
+    const inspection = await this.inspectObservedContainer(publicId);
+    if (inspection.status !== "recognized") return inspection;
+    const decision = inspection.workspace;
+    if (decision.status !== "available") {
+      return { ...inspection, workspace: decision };
+    }
+    if (decision.action === "create") {
+      const workspace = await this.post<GtmWorkspace>(
+        `/${inspection.container.path}/workspaces`,
+        {
+          name: GTM_MANAGED_WORKSPACE_NAME,
+          description: GTM_MANAGED_WORKSPACE_DESCRIPTION,
+        },
+      );
+      this.assertWorkspacePath(workspace, inspection.container);
+      return {
+        ...inspection,
+        workspace: {
+          status: "created",
+          workspaceCount: decision.workspaceCount + 1,
+          workspace,
+        },
+      };
+    }
+
+    this.assertWorkspacePath(decision.workspace, inspection.container);
+    const sync = await this.post<WorkspaceSyncResponse>(`/${decision.workspace.path}:sync`);
+    const status = await this.get<WorkspaceStatusResponse>(`/${decision.workspace.path}/status`);
+    if (
+      sync.syncStatus?.mergeConflict
+      || sync.syncStatus?.syncError
+      || (sync.mergeConflict?.length ?? 0) > 0
+      || (status.mergeConflict?.length ?? 0) > 0
+    ) {
+      return {
+        ...inspection,
+        workspace: {
+          status: "sync_conflict",
+          workspaceCount: decision.workspaceCount,
+          workspace: decision.workspace,
+        },
+      };
+    }
+    return {
+      ...inspection,
+      workspace: {
+        status: "reused",
+        workspaceCount: decision.workspaceCount,
+        workspace: decision.workspace,
+      },
+    };
+  }
+
+  private async recognizeObservedContainer(publicId: string) {
+    const accounts = await this.discover();
+    const recognition = recognizeContainer(
+      publicId,
+      accounts.flatMap((account) => account.containers.map((container) => ({
+        ...container,
+        account: { accountId: account.accountId, name: account.name },
+      }))),
+    );
+    if (recognition.status !== "recognized") return recognition;
+    const { account, ...container } = recognition.container;
+    return { ...recognition, account, container };
+  }
+
+  private async applyEntityAction(
+    generatedSetup: GtmContainerExport,
+    fresh: Extract<GtmManagedWorkspacePlanning, { status: "planned" }>,
+    action: TrackingChangeAction & { action: "create" | "update" },
+  ): Promise<void> {
+    const generated = generatedEntity(generatedSetup, action);
+    if (!generated) throw new GoogleIntegrationError("The planned generated entity is missing.", 409);
+    if (action.kind === "builtInVariable") {
+      if (action.action !== "create" || typeof generated.type !== "string") {
+        throw new GoogleIntegrationError("Built-in variables can only be enabled by type.", 409);
+      }
+      const url = new URL(`${tagManagerEndpoint}/${fresh.workspace.path}/built_in_variables`);
+      url.searchParams.append("type", googleRestString(generated.type));
+      const response = await this.fetchGoogle(url, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${await this.getAccessToken()}` },
+      });
+      await responseJson<{ builtInVariable?: unknown[] }>(response);
+      return;
+    }
+
+    const collection = action.kind === "tag" ? "tags" : action.kind === "trigger" ? "triggers" : "variables";
+    const body = applicationEntityBody(generated, action.kind, fresh, generatedSetup);
+    if (action.action === "create") {
+      await this.post(`/${fresh.workspace.path}/${collection}`, body);
+      return;
+    }
+
+    if (!action.existingId) throw new GoogleIntegrationError("The update target ID is missing.", 409);
+    const entities = await this.workspaceEntitySet(fresh.workspace);
+    const existing = (entities[action.kind] ?? []).find((candidate) =>
+      isJsonRecord(candidate) && entityId(action.kind, candidate) === action.existingId);
+    if (!isJsonRecord(existing) || existing.notes !== GTM_MANAGED_ENTITY_NOTE
+      || typeof existing.fingerprint !== "string" || !existing.fingerprint) {
+      throw new GoogleIntegrationError("The update target is not a fingerprinted product-owned entity.", 409);
+    }
+    const path = `/${fresh.workspace.path}/${collection}/${action.existingId}`;
+    await this.put(`${path}?fingerprint=${encodeURIComponent(existing.fingerprint)}`, body);
+  }
+
+  private assertWorkspacePath(workspace: GtmWorkspace, container: GtmContainer): void {
+    const expected = new RegExp(`^${container.path.replaceAll("/", "\\/")}\/workspaces\/\\d+$`);
+    if (!expected.test(workspace.path)) {
+      throw new GoogleIntegrationError("Google returned a workspace outside the recognized container.", 502);
+    }
+  }
+
   private async get<Result>(path: string): Promise<Result> {
-    const response = await this.fetcher(new URL(path, this.baseUrl), {
+    const response = await this.fetchGoogle(`${tagManagerEndpoint}${path}`, {
       headers: { Authorization: `Bearer ${await this.getAccessToken()}` },
+    });
+    return responseJson<Result>(response);
+  }
+
+  private async post<Result>(path: string, body?: unknown): Promise<Result> {
+    const response = await this.fetchGoogle(`${tagManagerEndpoint}${path}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${await this.getAccessToken()}`,
+        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    return responseJson<Result>(response);
+  }
+
+  private async put<Result>(path: string, body: unknown): Promise<Result> {
+    const response = await this.fetchGoogle(`${tagManagerEndpoint}${path}`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${await this.getAccessToken()}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
     });
     return responseJson<Result>(response);
   }
@@ -425,9 +1084,9 @@ export class GtmDiscoveryClient {
     const items: Item[] = [];
     let pageToken: string | undefined;
     do {
-      const url = new URL(path, this.baseUrl);
+      const url = new URL(`${tagManagerEndpoint}${path}`);
       if (pageToken) url.searchParams.set("pageToken", pageToken);
-      const response = await this.fetcher(url, {
+      const response = await this.fetchGoogle(url, {
         headers: { Authorization: `Bearer ${await this.getAccessToken()}` },
       });
       const result = await responseJson<Result>(response);
@@ -437,50 +1096,146 @@ export class GtmDiscoveryClient {
     } while (pageToken);
     return items;
   }
-}
 
-function normalizedUnique(values: Array<string | undefined>, pattern: RegExp): string[] {
-  const ids = new Set<string>();
-  for (const value of values) {
-    if (!value) continue;
-    for (const match of value.matchAll(pattern)) {
-      ids.add(match[0]!.toUpperCase());
+  private async fetchGoogle(input: string | URL, init?: RequestInit): Promise<Response> {
+    let response: Response | undefined;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      response = await this.fetcher(input, init);
+      if (response.status !== 429 || attempt === 2) return response;
+      await this.wait(this.quotaRetryDelay(response.headers.get("Retry-After")));
     }
+    if (!response) throw new Error("Google request did not produce a response.");
+    return response;
   }
-  return [...ids].sort();
+
+  private quotaRetryDelay(retryAfter: string | null): number {
+    if (retryAfter) {
+      const seconds = Number(retryAfter);
+      if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1_000;
+      const timestamp = Date.parse(retryAfter);
+      if (Number.isFinite(timestamp)) return Math.max(0, timestamp - this.now());
+    }
+    return 65_000;
+  }
 }
 
-function extractMeasurementIds(value: unknown): string[] {
-  return normalizedUnique([JSON.stringify(value)], ga4MeasurementIdPattern);
+type JsonRecord = Record<string, unknown>;
+
+function isJsonRecord(value: unknown): value is JsonRecord {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export async function resolveGtmSite(
-  config: GoogleIntegrationConfig,
-  request: GtmSiteResolutionRequest,
-  fetchImpl: Fetch = fetch,
-): Promise<GtmSiteResolutionResult> {
-  const detectedContainers = normalizedUnique(request.detected?.gtmContainers ?? [], gtmPublicIdPattern);
-  if (detectedContainers.length === 0) {
-    return { matchedBy: "none", measurementIds: [] };
+function sameActionIdentity(left: TrackingChangeAction, right: TrackingChangeAction): boolean {
+  return left.kind === right.kind
+    && left.generatedName === right.generatedName
+    && left.entitySignature === right.entitySignature;
+}
+
+function generatedEntity(
+  setup: GtmContainerExport,
+  action: TrackingChangeAction,
+): JsonRecord | undefined {
+  const entities = setup.containerVersion[action.kind] ?? [];
+  return entities.filter(isJsonRecord).find((entity) => {
+    const name = typeof entity.name === "string" && entity.name.trim()
+      ? entity.name.trim()
+      : action.kind === "builtInVariable" && typeof entity.type === "string"
+        ? entity.type
+        : "Unnamed entity";
+    return name === action.generatedName;
+  });
+}
+
+function entityId(kind: TrackingChangeAction["kind"], entity: JsonRecord): string | undefined {
+  const key = kind === "tag" ? "tagId" : kind === "trigger" ? "triggerId" : kind === "variable" ? "variableId" : undefined;
+  const value = key ? entity[key] : undefined;
+  return typeof value === "string" ? value : undefined;
+}
+
+function applicationEntityBody(
+  generated: JsonRecord,
+  kind: Exclude<TrackingChangeAction["kind"], "builtInVariable">,
+  fresh: Extract<GtmManagedWorkspacePlanning, { status: "planned" }>,
+  setup: GtmContainerExport,
+): JsonRecord {
+  const body = googleRestValue(structuredClone(generated)) as JsonRecord;
+  for (const key of [
+    "accountId", "containerId", "workspaceId", "path", "fingerprint", "tagManagerUrl",
+    "parentFolderId", "tagId", "triggerId", "variableId",
+  ]) delete body[key];
+  body.notes = GTM_MANAGED_ENTITY_NOTE;
+  if (kind === "tag" && Array.isArray(body.firingTriggerId)) {
+    const generatedTriggers = setup.containerVersion.trigger.filter(isJsonRecord);
+    const byGeneratedId = new Map(generatedTriggers.flatMap((trigger) => {
+      const id = typeof trigger.triggerId === "string" ? trigger.triggerId : undefined;
+      const name = typeof trigger.name === "string" ? trigger.name : undefined;
+      const match = name
+        ? fresh.plan.actions.find((action) => action.kind === "trigger" && action.generatedName === name)
+        : undefined;
+      return id && match?.existingId ? [[id, match.existingId] as const] : [];
+    }));
+    body.firingTriggerId = body.firingTriggerId.map((id) => byGeneratedId.get(String(id)) ?? id);
   }
+  return body;
+}
 
-  const discovery = await discoverGtmContainers(config, fetchImpl);
-  const matchedContainer = discovery.containers.find((container) =>
-    detectedContainers.includes(container.publicId.toUpperCase()),
-  );
-  if (!matchedContainer) {
-    return { matchedBy: "none", measurementIds: [] };
+const googleRestPropertyAliases = new Map([
+  ["autoEventFilter", "filter"],
+]);
+const googleRestParameterKeyAliases = new Map([
+  ["measurementId", "measurementIdOverride"],
+  ["eventParameters", "eventSettingsTable"],
+  ["name", "parameter"],
+  ["value", "parameterValue"],
+]);
+const googleRestStringAliases = new Map([
+  ["BOOLEAN", "boolean"],
+  ["CLICK_TEXT", "clickText"],
+  ["CLICK_URL", "clickUrl"],
+  ["CSS_SELECTOR", "cssSelector"],
+  ["CUSTOM_EVENT", "customEvent"],
+  ["ELEMENT_VISIBILITY", "elementVisibility"],
+  ["EQUALS", "equals"],
+  ["JUST_LINKS", "linkClick"],
+  ["LIST", "list"],
+  ["MAP", "map"],
+  ["MATCH_REGEX", "matchRegex"],
+  ["NOT_SET", "notSet"],
+  ["ONCE_PER_EVENT", "oncePerEvent"],
+  ["ONCE_PER_PAGE", "oncePerPage"],
+  ["PAGE_URL", "pageUrl"],
+  ["PAGEVIEW", "pageview"],
+  ["TEMPLATE", "template"],
+]);
+
+function googleRestString(value: string, key?: string): string {
+  if (key === "key") return googleRestParameterKeyAliases.get(value) ?? value;
+  return googleRestStringAliases.get(value) ?? value;
+}
+
+function googleRestValue(value: unknown, key?: string): unknown {
+  if (Array.isArray(value)) return value.map((item) => googleRestValue(item));
+  if (!isJsonRecord(value)) return typeof value === "string" ? googleRestString(value, key) : value;
+  const result: JsonRecord = {};
+  for (const [childKey, childValue] of Object.entries(value)) {
+    result[googleRestPropertyAliases.get(childKey) ?? childKey] = googleRestValue(childValue, childKey);
   }
+  return result;
+}
 
-  const liveVersion = await getJson<unknown>(
-    fetchImpl,
-    config,
-    `/tagmanager/v2/${matchedContainer.path}/versions:live`,
-  );
-
-  return {
-    matchedBy: "detected-container",
-    container: matchedContainer,
-    measurementIds: extractMeasurementIds(liveVersion),
-  };
+function expectedWorkspaceChange(change: unknown, setup: GtmContainerExport): boolean {
+  if (!isJsonRecord(change)) return false;
+  const wrapper = isJsonRecord(change.entity) ? change.entity : change;
+  for (const kind of ["tag", "trigger", "variable"] as const) {
+    const entity = wrapper[kind];
+    if (isJsonRecord(entity)) return entity.notes === GTM_MANAGED_ENTITY_NOTE;
+  }
+  const builtIn = wrapper.builtInVariable;
+  if (isJsonRecord(builtIn) && typeof builtIn.type === "string") {
+    const builtInType = builtIn.type;
+    return setup.containerVersion.builtInVariable.some((candidate) =>
+      isJsonRecord(candidate) && typeof candidate.type === "string"
+        && googleRestString(candidate.type) === googleRestString(builtInType));
+  }
+  return false;
 }

@@ -12,6 +12,22 @@ _Avoid_: Chatbot, AI tag generator, GTM copilot
 A plain-language description of the user behavior and analytics outcome a person wants to verify.
 _Avoid_: Prompt, tracking request, tagging instruction
 
+**Tracking specification**:
+A versioned, reviewable definition derived from a tracking intent that names the observed interaction, intended conversion outcome, analytics event contract, confirmed targets, and acceptable evidence of success. It is the reusable baseline for setup, verification, diagnosis, and later monitoring.
+_Avoid_: Prompt, generated tag, test script
+
+**Conversation intake**:
+The site-aware exchange that lets a person describe a tracking intent in everyday language, grounds references such as “the quote form at the bottom” in observed website candidates, asks only questions that change the specification, and requires confirmation before setup begins.
+_Avoid_: Free-form chatbot, prompt box, agent guess
+
+**Intake interpretation**:
+A non-authoritative, structured reading of a tracking intent against privacy-filtered observed candidates, identifying plausible interaction, outcome, target, success evidence, ambiguity, and the shortest useful clarification.
+_Avoid_: Model decision, confirmed intent, agent plan
+
+**Intake acceptance corpus**:
+A versioned collection of privacy-filtered tracking-intent cases with expected intake interpretations and explicit hard-failure rules, used to evaluate deterministic or model-based interpreters before they can influence conversation intake.
+_Avoid_: Training data, prompt set, model benchmark
+
 **Observed interaction**:
 A browser-visible action performed by a website visitor, such as clicking a link or submitting a form. It can provide evidence of a conversion outcome but is not itself necessarily a conversion.
 _Avoid_: Conversion, goal, event
@@ -47,6 +63,30 @@ _Avoid_: Agent learning, chat answer, suggested fix
 **Tracking setup**:
 The process that turns a tracking intent into a tested Google Tag Manager configuration that a tracking practitioner can review and deploy.
 _Avoid_: Tag creation, AI-generated tag, automatic tagging
+
+**Tracking change plan**:
+A deterministic, reviewable comparison between a generated tracking setup and the current managed workspace that classifies required changes, safe reuse, no-ops, and conflicts without mutating GTM.
+_Avoid_: Diff, patch, agent proposal
+
+**Tracking setup operation**:
+A durable record of one tracking setup's progress from its confirmed specification through planning, application, validation, publication approval, publication, evidence, and any rollback. It is the source of truth for safe resumption after interruption.
+_Avoid_: Job, agent session, chat state
+
+**Publication approval**:
+A tracking practitioner's explicit authorization to publish one immutable, reviewed GTM version fingerprint. It becomes invalid when the version or live container changes.
+_Avoid_: General write permission, confirmation, deploy toggle
+
+**Recognized container**:
+A GTM container whose public ID was observed on the current website and matched exactly to one container accessible through the tracking practitioner's connected Google account.
+_Avoid_: Detected account, assumed container, selected container
+
+**Managed workspace**:
+The single custom GTM workspace reserved by the site-aware analytics assistant for reviewable tracking-setup changes in one recognized container.
+_Avoid_: Temporary workspace, workspace per request, default workspace
+
+**Managed GTM entity**:
+A tag, trigger, or custom variable created by the site-aware analytics assistant in the managed workspace and carrying its exact ownership note. Only such an entity may be updated automatically.
+_Avoid_: AI tag, owned tag, generated entity
 
 **Tracking practitioner**:
 A freelancer or agency team member responsible for implementing and verifying tracking on client websites.
@@ -87,6 +127,10 @@ _Avoid_: Agent reasoning, activity log, chain of thought
 **Scenario corpus**:
 A collection of reproducible website, consent, GTM, and destination configurations with known expected outcomes, used to test diagnoses, generated setups, and implementation-confidence calibration.
 _Avoid_: Training data, mock websites, examples
+
+**Run evidence**:
+The normalized, durable record of what a tracking check observed about the interaction, business outcome, data layer, destination requests, consent state, and relevant tracking configuration.
+_Avoid_: Log dump, screenshot, chain of thought
 
 **Time to verified setup**:
 The elapsed time from submitting a tracking intent to the generated tracking setup passing its browser check after import.

@@ -116,9 +116,24 @@ Verified resolutions support three progressively stronger forms of improvement:
 
 This creates learning from real customer cases without allowing an incorrect one-off fix to become product behavior.
 
-## Agent logic
+## Conversation intake and agent logic
 
-Use deterministic workflows first. Add an agent after tools are reliable.
+Use models early for language interpretation and deterministic workflows for evidence
+and execution. Model-backed conversation intake receives a privacy-filtered description
+of the current page and returns structured candidates rather than GTM instructions:
+
+```text
+tracking intent + observed page candidates
+  -> interaction and outcome candidates
+  -> grounded target and success-evidence candidates
+  -> explicit ambiguities and one proposed question
+  -> deterministic contract validation
+  -> practitioner-confirmed tracking specification
+```
+
+A model must not invent an unobserved target, classify browser or platform evidence,
+or authorize a write. The broader agent arrives after tools are reliable and calls
+those tools without becoming their source of truth.
 
 A LangGraph-style workflow is the right mental model:
 
@@ -194,10 +209,13 @@ Safe production flow:
 ```text
 diagnose
   -> propose change
-  -> create import file or draft workspace
+  -> observe public GTM container ID
+  -> match exactly one accessible container
+  -> inspect workspace capacity and ownership
+  -> reuse one managed workspace or create it after explicit preparation
   -> verify in preview
   -> ask for approval
   -> publish remains explicit
 ```
 
-The product should be trusted because it refuses to over-automate destructive changes.
+Standard GTM workspace capacity is scarce. The connector reserves at most one marked custom workspace per container, reuses it across interrupted work, and falls back to non-mutating planning when three slots are occupied. It never edits or deletes a default or unmarked workspace. Container versioning and publication remain later, separately approved stages.

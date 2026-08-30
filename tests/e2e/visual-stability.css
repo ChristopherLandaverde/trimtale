@@ -1,0 +1,5 @@
+/* Screenshot-only normalization. Production typography is asserted separately. */
+*, *::before, *::after {
+  font-family: Arial, sans-serif !important;
+  caret-color: transparent !important;
+}

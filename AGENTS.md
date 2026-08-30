@@ -22,3 +22,17 @@ Agents own the local development and verification loop. Do not ask the user to r
 Playwright retains failure screenshots and traces under `test-results/`. The E2E workflow uses only local fixture services. Real Google integration tests must be separately gated by explicit credentials and disposable resources.
 
 Before completing a change, run `npm run verify` and report the evidence. Never delegate this command to the user.
+
+## Change documentation and pull requests
+
+- Read `docs/engineering/delivery-harness.md` before changing product behavior, contracts, persistence, security boundaries, or test infrastructure.
+- Every code-bearing pull request must include one concise change record under `.changes/`; use `.changes/template.md` as the format.
+- Every claimed implementation issue must define a regression contract before product implementation begins. When dependencies do not exist yet, add a schema-validated acceptance fixture that later becomes the input to the real test; do not use a skipped or permanently failing test.
+- An issue may be resolved only when its required behavioral tests exist, run in the ordinary harness, and are named in the issue's `## Regression contract` section.
+- For every user-visible workflow change, perform an exploratory review in the built product after automated verification: launch Chromium with the extension, exercise the happy path, at least one negative or ambiguous path, and at least one adversarial page with attacker-shaped input, visually inspect the page and assistant state, and record the evidence under `docs/reviews/`.
+- Do not mark a user-visible issue resolved while its exploratory review has unresolved blocker or high-severity findings. Create or claim remediation issues immediately; do not wait for the user to report visible gaps.
+- Automated tests remain required. Exploratory review discovers incorrect assumptions and missing assertions; every confirmed regression should gain permanent automated coverage in its remediation change.
+- Update the relevant `.scratch/<feature>/spec.md` acceptance criteria and issue comments when implementation changes the documented state of an effort.
+- Add permanent regression coverage in the same change as new accepted behavior. Do not delete or weaken an existing regression without documenting the product decision in the change record.
+- Keep pull requests to one reviewable vertical slice. Open a draft pull request early when remote collaboration is available; a draft is a visibility mechanism, not a reason to pause local implementation.
+- Pull-request descriptions must identify the issue/spec, behavior change, regression evidence, documentation updates, risk, and rollback approach. Use `.github/pull_request_template.md`.

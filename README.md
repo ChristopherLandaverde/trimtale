@@ -80,10 +80,13 @@ Requirements: Node.js 22+ and npm 10+.
 
 ```bash
 npm install
+npm run agent -- preflight
 npm run verify
 ```
 
-The local harness uses `http://127.0.0.1:18787` for the API and `http://127.0.0.1:14173` for the fixture site.
+The local preflight checks supported Node and npm versions, the lockfile, installed
+dependencies, required repository scripts, and Playwright's managed Chromium binary.
+It runs automatically at the start of `npm run verify`.
 
 `npm run verify` is the agent-owned completion gate. It:
 
@@ -98,19 +101,80 @@ The local harness uses `http://127.0.0.1:18787` for the API and `http://127.0.0.
 
 Humans do not need to launch the development services or load the extension to verify changes. Manual Chrome loading is reserved for exploratory product review.
 
-## Real Google integration lane
+#### Agent command harness
 
-The API exposes a separately gated read-only discovery surface for real GTM accounts and containers:
+Routine local agent work is available through one closed, repository-owned command surface:
 
-- `GET /api/google/status` reports whether Google discovery is enabled.
-- `GET /api/google/gtm/accounts` lists accessible GTM accounts and containers only when `GOOGLE_OAUTH_ACCESS_TOKEN` is set server-side and the caller provides the configured admin bearer token.
-- `POST /api/google/gtm/resolve-site` accepts the page URL plus page-detected GTM/GA4 signals, matches the visible public GTM container against connected GTM containers, reads the live published container version, and returns GA4 Measurement IDs found in that container. This route accepts the admin bearer token or the narrower `GTM_OBSERVABILITY_EXTENSION_TOKEN`.
+```bash
+npm run agent -- help
+npm run agent -- preflight
+npm run agent -- status
+npm run agent -- check
+npm run agent -- test
+npm run agent -- e2e
+npm run agent -- verify
+```
 
-The extension remembers GA4 Measurement IDs and public GTM Container IDs by hostname after a successful setup generation. Those saved IDs are site configuration, not Google API credentials; OAuth is still required for account discovery or GTM workspace mutation.
+The harness also supports `build`, `change-docs`, `diff`, and `inspect`. Each name
+maps to a fixed local `npm` or read-only `git` invocation, always runs from the
+repository root, and rejects additional arguments. It does not provide dependency
+installation, arbitrary `npx` execution, credentialed integrations, remote Git
+operations, destructive commands, or a shell escape hatch. Those operations retain
+their own explicit authorization boundary.
 
-The extension detects GTM and valid GA4 Measurement IDs visible on the current page, auto-fills the inferred site configuration, and compares detected IDs to saved configuration. When a GTM container is visible but GA4 is only configured inside GTM, the extension can call the protected site resolver to infer the GA4 Measurement ID from the connected live GTM container. Advanced manual fallback exists for operators, but the primary product path does not require users to type container or measurement IDs. Page detection confirms instrumentation signals; it does not prove GTM account ownership or GA4 platform processing.
+Like the direct `npm` and `git` commands it replaces, the harness inherits the
+caller's environment so standard executable lookup and npm configuration continue to
+work. It does not load environment files or select any credentialed script. Local
+`.env*.local`, `.vercel/`, and generated `.build/` artifacts are ignored repository-wide
+to keep credentials, deployment linkage, and generated output out of commits.
 
-Ordinary local verification remains credential-free. The optional `GOOGLE_TAG_MANAGER_API_BASE_URL` environment variable exists for disposable integration tests or mocks.
+### Google Tag Manager integration
+
+The API can run a separately gated OAuth flow and discover the connected tracking practitioner's GTM accounts and containers. It is read-only by default and is disabled unless the OAuth variables are set:
+
+```bash
+GOOGLE_OAUTH_CLIENT_ID=...
+GOOGLE_OAUTH_CLIENT_SECRET=...
+GOOGLE_OAUTH_REDIRECT_URI=http://127.0.0.1:8787/api/google/oauth/callback
+EXTENSION_ORIGIN=chrome-extension://<extension-id>
+npm run dev:api
+```
+
+Find the unpacked extension ID on `chrome://extensions` and configure its exact
+`chrome-extension://` origin. Google-backed API routes fail closed for browser
+origins when `EXTENSION_ORIGIN` is absent, `*`, or different from the request origin;
+they never emit a wildcard CORS header. Direct OAuth navigation and server-side
+clients that do not send an `Origin` header remain supported.
+
+Register the exact redirect URI in the Google Cloud OAuth client and enable the Tag
+Manager API. Then open `http://127.0.0.1:8787/api/google/oauth/start`; after consent,
+`GET /api/google/accounts` returns each accessible account with its containers. Set
+`GOOGLE_OAUTH_TOKEN_STORE` to a backend-local path to persist only an owner-readable
+refresh token and reconnect after restart without another browser consent. Without that
+setting, authorization remains memory-only. Ordinary `npm run verify` remains
+credential-free and never calls Google.
+
+Before starting an explicitly credentialed workspace-write session, validate only the
+presence and shape of its configuration without printing values:
+
+```bash
+npm run preflight:google
+```
+
+This Google preflight remains outside `npm run agent` and ordinary verification. It
+checks the OAuth client variables, exact local callback, exact extension origin, and
+explicit container-write switch; it does not contact Google or prove live access.
+
+Container edits require `GOOGLE_GTM_CONTAINER_WRITES_ENABLED=true` before consent.
+Request publish consent separately with
+`GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED=true`; this does not enable publication.
+For an explicitly approved publication session, also set
+`GOOGLE_GTM_PUBLICATION_ENABLED=true` and run `npm run preflight:publication`.
+Ordinary Google preflight, CI, and `npm run verify` never enable or call publication.
+
+See the [GTM setup workflow operator runbook](docs/engineering/gtm-workflow-runbook.md)
+for durable operation paths, exact-fingerprint approval, API quota behavior,
+post-publication evidence, and rollback.
 
 ## Hosted API builds
 
@@ -121,8 +185,6 @@ The extension points at the local API by default. To build it against a hosted A
 ```bash
 GTM_OBSERVABILITY_API_BASE=https://your-api.vercel.app npm run build:extension
 ```
-
-To let the unpacked extension call the protected GTM site resolver, set the same `GTM_OBSERVABILITY_EXTENSION_TOKEN` in the API environment and at extension build time. This is a temporary internal bridge until the product has user-scoped OAuth/session auth in front of the resolver.
 
 For the current production API, use:
 

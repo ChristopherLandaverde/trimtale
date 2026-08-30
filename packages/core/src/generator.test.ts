@@ -27,11 +27,16 @@ describe("navigation setup scenario corpus", () => {
       const proposal = createSetupProposal(item.request);
       expect(proposal.navigation).toHaveLength(item.expected.navigationCount);
       expect(proposal.eventName).toBe("navigation_click");
+      expect(proposal.specification.schemaVersion).toBe(1);
+      expect(proposal.specification.status).toBe("confirmed");
+      expect(proposal.specification.targets).toHaveLength(item.expected.navigationCount);
       expect(proposal.preflight.status).toBe("passed");
       expect(proposal.containerFile.exportFormatVersion).toBe(2);
       expect(proposal.containerFile.containerVersion.tag).toHaveLength(1);
       expect(proposal.containerFile.containerVersion.trigger).toHaveLength(1);
       expect(proposal.containerFile.containerVersion.builtInVariable).toHaveLength(2);
+      expect(proposal.warnings.join(" ")).toMatch(/managed workspace.*Merge.*existing review workspace/);
+      expect(proposal.warnings.join(" ")).not.toContain("new GTM workspace");
     });
   }
 });

@@ -1,0 +1,198 @@
+{
+  "schemaVersion": 1,
+  "issue": ".scratch/conversational-tracking-specs/issues/09-verified-resolution-foundation.md",
+  "feature": "verified_resolution_foundation",
+  "behavioralTest": "apps/api/src/verified-resolutions.test.ts",
+  "cases": [
+    {
+      "id": "stores-human-confirmed-before-and-after-resolution",
+      "input": {
+        "schemaVersion": 1,
+        "humanConfirmed": true,
+        "confirmedCause": "listener_only_handles_native_submit",
+        "correctiveAction": "observe_confirmed_ajax_success",
+        "beforeEvidenceId": "run_before_failed",
+        "beforeVerdict": "outcome_observed_event_missing",
+        "afterEvidenceId": "run_after_passed",
+        "afterVerdict": "browser_verified"
+      },
+      "expected": {
+        "accepted": true,
+        "deterministicRulesChanged": false
+      }
+    },
+    {
+      "id": "rejects-unconfirmed-diagnosis",
+      "input": {
+        "schemaVersion": 1,
+        "humanConfirmed": false,
+        "confirmedCause": "listener_only_handles_native_submit",
+        "correctiveAction": "observe_confirmed_ajax_success",
+        "beforeEvidenceId": "run_before_failed",
+        "beforeVerdict": "outcome_observed_event_missing",
+        "afterEvidenceId": "run_after_passed",
+        "afterVerdict": "browser_verified"
+      },
+      "expected": {
+        "accepted": false,
+        "error": "human_confirmation_required",
+        "deterministicRulesChanged": false
+      }
+    },
+    {
+      "id": "rejects-missing-evidence-link",
+      "input": {
+        "schemaVersion": 1,
+        "humanConfirmed": true,
+        "confirmedCause": "listener_only_handles_native_submit",
+        "correctiveAction": "observe_confirmed_ajax_success",
+        "beforeEvidenceId": "missing_run",
+        "beforeVerdict": "outcome_observed_event_missing",
+        "afterEvidenceId": "run_after_passed",
+        "afterVerdict": "browser_verified"
+      },
+      "expected": {
+        "accepted": false,
+        "error": "evidence_not_found",
+        "deterministicRulesChanged": false
+      }
+    },
+    {
+      "id": "rejects-non-passing-after-evidence",
+      "input": {
+        "schemaVersion": 1,
+        "humanConfirmed": true,
+        "confirmedCause": "listener_only_handles_native_submit",
+        "correctiveAction": "observe_confirmed_ajax_success",
+        "beforeEvidenceId": "run_before_failed",
+        "beforeVerdict": "outcome_observed_event_missing",
+        "afterEvidenceId": "run_after_failed",
+        "afterVerdict": "tag_fired_request_missing"
+      },
+      "expected": {
+        "accepted": false,
+        "error": "passing_after_evidence_required",
+        "deterministicRulesChanged": false
+      }
+    },
+    {
+      "id": "rejects-evidence-verdict-mismatch",
+      "input": {
+        "schemaVersion": 1,
+        "humanConfirmed": true,
+        "confirmedCause": "listener_only_handles_native_submit",
+        "correctiveAction": "observe_confirmed_ajax_success",
+        "beforeEvidenceId": "run_before_failed",
+        "beforeVerdict": "tag_fired_request_missing",
+        "afterEvidenceId": "run_after_passed",
+        "afterVerdict": "browser_verified"
+      },
+      "expected": {
+        "accepted": false,
+        "error": "evidence_verdict_mismatch",
+        "deterministicRulesChanged": false
+      }
+    },
+    {
+      "id": "rejects-passing-before-evidence",
+      "input": {
+        "schemaVersion": 1,
+        "humanConfirmed": true,
+        "confirmedCause": "listener_only_handles_native_submit",
+        "correctiveAction": "observe_confirmed_ajax_success",
+        "beforeEvidenceId": "run_before_passed",
+        "beforeVerdict": "browser_verified",
+        "afterEvidenceId": "run_after_passed",
+        "afterVerdict": "browser_verified"
+      },
+      "expected": {
+        "accepted": false,
+        "error": "failing_before_evidence_required",
+        "deterministicRulesChanged": false
+      }
+    },
+    {
+      "id": "rejects-missing-confirmed-cause",
+      "input": {
+        "schemaVersion": 1,
+        "humanConfirmed": true,
+        "confirmedCause": "",
+        "correctiveAction": "observe_confirmed_ajax_success",
+        "beforeEvidenceId": "run_before_failed",
+        "beforeVerdict": "outcome_observed_event_missing",
+        "afterEvidenceId": "run_after_passed",
+        "afterVerdict": "browser_verified"
+      },
+      "expected": {
+        "accepted": false,
+        "error": "confirmed_cause_required",
+        "deterministicRulesChanged": false
+      }
+    },
+    {
+      "id": "rejects-missing-corrective-action",
+      "input": {
+        "schemaVersion": 1,
+        "humanConfirmed": true,
+        "confirmedCause": "listener_only_handles_native_submit",
+        "correctiveAction": "",
+        "beforeEvidenceId": "run_before_failed",
+        "beforeVerdict": "outcome_observed_event_missing",
+        "afterEvidenceId": "run_after_passed",
+        "afterVerdict": "browser_verified"
+      },
+      "expected": {
+        "accepted": false,
+        "error": "corrective_action_required",
+        "deterministicRulesChanged": false
+      }
+    },
+    {
+      "id": "rejects-unknown-schema-version",
+      "input": {
+        "schemaVersion": 99,
+        "humanConfirmed": true,
+        "confirmedCause": "listener_only_handles_native_submit",
+        "correctiveAction": "observe_confirmed_ajax_success",
+        "beforeEvidenceId": "run_before_failed",
+        "beforeVerdict": "outcome_observed_event_missing",
+        "afterEvidenceId": "run_after_passed",
+        "afterVerdict": "browser_verified"
+      },
+      "expected": {
+        "accepted": false,
+        "error": "unsupported_schema_version",
+        "deterministicRulesChanged": false
+      }
+    },
+    {
+      "id": "redacts-forbidden-customer-data",
+      "input": {
+        "schemaVersion": 1,
+        "humanConfirmed": true,
+        "confirmedCause": "listener_only_handles_native_submit",
+        "correctiveAction": "observe_confirmed_ajax_success",
+        "beforeEvidenceId": "run_before_failed",
+        "beforeVerdict": "outcome_observed_event_missing",
+        "afterEvidenceId": "run_after_passed",
+        "afterVerdict": "browser_verified",
+        "unsafeCustomerData": {
+          "submittedFormValue": "privacy-sentinel@example.invalid",
+          "cookie": "PRIVATE_COOKIE_SENTINEL",
+          "credential": "DO_NOT_PERSIST_7F31",
+          "pageText": "privacy-sentinel@example.invalid PRIVATE_COOKIE_SENTINEL DO_NOT_PERSIST_7F31"
+        },
+        "forbiddenSentinels": [
+          "privacy-sentinel@example.invalid",
+          "PRIVATE_COOKIE_SENTINEL",
+          "DO_NOT_PERSIST_7F31"
+        ]
+      },
+      "expected": {
+        "accepted": true,
+        "persistedForbiddenSentinels": [],
+        "deterministicRulesChanged": false
+      }
+    }
+  ]
+}

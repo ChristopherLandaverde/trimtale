@@ -25,6 +25,7 @@ export interface SetupRequest {
 
 export interface SetupProposal {
   id: string;
+  specification: import("./contracts.js").TrackingSpecificationV1;
   eventName: "navigation_click";
   pageUrl: string;
   measurementId: string;
@@ -32,6 +33,25 @@ export interface SetupProposal {
   warnings: string[];
   preflight: {
     status: "passed" | "failed";
+    checks: string[];
+  };
+  containerFile: GtmContainerExport;
+}
+
+export interface FormSetupRequest {
+  specification: import("./contracts.js").TrackingSpecificationV1;
+  measurementId: string;
+  container: ContainerContext;
+}
+
+export interface FormSetupProposal {
+  id: string;
+  specification: import("./contracts.js").TrackingSpecificationV1;
+  eventName: "generate_lead";
+  measurementId: string;
+  warnings: string[];
+  preflight: {
+    status: "passed";
     checks: string[];
   };
   containerFile: GtmContainerExport;
@@ -53,6 +73,7 @@ export interface VerificationVerdict {
   status: "passed" | "failed" | "incomplete";
   browserVerification: "verified" | "failed" | "pending";
   platformConfirmation: "unverified";
+  runEvidence?: import("./contracts.js").TrackingRunEvidenceV1;
   checks: Array<{
     name: string;
     passed: boolean;
@@ -88,6 +109,7 @@ export interface GtmContainerExport {
     };
     tag: unknown[];
     trigger: unknown[];
+    variable?: unknown[];
     builtInVariable: unknown[];
   };
 }

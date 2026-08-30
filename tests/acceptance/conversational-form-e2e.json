@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "issue": ".scratch/conversational-tracking-specs/issues/08-form-e2e.md",
+  "feature": "conversational_form_tracking",
+  "behavioralTest": "tests/e2e/conversational-form.spec.ts",
+  "journeys": [
+    {
+      "id": "confirmed-form-success",
+      "intent": "Track leads from the contact form",
+      "clarifications": [
+        {
+          "field": "target",
+          "answer": "Contact sales"
+        },
+        {
+          "field": "successEvidence",
+          "answer": "The success message"
+        }
+      ],
+      "practitionerConfirmsSpecification": true,
+      "fixtureState": "ajax_success",
+      "expected": {
+        "eventName": "generate_lead",
+        "artifact": "gtm_container_import",
+        "verdict": "browser_verified",
+        "browserVerification": "passed",
+        "platformConfirmation": "unverified",
+        "explanationMustInclude": ["browser", "request", "platform confirmation"],
+        "explanationMustNotClaim": ["GA4 confirmed", "published", "production verified"]
+      }
+    },
+    {
+      "id": "validation-error-is-not-a-conversion",
+      "intent": "Track leads from the contact form",
+      "clarifications": [
+        {
+          "field": "target",
+          "answer": "Contact sales"
+        },
+        {
+          "field": "successEvidence",
+          "answer": "The success message"
+        }
+      ],
+      "practitionerConfirmsSpecification": true,
+      "fixtureState": "validation_failure",
+      "expected": {
+        "eventName": "generate_lead",
+        "artifact": "gtm_container_import",
+        "verdict": "expected_non_conversion",
+        "browserVerification": "failed",
+        "platformConfirmation": "unverified",
+        "explanationMustInclude": ["validation", "not counted", "submit again"],
+        "explanationMustNotClaim": ["conversion recorded", "GA4 confirmed", "platform confirmed"]
+      }
+    }
+  ]
+}

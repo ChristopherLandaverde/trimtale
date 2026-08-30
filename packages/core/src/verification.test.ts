@@ -27,11 +27,19 @@ describe("browser evidence", () => {
     expect(result.status).toBe("passed");
     expect(result.browserVerification).toBe("verified");
     expect(result.platformConfirmation).toBe("unverified");
+    expect(result.runEvidence).toMatchObject({
+      schemaVersion: 1,
+      specificationId: "spec_navigation",
+      verdict: { code: "browser_verified", browserVerification: "passed" },
+      observations: { tagFired: true },
+    });
   });
 
   it("fails duplicate GA4 delivery", () => {
     const url = "https://www.google-analytics.com/g/collect?v=2";
-    expect(evaluateEvidence(expected, evidence([url, url])).status).toBe("failed");
+    const result = evaluateEvidence(expected, evidence([url, url]));
+    expect(result.status).toBe("failed");
+    expect(result.runEvidence?.verdict.code).toBe("duplicate_fire");
   });
 
   it("stays incomplete before a guided click", () => {

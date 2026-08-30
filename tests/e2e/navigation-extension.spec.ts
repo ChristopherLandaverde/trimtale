@@ -1,234 +1,253 @@
-import { expect, test, chromium, type BrowserContext, type Page, type TestInfo } from "@playwright/test";
+import { expect, test, chromium } from "@playwright/test";
 import { mkdtemp, rm } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-async function extensionId(context: BrowserContext): Promise<string> {
-  let [worker] = context.serviceWorkers();
-  worker ??= await context.waitForEvent("serviceworker");
-  return new URL(worker.url()).host;
-}
+const screenshotOptions = {
+  animations: "disabled" as const,
+  stylePath: resolve("tests/e2e/visual-stability.css"),
+};
 
-async function saveFailureScreenshots(testInfo: TestInfo, pages: Page[]): Promise<void> {
-  if (testInfo.status === testInfo.expectedStatus) return;
-  await Promise.all(
-    pages.map(async (page, index) => {
-      if (page.isClosed()) return;
-      await page.screenshot({ path: testInfo.outputPath(`page-${index}.png`), fullPage: true });
-    }),
-  );
-}
-
-async function openWorkbench(context: BrowserContext, urlPattern = "http://127.0.0.1:14173/*"): Promise<void> {
-  await extensionId(context);
-  await context.serviceWorkers()[0]!.evaluate(async (url) => {
-    const [tab] = await chrome.tabs.query({ url });
-    if (!tab?.id) throw new Error("Fixture tab not found.");
-    try {
-      await chrome.tabs.sendMessage(tab.id, { type: "GET_EVIDENCE" });
-    } catch {
-      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content-script.js"] });
-    }
-    await chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_WORKBENCH", tabId: tab.id });
-  }, urlPattern);
-}
-
-async function workbenchFrame(site: Page) {
-  await expect(site.locator("#gtm-observability-workbench-host")).toBeAttached();
-  await expect.poll(() => site.frames().some((frame) => frame.url().includes("workbench.html"))).toBe(true);
-  const panel = site.frames().find((frame) => frame.url().includes("workbench.html"));
-  if (!panel) throw new Error("Workbench frame not found.");
-  return panel;
-}
-
-test("discovers, generates, downloads, and verifies navigation tracking", async ({}, testInfo) => {
+test("mounts and streams through the floating tracking assistant", async () => {
   const profile = await mkdtemp(join(tmpdir(), "gtm-observability-"));
   const extensionPath = resolve("apps/extension/dist");
   const context = await chromium.launchPersistentContext(profile, {
     channel: "chromium",
     headless: true,
     args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
-    acceptDownloads: true,
   });
-  const pages: Page[] = [];
 
   try {
     const site = await context.newPage();
-    pages.push(site);
-    await site.goto("http://127.0.0.1:14173/");
+    await site.goto("http://127.0.0.1:4173/");
 
-    await openWorkbench(context);
-    let panel = await workbenchFrame(site);
-    await expect(panel.locator("#step-discover")).toHaveClass(/active/);
-    await expect(panel.locator("#config-state")).toHaveText("Detecting");
+    const root = site.locator("#gtm-observability-root");
+    const assistant = root.locator("section.assistant");
+    await expect(root).toBeAttached();
+    await expect(assistant).toHaveClass(/collapsed/);
+    await expect(assistant).toHaveScreenshot("assistant-collapsed.png", screenshotOptions);
 
-    await panel.getByRole("button", { name: "Discover navigation" }).click();
-    await expect(panel.locator("#navigation-list .navigation-item")).toHaveCount(5);
-    await expect(panel.locator("#site-host")).toHaveText("127.0.0.1");
-    await expect(panel.locator("#scope-summary")).toContainText("5 navigation elements found");
-    await expect(panel.locator("#detected-gtm")).toHaveText("GTM-TEST123 matched");
-    await expect(panel.locator("#detected-ga4")).toHaveText("G-TEST123456 matched");
-    await expect(panel.locator("#config-state")).toHaveText("Ready");
-    await expect(panel.locator("#config-readiness")).toContainText("Ready");
-    await expect(panel.getByLabel("GA4 measurement ID")).toHaveValue("G-TEST123456");
-    await expect(panel.getByLabel("GTM container ID")).toHaveValue("GTM-TEST123");
-    await expect(panel.locator("#step-configure")).toHaveClass(/active/);
-    await expect(panel.locator("#status")).toContainText("Detected site configuration");
+    await root.getByRole("button", { name: "Open tracking assistant" }).click();
+    await expect(assistant).not.toHaveClass(/collapsed/);
+    await expect(root.getByText("What do you want to track on this page?")).toBeVisible();
+    await expect(root.getByRole("button", { name: /model evaluation reports/i })).toHaveCount(0);
+    await expect(root.getByText("Evals", { exact: true })).toHaveCount(0);
+    await expect(root.getByLabel("Tracking request")).toBeFocused();
+    expect(await assistant.evaluate((element) => getComputedStyle(element).fontFamily)).toContain("Inter");
+    await root.getByLabel("Tracking request").evaluate((element) => (element as HTMLElement).blur());
+    await expect(assistant).toHaveScreenshot("assistant-open.png", screenshotOptions);
 
-    await panel.getByRole("button", { name: "Generate GTM file" }).click();
-    await expect(panel.getByRole("heading", { name: "Ready to import" })).toBeVisible();
-    await expect(panel.locator("#config-state")).toHaveText("Ready");
-    await expect(panel.locator("#config-summary")).toContainText("GTM-TEST123");
-    await expect(panel.locator("#detected-gtm")).toHaveText("GTM-TEST123 matched");
-    await expect(panel.locator("#detected-ga4")).toHaveText("G-TEST123456 matched");
-    await expect(panel.locator("#status")).toContainText("Detected matching GTM and GA4 IDs");
-    await expect(panel.locator("#step-import")).toHaveClass(/active/);
-    await expect
-      .poll(async () => panel.evaluate(() => chrome.storage.local.get("siteConfig:127.0.0.1")))
-      .toEqual({
-        "siteConfig:127.0.0.1": {
-          measurementId: "G-TEST123456",
-          containerId: "GTM-TEST123",
+    await root.getByLabel("Tracking request").fill("navigation");
+    await root.getByRole("button", { name: "Send request" }).click();
+    await expect(root.getByText("navigation", { exact: true })).toBeVisible();
+    await expect(root.getByText(/I found 5 navigation links/)).toBeVisible();
+    await root.getByRole("button", { name: "Choose links" }).click();
+    await expect(root.locator(".pick")).toHaveCount(5);
+    await expect(assistant).toHaveScreenshot("assistant-navigation-scope.png", screenshotOptions);
+    await root.getByRole("button", { name: "Confirm selection" }).click();
+    await expect(root.getByText("5 navigation links selected and highlighted on the page.")).toBeVisible();
+    await expect(root.getByRole("region", { name: "Tracking evidence path" })).toBeVisible();
+    await expect(root.getByText("Navigation clicks → navigation_click")).toBeVisible();
+    await expect(root.getByText("Reviewable navigation_click setup generated")).toBeVisible();
+    await expect(root.getByText("No GTM container detected on this page")).toBeVisible();
+    await expect(root.getByText("Unverified — browser evidence cannot confirm GA4 processing")).toBeVisible();
+    await expect(site.locator("#gtm-observability-targets")).toBeAttached();
+    await expect(site.locator("#gtm-observability-targets").locator(".target.confirmed")).toHaveCount(5);
+    await expect(assistant).toHaveScreenshot("assistant-evidence-path.png", screenshotOptions);
+
+    const downloadPromise = site.waitForEvent("download");
+    await root.getByRole("button", { name: "Download GTM setup" }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe("gtm-observability-navigation-click.json");
+    const downloadPath = await download.path();
+    if (!downloadPath) throw new Error("The navigation setup download did not produce a local artifact.");
+    const generated = JSON.parse(readFileSync(downloadPath, "utf8")) as {
+      containerVersion?: { tag?: unknown[]; trigger?: unknown[] };
+    };
+    expect(generated.containerVersion?.tag).toHaveLength(1);
+    expect(generated.containerVersion?.trigger).toHaveLength(1);
+    await expect(root.getByText(/Nothing was applied or published/)).toBeVisible();
+
+    const setupResponse = await site.request.post("http://127.0.0.1:8787/api/setups", {
+      data: {
+        intent: "Track navigation links",
+        pageUrl: "http://127.0.0.1:4173/",
+        measurementId: "G-TEST123456",
+        navigation: [
+          {
+            id: "nav_services",
+            text: "Services",
+            href: "http://127.0.0.1:4173/services",
+            area: "header",
+            selector: "header a[href='/services']",
+          },
+        ],
+        container: {
+          accountId: "1",
+          containerId: "2",
+          publicId: "GTM-TEST123",
+          name: "E2E container",
         },
-      });
-    await expect(panel.locator("#preflight-list li")).toHaveCount(4);
-    await expect(panel.getByRole("heading", { name: "GTM Preview handoff" })).toBeVisible();
-    await expect(panel.locator("#import-card")).toContainText("Merge");
-    await expect(panel.locator("#import-card")).toContainText("Do not select Overwrite");
-
-    await panel.getByRole("button", { name: "Download container JSON" }).click();
-    const containerPayload = await panel.evaluate(() => (
-      window as Window & { __gtmObservabilityLastDownload?: { filename: string; content: string } }
-    ).__gtmObservabilityLastDownload);
-    expect(containerPayload?.filename).toBe("gtm-navigation-127.0.0.1.json");
-    const file = JSON.parse(containerPayload!.content) as {
-      exportFormatVersion: number;
-      containerVersion: { tag: unknown[]; trigger: unknown[]; builtInVariable: unknown[] };
-    };
-    expect(file.exportFormatVersion).toBe(2);
-    expect(file.containerVersion.tag).toHaveLength(1);
-    expect(file.containerVersion.trigger).toHaveLength(1);
-    expect(file.containerVersion.builtInVariable).toHaveLength(2);
-
-    await panel.evaluate(() => {
-      document.getElementById("verify")?.click();
+      },
     });
-    await expect
-      .poll(async () => panel.locator("#verification-card").evaluate((element) => !element.classList.contains("hidden")))
-      .toBe(true);
-    await expect(panel.locator("#step-verify")).toHaveClass(/active/);
-    await expect(site.locator("#gtm-observability-workbench-host")).toBeHidden();
-
-    await site.bringToFront();
-    await site.getByRole("link", { name: "Services" }).click({ noWaitAfter: true });
-    await expect(site).toHaveURL("http://127.0.0.1:14173/services");
-
-    await context.serviceWorkers()[0]!.evaluate(async () => {
-      const [tab] = await chrome.tabs.query({ url: "http://127.0.0.1:14173/*" });
-      if (!tab?.id) throw new Error("Fixture tab not found.");
-      try {
-        await chrome.tabs.sendMessage(tab.id, { type: "GET_EVIDENCE" });
-      } catch {
-        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content-script.js"] });
-      }
-      await chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_WORKBENCH", tabId: tab.id });
+    expect(setupResponse.status()).toBe(201);
+    const setup = await setupResponse.json();
+    expect(setup.specification).toMatchObject({
+      schemaVersion: 1,
+      status: "confirmed",
+      interaction: { type: "navigation_click" },
+      event: { name: "navigation_click" },
     });
-    await expect(site.locator("#gtm-observability-workbench-host")).toBeVisible();
-    panel = await workbenchFrame(site);
-    await expect(panel.locator("#step-verify")).toHaveClass(/active/);
 
-    const servicesResult = panel
-      .locator("#verification-list .navigation-item")
-      .filter({ hasText: "Services" });
-    await expect(servicesResult.locator(".area")).toHaveText("passed");
-    await expect(servicesResult).toContainText("Observed 1 matching GA4 request");
-    await expect(panel.locator("#summary-passed")).toHaveText("1");
-    await expect(panel.locator("#summary-pending")).toHaveText("4");
-    await expect(panel.locator(".boundary")).toContainText("Not independently confirmed");
-
-    await panel.getByRole("button", { name: "Download evidence report" }).click();
-    const reportPayload = await panel.evaluate(() => (
-      window as Window & { __gtmObservabilityLastDownload?: { filename: string; content: string } }
-    ).__gtmObservabilityLastDownload);
-    expect(reportPayload?.filename).toBe("gtm-verification-127.0.0.1.json");
-    const evidenceReport = JSON.parse(reportPayload!.content) as {
-      reportType: string;
-      summary: { passed: number; incomplete: number };
-      platformConfirmation: string;
-    };
-    expect(evidenceReport.reportType).toBe("gtm-observability-browser-verification");
-    expect(evidenceReport.summary.passed).toBe(1);
-    expect(evidenceReport.summary.incomplete).toBe(4);
-    expect(evidenceReport.platformConfirmation).toBe("unverified");
-
-  } catch (error) {
-    await saveFailureScreenshots(testInfo, pages);
-    throw error;
+    await root.getByRole("button", { name: "Collapse assistant" }).click();
+    await expect(assistant).toHaveClass(/collapsed/);
+    await site.reload();
+    await expect(site.locator("#gtm-observability-root section.assistant")).toHaveClass(/collapsed/);
   } finally {
     await context.close();
     await rm(profile, { recursive: true, force: true });
   }
 });
 
-test("detects GTM-only pages without asking for manual IDs", async ({}, testInfo) => {
-  const profile = await mkdtemp(join(tmpdir(), "gtm-observability-"));
+test("reports an observed GTM public container ID separately from setup generation", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "gtm-observability-runtime-"));
   const extensionPath = resolve("apps/extension/dist");
   const context = await chromium.launchPersistentContext(profile, {
     channel: "chromium",
     headless: true,
     args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
   });
-  const pages: Page[] = [];
-
   try {
     const site = await context.newPage();
-    pages.push(site);
-    await site.goto("http://127.0.0.1:14173/gtm-only");
-
-    await openWorkbench(context);
-    const panel = await workbenchFrame(site);
-
-    await panel.getByRole("button", { name: "Discover navigation" }).click();
-    await expect(panel.locator("#detected-gtm")).toHaveText("GTM-TEST123 matched");
-    await expect(panel.locator("#detected-ga4")).toHaveText("None found");
-    await expect(panel.getByLabel("GTM container ID")).toHaveValue("GTM-TEST123");
-    await expect(panel.getByLabel("GA4 measurement ID")).toHaveValue("");
-    await expect(panel.locator("#config-readiness")).toContainText("GTM is installed, but GA4 is not visible");
-    await expect(panel.getByRole("button", { name: "Generate GTM file" })).toBeDisabled();
-  } catch (error) {
-    await saveFailureScreenshots(testInfo, pages);
-    throw error;
+    await site.goto("http://127.0.0.1:4173/?gtm=GTM-TEST123");
+    const root = site.locator("#gtm-observability-root");
+    await root.getByRole("button", { name: "Open tracking assistant" }).click();
+    await root.getByLabel("Tracking request").fill("navigation");
+    await root.getByRole("button", { name: "Send request" }).click();
+    await root.getByRole("button", { name: "Track all" }).click();
+    await expect(root.getByText("Detected GTM-TEST123")).toBeVisible();
+    await expect(root.getByText("Reviewable navigation_click setup generated")).toBeVisible();
   } finally {
     await context.close();
     await rm(profile, { recursive: true, force: true });
   }
 });
 
-test("finds loose page navigation and DOM-visible GTM signals", async ({}, testInfo) => {
-  const profile = await mkdtemp(join(tmpdir(), "gtm-observability-"));
+test("does not claim setup generation without measurement context", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "gtm-observability-missing-measurement-"));
   const extensionPath = resolve("apps/extension/dist");
   const context = await chromium.launchPersistentContext(profile, {
     channel: "chromium",
     headless: true,
     args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
   });
-  const pages: Page[] = [];
-
   try {
     const site = await context.newPage();
-    pages.push(site);
-    await site.goto("http://127.0.0.1:14173/loose-navigation");
+    await site.goto("http://127.0.0.1:4173/?gtm=GTM-TEST123");
+    await site.locator('meta[name="gtm-observability-measurement-id"]').evaluate((meta) => meta.remove());
+    const root = site.locator("#gtm-observability-root");
+    await root.getByRole("button", { name: "Open tracking assistant" }).click();
+    await root.getByLabel("Tracking request").fill("navigation");
+    await root.getByRole("button", { name: "Send request" }).click();
+    await root.getByRole("button", { name: "Track all" }).click();
 
-    await openWorkbench(context);
-    const panel = await workbenchFrame(site);
+    await expect(root.getByText("Connect a GTM container and GA4 measurement ID to generate setup")).toBeVisible();
+    await expect(root.getByRole("button", { name: "Download GTM setup" })).toHaveCount(0);
+  } finally {
+    await context.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});
 
-    await panel.getByRole("button", { name: "Discover navigation" }).click();
-    await expect(panel.locator("#navigation-list .navigation-item")).toHaveCount(3);
-    await expect(panel.locator("#detected-gtm")).toHaveText("GTM-TEST123 matched");
-    await expect(panel.getByLabel("GTM container ID")).toHaveValue("GTM-TEST123");
-  } catch (error) {
-    await saveFailureScreenshots(testInfo, pages);
-    throw error;
+test("matches the observed container and explicitly prepares one managed workspace", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "gtm-observability-managed-workspace-"));
+  const extensionPath = resolve("apps/extension/dist");
+  const context = await chromium.launchPersistentContext(profile, {
+    channel: "chromium",
+    headless: true,
+    args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+  });
+  let preparationCount = 0;
+  await context.route("http://127.0.0.1:8787/api/google/containers/**", async (route) => {
+    const request = route.request();
+    const preparing = request.method() === "POST";
+    if (preparing) preparationCount += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ...(preparing ? {} : { containerWritesEnabled: true }),
+        result: {
+          status: "recognized",
+          publicId: "GTM-TEST123",
+          container: { name: "Lead site", publicId: "GTM-TEST123" },
+          workspace: preparing
+            ? {
+              status: "created",
+              workspaceCount: 2,
+              workspace: { name: "GTM Observability", workspaceId: "99" },
+            }
+            : {
+              status: "available",
+              action: "create",
+              workspaceCount: 1,
+              remainingSlots: 2,
+            },
+        },
+      }),
+    });
+  });
+  try {
+    const site = await context.newPage();
+    await site.goto("http://127.0.0.1:4173/?gtm=GTM-TEST123");
+    const root = site.locator("#gtm-observability-root");
+    await root.getByRole("button", { name: "Open tracking assistant" }).click();
+    await root.getByLabel("Tracking request").fill("navigation");
+    await root.getByRole("button", { name: "Send request" }).click();
+    await root.getByRole("button", { name: "Track all" }).click();
+
+    await root.getByRole("button", { name: "Check GTM access" }).click();
+    await expect(root.getByText(/Recognized Lead site.*Managed workspace can be prepared/)).toBeVisible();
+    expect(preparationCount).toBe(0);
+
+    await root.getByRole("button", { name: "Prepare managed workspace" }).click();
+    await expect(root.getByText(/Recognized Lead site.*GTM Observability prepared \(2\/3 slots occupied\)/)).toBeVisible();
+    expect(preparationCount).toBe(1);
+    await expect(root.getByText(/published/i)).toHaveCount(0);
+    await expect(root.locator("section.assistant")).toHaveScreenshot(
+      "assistant-managed-workspace.png",
+      screenshotOptions,
+    );
+  } finally {
+    await context.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});
+
+test("renders page-controlled target labels as inert text", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "gtm-observability-label-safety-"));
+  const extensionPath = resolve("apps/extension/dist");
+  const context = await chromium.launchPersistentContext(profile, {
+    channel: "chromium",
+    headless: true,
+    args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+  });
+  try {
+    const site = await context.newPage();
+    await site.goto("http://127.0.0.1:4173/");
+    await site.locator("header nav a").first().evaluate((anchor) => {
+      anchor.textContent = '<img src=x onerror="window.__unsafeHighlightExecuted=true">';
+    });
+    const root = site.locator("#gtm-observability-root");
+    await root.getByRole("button", { name: "Open tracking assistant" }).click();
+    await root.getByLabel("Tracking request").fill("navigation");
+    await root.getByRole("button", { name: "Send request" }).click();
+    await root.getByRole("button", { name: "Choose links" }).click();
+    const targets = site.locator("#gtm-observability-targets");
+    await expect(targets.locator(".target span").filter({ hasText: "<img src=x" })).toHaveCount(1);
+    await expect(targets.locator(".target img")).toHaveCount(0);
+    expect(await site.evaluate(() => (window as Window & { __unsafeHighlightExecuted?: boolean }).__unsafeHighlightExecuted)).not.toBe(true);
   } finally {
     await context.close();
     await rm(profile, { recursive: true, force: true });
