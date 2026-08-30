@@ -1,6 +1,6 @@
 # Post-Publication Browser Verification
 
-Status: implemented for API recording, assistant UI, navigation E2E, and shared form evidence recording; remaining expansion covers lead-form E2E, broader privacy sentinels, and rollback approval automation.
+Status: implemented for API recording, assistant UI, navigation E2E, lead-form E2E, and private form-value evidence sentinels; remaining expansion covers broader hostile-input privacy sentinels and rollback approval automation.
 
 ## Objective
 
@@ -113,7 +113,7 @@ live version fingerprint visible for explicit rollback approval.
 
 - [x] A published navigation operation can start browser verification and record
       `Google request verified` from deterministic E2E evidence.
-- [ ] A published lead-form operation can start browser verification and record
+- [x] A published lead-form operation can start browser verification and record
       `Google request verified` from deterministic E2E evidence.
 - [x] Failed post-publication browser evidence moves the operation to
       `rollback_required` with the prior live fingerprint visible.
@@ -123,6 +123,8 @@ live version fingerprint visible for explicit rollback approval.
 - [x] Platform confirmation is labelled unavailable, not pending or confirmed.
 - [ ] Privacy sentinels prove form values, cookies, credentials, arbitrary labels,
       hostile URLs, and raw browser errors do not enter persisted evidence.
+      Current coverage includes private form values and page-controlled navigation
+      labels; broader hostile URL and raw-error sentinels remain.
 - [x] Completed and rollback-required operation states reload from durable API state.
 - [x] Exploratory Chromium review covers one passing path, one rollback-required path,
       and one adversarial page state.

@@ -126,6 +126,120 @@ function operation(status: "planned" | "applying" | "validation_failed" | "versi
   };
 }
 
+function formOperation(status: "planned" | "applying" | "validation_failed" | "versioned" | "published" | "completed" | "rollback_required" = "versioned") {
+  const completedActionSignatures = status === "planned"
+    ? []
+    : status === "applying"
+      ? ["tag:generate_lead"]
+      : ["tag:generate_lead", "trigger:generate_lead"];
+  return {
+    schemaVersion: 1,
+    id: "operation_spec_form_contact",
+    status,
+    createdAt: "2026-08-30T20:00:00.000Z",
+    updatedAt: "2026-08-30T20:01:00.000Z",
+    specification: {
+      schemaVersion: 1,
+      id: "spec_form_contact",
+      status: "confirmed",
+      originalIntent: "Track qualified inquiries from Contact sales",
+      interaction: { type: "form_submission" },
+      conversionOutcome: { type: "qualified_inquiry", practitionerConfirmed: true },
+      event: {
+        name: "generate_lead",
+        requiredParameters: ["form_id", "form_name", "page_location"],
+        optionalParameters: [],
+      },
+      targets: [{
+        id: "contact",
+        label: "Contact sales",
+        selector: "#contact",
+        pageUrl: "http://127.0.0.1:14173/",
+      }],
+      successEvidence: [{ type: "visible_element", selector: "#contact-success" }],
+    },
+    generatedSetup: {
+      exportFormatVersion: 2,
+      exportTime: "2026-08-30T20:00:00.000Z",
+      containerVersion: {
+        path: "accounts/1/containers/10/versions/0",
+        accountId: "1",
+        containerId: "10",
+        containerVersionId: "0",
+        name: "GTM Observability import",
+        description: "fixture",
+        container: {
+          path: "accounts/1/containers/10",
+          accountId: "1",
+          containerId: "10",
+          name: "Lead site",
+          publicId: "GTM-TEST123",
+          usageContext: ["WEB"],
+        },
+        tag: [],
+        trigger: [],
+        builtInVariable: [],
+      },
+    },
+    container: { publicId: "GTM-TEST123", path: "accounts/1/containers/10" },
+    workspace: {
+      path: "accounts/1/containers/10/workspaces/99",
+      fingerprint: "workspace-final",
+    },
+    plan: {
+      schemaVersion: 1,
+      status: "ready",
+      fingerprint: "form-plan-ready",
+      actions: [{
+        kind: "tag",
+        action: "create",
+        generatedName: "GA4 Event - generate_lead",
+        entitySignature: "tag:generate_lead",
+      }, {
+        kind: "trigger",
+        action: "create",
+        generatedName: "Generate Lead Trigger",
+        entitySignature: "trigger:generate_lead",
+      }],
+    },
+    completedActionSignatures,
+    ...((status === "validation_failed" || status === "versioned" || status === "published" || status === "completed" || status === "rollback_required") ? {
+      validation: {
+        status: status === "validation_failed" ? "failed" : "passed",
+        checkedAt: "2026-08-30T20:01:00.000Z",
+        workspaceFingerprint: "workspace-final",
+        errors: status === "validation_failed" ? ["The preview compiler rejected the generated trigger."] : [],
+      },
+    } : {}),
+    ...((status === "versioned" || status === "published" || status === "completed" || status === "rollback_required") ? {
+      version: {
+        path: "accounts/1/containers/10/versions/8",
+        fingerprint: "version-8",
+        priorLiveVersionPath: "accounts/1/containers/10/versions/7",
+        priorLiveVersionFingerprint: "live-7",
+      },
+    } : {}),
+    ...((status === "published" || status === "completed" || status === "rollback_required") ? {
+      approval: {
+        approvedAt: "2026-08-30T20:02:00.000Z",
+        approvedBy: "website assistant",
+        versionFingerprint: "version-8",
+      },
+      publication: {
+        publishedAt: "2026-08-30T20:03:00.000Z",
+        versionFingerprint: "version-8",
+      },
+    } : {}),
+    ...(status === "completed" ? {
+      postPublicationEvidenceId: "run_form_contact",
+    } : {}),
+    ...(status === "rollback_required" ? {
+      postPublicationEvidenceId: "run_form_contact",
+      rollback: { targetVersionFingerprint: "live-7", status: "required" },
+    } : {}),
+  };
+}
+
 async function mockWritableContainerAndWorkflow(
   context: BrowserContext,
   options: {
@@ -136,10 +250,12 @@ async function mockWritableContainerAndWorkflow(
     browserVerificationResult?: Record<string, unknown>;
     onBrowserVerification?: (body: Record<string, unknown>) => void;
     storedOperation?: Record<string, unknown>;
+    workflowOperation?: typeof operation;
     onResume?: () => void;
     onPublish?: () => void;
   } = {},
 ) {
+  const workflowOperation = options.workflowOperation ?? operation;
   await context.route("http://127.0.0.1:18787/api/google/containers/**", async (route) => {
     const request = route.request();
     const preparing = request.method() === "POST";
@@ -172,7 +288,7 @@ async function mockWritableContainerAndWorkflow(
     await route.fulfill({
       status: 201,
       contentType: "application/json",
-      body: JSON.stringify({ result: { status: "planned", operation: operation("planned") } }),
+      body: JSON.stringify({ result: { status: "planned", operation: workflowOperation("planned") } }),
     });
   });
   let resumeIndex = 0;
@@ -180,7 +296,7 @@ async function mockWritableContainerAndWorkflow(
     options.onResume?.();
     const resumeResult = options.resumeResults?.[
       Math.min(resumeIndex, Math.max(options.resumeResults.length - 1, 0))
-    ] ?? { status: "versioned", nextStep: "await_approval", operation: operation("versioned") };
+    ] ?? { status: "versioned", nextStep: "await_approval", operation: workflowOperation("versioned") };
     resumeIndex += 1;
     await route.fulfill({
       status: 200,
@@ -188,11 +304,11 @@ async function mockWritableContainerAndWorkflow(
       body: JSON.stringify({ result: resumeResult }),
     });
   });
-  await context.route(new RegExp(`http://127\\.0\\.0\\.1:18787/api/google/workflows/${navigationOperationId}$`), async (route) => {
+  await context.route(/http:\/\/127\.0\.0\.1:18787\/api\/google\/workflows\/(?!plan$)[^/]+$/, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ operation: options.storedOperation ?? operation("versioned") }),
+      body: JSON.stringify({ operation: options.storedOperation ?? workflowOperation("versioned") }),
     });
   });
   await context.route("http://127.0.0.1:18787/api/google/workflows/*/publish", async (route) => {
@@ -212,7 +328,7 @@ async function mockWritableContainerAndWorkflow(
         result: options.publishResult ?? {
           status: "published",
           nextStep: "verify_publication",
-          operation: operation("published"),
+          operation: workflowOperation("published"),
         },
       }),
     });
@@ -232,7 +348,7 @@ async function mockWritableContainerAndWorkflow(
         result: options.browserVerificationResult ?? {
           status: "completed",
           nextStep: "platform_unavailable",
-          operation: operation("completed"),
+          operation: workflowOperation("completed"),
         },
       }),
     });
@@ -860,6 +976,60 @@ test("records post-publication navigation browser verification without platform 
     await expect.poll(() => postedEvidence?.evidence && typeof postedEvidence.evidence === "object"
       ? (postedEvidence.evidence as Record<string, unknown>).specificationId
       : undefined).toBe(navigationSpecId);
+    await expect(root.getByText(/platform-confirmed/i)).toHaveCount(0);
+  } finally {
+    await context.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});
+
+test("records post-publication lead-form browser verification without leaking form values", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "gtm-observability-form-browser-verify-"));
+  const extensionPath = resolve("apps/extension/dist");
+  const context = await chromium.launchPersistentContext(profile, {
+    channel: "chromium",
+    headless: true,
+    args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+  });
+  let postedEvidence: Record<string, unknown> | undefined;
+  await mockWritableContainerAndWorkflow(context, {
+    workflowOperation: formOperation,
+    onBrowserVerification: (body) => {
+      postedEvidence = body;
+    },
+  });
+  try {
+    const site = await context.newPage();
+    await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123&formScenario=ajax_success");
+    const root = site.locator("#gtm-observability-root");
+    await root.getByRole("button", { name: "Open tracking assistant" }).click();
+    await root.getByLabel("Tracking request").fill("Track leads from the contact form");
+    await root.getByRole("button", { name: "Send request" }).click();
+    await root.getByRole("button", { name: "Contact sales" }).click();
+    await root.getByRole("button", { name: "Review setup" }).click();
+    await root.getByRole("button", { name: "Confirm setup" }).click();
+    await root.getByRole("button", { name: "Check GTM access" }).click();
+    await root.getByRole("button", { name: "Prepare GTM version" }).click();
+
+    let operationRegion = root.getByRole("region", { name: "Setup operation" });
+    await operationRegion.getByRole("button", { name: "Publish version-8" }).click();
+    operationRegion = root.getByRole("region", { name: "Setup operation" });
+    await operationRegion.getByRole("button", { name: "Start browser verification" }).click();
+    await site.locator("form#contact input[name='email']").fill("private@example.com");
+    await site.locator("form#contact button[type='submit']").click();
+
+    await expect.poll(() => postedEvidence?.evidence && typeof postedEvidence.evidence === "object"
+      ? (postedEvidence.evidence as Record<string, unknown>).verdict
+      : undefined).toMatchObject({
+      code: "browser_verified",
+      browserVerification: "passed",
+      platformConfirmation: "unverified",
+    });
+    await expect.poll(() => postedEvidence?.evidence && typeof postedEvidence.evidence === "object"
+      ? (postedEvidence.evidence as Record<string, unknown>).specificationId
+      : undefined).toBe("spec_form_contact");
+    expect(JSON.stringify(postedEvidence)).not.toContain("private@example.com");
+    expect(JSON.stringify(postedEvidence)).not.toContain("cookie");
     await expect(root.getByText(/platform-confirmed/i)).toHaveCount(0);
   } finally {
     await context.close();

@@ -21,14 +21,15 @@ Rollback approval, GA4 reporting receipt, Google Ads confirmation, and autonomou
 ## Regression coverage
 
 - `apps/api/src/workflow-runner.test.ts` covers completed and rollback-required post-publication transitions, pre-publication rejection, and wrong-specification rejection.
-- `tests/e2e/navigation-extension.spec.ts` covers the published navigation assistant flow, observed browser evidence posting, and `platformConfirmation: "unverified"`.
+- `tests/e2e/navigation-extension.spec.ts` covers the published navigation assistant flow, the published lead-form assistant flow, observed browser evidence posting, private form-value exclusion, and `platformConfirmation: "unverified"`.
 
 ## Verification
 
 - `npm run check` passed.
 - `npm test -- apps/api/src/workflow-runner.test.ts tests/e2e/navigation-extension.spec.ts` passed for the workflow-runner unit file.
-- `npm run test:e2e` passed: 43 Playwright tests.
-- `npm run verify` passed: preflight, change-doc validation, typecheck, 270 unit/domain tests, and 43 Playwright E2E tests.
+- `npx playwright test tests/e2e/navigation-extension.spec.ts` passed: 16 Playwright extension workflow tests.
+- `npm run test:e2e` passed: 43 Playwright tests before the follow-up lead-form expansion.
+- `npm run verify` passed: preflight, change-doc validation, typecheck, 270 unit/domain tests, and 44 Playwright E2E tests.
 
 ## Exploratory review
 
