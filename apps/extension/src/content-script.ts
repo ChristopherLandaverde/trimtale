@@ -783,7 +783,34 @@ function operationSummary(operation: TrackingSetupOperationV1): string {
   return `Tracking change plan is ready with ${actions} action${actions === 1 ? "" : "s"}.`;
 }
 
+function setupOperationGuidance(result: WorkflowResult): string {
+  const reason = result.status === "versioned" ? "await_approval" : result.reason;
+  if (reason === "ready_to_apply") return "Ready to apply owned GTM entities from the saved plan.";
+  if (reason === "partial_application" || reason === "partial_failure") {
+    return "Interrupted after a partial application. Resume re-reads GTM state and applies only incomplete owned actions.";
+  }
+  if (reason === "ready_to_validate") return "Owned entities were applied. Resume runs workspace validation before any version is created.";
+  if (reason === "ready_to_version") return "Workspace validation passed. Resume creates the immutable version for separate approval.";
+  if (reason === "validation_failed") return "Workspace validation failed. Review the validation errors before changing or publishing anything.";
+  if (reason === "stale_workspace") return "The managed workspace changed since planning. Recheck GTM access before resuming.";
+  if (reason === "stale_plan") return "The GTM entities no longer match the saved plan. Regenerate and review the setup before applying.";
+  if (reason === "ownership_conflict" || reason === "plan_conflict") {
+    return "An existing GTM entity conflicts with the owned plan. Manual review is required before any write.";
+  }
+  if (reason === "sync_conflict") return "The managed workspace has synchronization conflicts. Resolve them in GTM before resuming.";
+  if (reason === "capacity_blocked" || reason === "workspace_unavailable") {
+    return "A managed workspace is unavailable. Free capacity or resolve workspace ownership before continuing.";
+  }
+  if (reason === "not_accessible" || reason === "ambiguous") {
+    return "The connected Google account cannot uniquely access the observed container. Reconnect or choose the correct account.";
+  }
+  if (reason === "version_creation_blocked") return "GTM refused version creation. Review validation evidence and current workspace state.";
+  if (reason === "await_approval") return "Review the immutable version fingerprint before any separate publication step.";
+  return "Review the saved operation state before continuing. Nothing was published.";
+}
+
 function renderSetupOperation(result: WorkflowResult, request?: TrackingWorkflowRequest): void {
+  responseList?.querySelectorAll("section[aria-label=\"Setup operation\"]").forEach((element) => element.remove());
   const path = document.createElement("section");
   path.className = "evidence-path";
   path.setAttribute("aria-label", "Setup operation");
@@ -799,10 +826,28 @@ function renderSetupOperation(result: WorkflowResult, request?: TrackingWorkflow
   const operation = result.operation;
   const status = operation?.status;
   const blockedReason = result.status === "versioned" ? "Operation reached version creation" : result.reason;
+  const resultReason = result.status === "versioned" ? "await_approval" : result.reason;
+  const guidanceText = setupOperationGuidance(result);
   const stages = [
     { key: "planned", label: "Tracking change plan", detail: operation ? operationSummary(operation) : blockedReason },
-    { key: "applying", label: "Owned entities applied", detail: operation ? `${operation.completedActionSignatures.length}/${operation.plan.actions.length} actions complete` : blockedReason },
-    { key: "validated", label: "Workspace validated", detail: operation?.validation ? `${operation.validation.status} at ${operation.validation.checkedAt}` : "Validation has not run yet" },
+    {
+      key: "applying",
+      label: "Owned entities applied",
+      detail: operation
+        ? resultReason === "partial_application" || resultReason === "partial_failure"
+          ? guidanceText
+          : `${operation.completedActionSignatures.length}/${operation.plan.actions.length} actions complete`
+        : blockedReason,
+    },
+    {
+      key: "validated",
+      label: "Workspace validated",
+      detail: operation?.validation
+        ? operation.validation.status === "failed"
+          ? guidanceText
+          : `${operation.validation.status} at ${operation.validation.checkedAt}`
+        : "Validation has not run yet",
+    },
     { key: "versioned", label: "Immutable version created", detail: operation?.version ? `Version fingerprint ${operation.version.fingerprint}` : "No immutable version yet" },
     { key: "approval", label: "Publication approval", detail: "Separate approval is required; nothing was published" },
   ];
@@ -831,8 +876,13 @@ function renderSetupOperation(result: WorkflowResult, request?: TrackingWorkflow
     path.append(row);
   }
 
+  const guidance = document.createElement("p");
+  guidance.className = "evidence-note";
+  guidance.textContent = guidanceText;
+  path.append(guidance);
+
   if (result.status === "blocked" || result.status === "paused") {
-    addMessage(`Setup operation ${result.status}: ${result.reason}. Nothing was published.`, "assistant");
+    addMessage(`Setup operation ${result.status}: ${guidanceText} Nothing was published.`, "assistant");
     if (operation) {
       appendInlineAction(path, "Resume operation", () => {
         void runSetupOperation("resume", operation.id, request);
@@ -1438,6 +1488,7 @@ async function mountOverlay(): Promise<void> {
       .evidence-stage span { display: grid; align-content: start; gap: 1px; padding-bottom: 8px; }
       .evidence-stage strong { color: #e8efec; font-size: 12px; font-weight: 600; }
       .evidence-stage small { color: #89969e; font-size: 10px; }
+      .evidence-note { margin: 4px 0 0; color: #bfd0ca; font-size: 10px; line-height: 1.45; }
       .composer { margin: 0 12px 12px; padding: 6px 6px 6px 12px; display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 8px; border: 1px solid rgba(255,255,255,.14); border-radius: 15px; background: rgba(31,39,45,.72); box-shadow: inset 0 1px 0 rgba(255,255,255,.035); transition: border-color .16s ease, background .16s ease, box-shadow .16s ease; }
       .composer:focus-within { border-color: rgba(167,243,208,.38); background: rgba(34,43,49,.88); box-shadow: 0 0 0 3px rgba(167,243,208,.06), inset 0 1px 0 rgba(255,255,255,.05); }
       textarea { resize: none; min-height: 38px; max-height: 120px; padding: 8px 0; border: 0; outline: 0; color: white; background: transparent; font: inherit; }

@@ -85,6 +85,14 @@ chrome.runtime.onConnect.addListener((port) => {
 type GtmContainerOperation = "inspect" | "prepare";
 type GtmWorkflowAction = "start" | "resume" | "get";
 type TrackingWorkflowRequest = SetupRequest | FormSetupRequest;
+type StoredWorkflowResult =
+  | { status: "versioned"; operation: Record<string, unknown>; nextStep: "await_approval" }
+  | {
+    status: "blocked" | "paused";
+    operation: Record<string, unknown>;
+    stage: "planning" | "application" | "validation" | "version";
+    reason: string;
+  };
 
 const gtmPublicIdPattern = /^GTM-[A-Z0-9]+$/;
 
@@ -213,6 +221,29 @@ async function readJsonResponse(response: Response): Promise<Record<string, unkn
   }
 }
 
+function workflowResultFromStoredOperation(operation: Record<string, unknown>): StoredWorkflowResult {
+  const status = typeof operation.status === "string" ? operation.status : "unknown";
+  if (status === "versioned") {
+    return { status: "versioned", operation, nextStep: "await_approval" };
+  }
+  if (status === "planned") {
+    return { status: "paused", operation, stage: "planning", reason: "ready_to_apply" };
+  }
+  if (status === "applying") {
+    return { status: "paused", operation, stage: "application", reason: "partial_application" };
+  }
+  if (status === "applied") {
+    return { status: "paused", operation, stage: "validation", reason: "ready_to_validate" };
+  }
+  if (status === "validated") {
+    return { status: "paused", operation, stage: "version", reason: "ready_to_version" };
+  }
+  if (status === "validation_failed") {
+    return { status: "blocked", operation, stage: "validation", reason: "validation_failed" };
+  }
+  return { status: "blocked", operation, stage: "version", reason: `operation_${status}` };
+}
+
 chrome.runtime.onMessage.addListener(
   (
     message: {
@@ -256,11 +287,10 @@ chrome.runtime.onMessage.addListener(
           const detail = await fetch(`http://127.0.0.1:18787/api/google/workflows/${encodeURIComponent(operationId)}`);
           const detailBody = await readJsonResponse(detail);
           const operation = isRecord(detailBody.operation) ? detailBody.operation : undefined;
-          const result = operation?.status === "versioned"
-            ? { status: "versioned", operation, nextStep: "await_approval" }
-            : { status: "paused", operation, reason: "loaded" };
           sendResponse(detail.ok
-            ? { ok: true, result }
+            ? operation
+              ? { ok: true, result: workflowResultFromStoredOperation(operation) }
+              : { ok: false, error: "The tracking setup operation detail was unavailable." }
             : { ok: false, error: workflowError(detail.status) });
           return;
         }

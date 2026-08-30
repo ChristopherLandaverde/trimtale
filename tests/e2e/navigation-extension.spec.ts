@@ -9,7 +9,12 @@ const screenshotOptions = {
   stylePath: resolve("tests/e2e/visual-stability.css"),
 };
 
-function operation(status: "planned" | "versioned" = "versioned") {
+function operation(status: "planned" | "applying" | "validation_failed" | "versioned" = "versioned") {
+  const completedActionSignatures = status === "planned"
+    ? []
+    : status === "applying"
+      ? ["tag:navigation_click"]
+      : ["tag:navigation_click", "trigger:navigation_click"];
   return {
     schemaVersion: 1,
     id: "operation_spec_navigation_test",
@@ -73,16 +78,23 @@ function operation(status: "planned" | "versioned" = "versioned") {
         action: "create",
         generatedName: "GA4 Event - navigation_click",
         entitySignature: "tag:navigation_click",
+      }, {
+        kind: "trigger",
+        action: "create",
+        generatedName: "Navigation Click Trigger",
+        entitySignature: "trigger:navigation_click",
       }],
     },
-    completedActionSignatures: status === "versioned" ? ["tag:navigation_click"] : [],
-    ...(status === "versioned" ? {
+    completedActionSignatures,
+    ...((status === "validation_failed" || status === "versioned") ? {
       validation: {
-        status: "passed",
+        status: status === "validation_failed" ? "failed" : "passed",
         checkedAt: "2026-08-30T20:01:00.000Z",
         workspaceFingerprint: "workspace-final",
-        errors: [],
+        errors: status === "validation_failed" ? ["The preview compiler rejected the generated trigger."] : [],
       },
+    } : {}),
+    ...(status === "versioned" ? {
       version: {
         path: "accounts/1/containers/10/versions/8",
         fingerprint: "version-8",
@@ -93,7 +105,14 @@ function operation(status: "planned" | "versioned" = "versioned") {
   };
 }
 
-async function mockWritableContainerAndWorkflow(context: BrowserContext) {
+async function mockWritableContainerAndWorkflow(
+  context: BrowserContext,
+  options: {
+    resumeResults?: Array<Record<string, unknown>>;
+    storedOperation?: Record<string, unknown>;
+    onResume?: () => void;
+  } = {},
+) {
   await context.route("http://127.0.0.1:18787/api/google/containers/**", async (route) => {
     const request = route.request();
     const preparing = request.method() === "POST";
@@ -129,20 +148,24 @@ async function mockWritableContainerAndWorkflow(context: BrowserContext) {
       body: JSON.stringify({ result: { status: "planned", operation: operation("planned") } }),
     });
   });
+  let resumeIndex = 0;
   await context.route("http://127.0.0.1:18787/api/google/workflows/*/resume", async (route) => {
+    options.onResume?.();
+    const resumeResult = options.resumeResults?.[
+      Math.min(resumeIndex, Math.max(options.resumeResults.length - 1, 0))
+    ] ?? { status: "versioned", nextStep: "await_approval", operation: operation("versioned") };
+    resumeIndex += 1;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({
-        result: { status: "versioned", nextStep: "await_approval", operation: operation("versioned") },
-      }),
+      body: JSON.stringify({ result: resumeResult }),
     });
   });
   await context.route(/http:\/\/127\.0\.0\.1:18787\/api\/google\/workflows\/operation_spec_navigation_test$/, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ operation: operation("versioned") }),
+      body: JSON.stringify({ operation: options.storedOperation ?? operation("versioned") }),
     });
   });
 }
@@ -462,6 +485,100 @@ test("reloads the latest setup operation from durable storage", async () => {
     await expect(root.getByRole("region", { name: "Setup operation" })).toBeVisible();
     await expect(root.getByText("Version fingerprint version-8")).toBeVisible();
     await expect(root.getByText(/Separate approval is required; nothing was published/)).toBeVisible();
+    await expect(root.getByText(/platform-confirmed/i)).toHaveCount(0);
+  } finally {
+    await context.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});
+
+test("resumes a partial setup operation without leaving duplicate operation controls", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "gtm-observability-operation-resume-"));
+  const extensionPath = resolve("apps/extension/dist");
+  const context = await chromium.launchPersistentContext(profile, {
+    channel: "chromium",
+    headless: true,
+    args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+  });
+  let resumeCount = 0;
+  await mockWritableContainerAndWorkflow(context, {
+    onResume: () => {
+      resumeCount += 1;
+    },
+    resumeResults: [{
+      status: "paused",
+      stage: "application",
+      reason: "partial_failure",
+      operation: operation("applying"),
+      details: { completedActionSignatures: ["tag:navigation_click"] },
+    }, {
+      status: "versioned",
+      nextStep: "await_approval",
+      operation: operation("versioned"),
+    }],
+  });
+  try {
+    const site = await context.newPage();
+    await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
+    const root = site.locator("#gtm-observability-root");
+    await root.getByRole("button", { name: "Open tracking assistant" }).click();
+    await root.getByLabel("Tracking request").fill("navigation");
+    await root.getByRole("button", { name: "Send request" }).click();
+    await root.getByRole("button", { name: "Track all" }).click();
+    await root.getByRole("button", { name: "Check GTM access" }).click();
+
+    await root.getByRole("button", { name: "Prepare GTM version" }).click();
+    let operationRegion = root.getByRole("region", { name: "Setup operation" });
+    await expect(operationRegion.getByText(/Interrupted after a partial application/).first()).toBeVisible();
+    await expect(operationRegion.getByRole("button", { name: "Resume operation" })).toBeVisible();
+    expect(resumeCount).toBe(1);
+
+    await operationRegion.getByRole("button", { name: "Resume operation" }).click();
+    operationRegion = root.getByRole("region", { name: "Setup operation" });
+    await expect(operationRegion.getByText("Version fingerprint version-8")).toBeVisible();
+    await expect(root.getByRole("region", { name: "Setup operation" })).toHaveCount(1);
+    await expect(operationRegion.getByRole("button", { name: "Resume operation" })).toHaveCount(0);
+    await expect(root.getByText(/platform-confirmed/i)).toHaveCount(0);
+    expect(resumeCount).toBe(2);
+  } finally {
+    await context.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});
+
+test("renders blocked validation state with bounded guidance and no publish claim", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "gtm-observability-operation-blocked-"));
+  const extensionPath = resolve("apps/extension/dist");
+  const context = await chromium.launchPersistentContext(profile, {
+    channel: "chromium",
+    headless: true,
+    args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+  });
+  await mockWritableContainerAndWorkflow(context, {
+    resumeResults: [{
+      status: "blocked",
+      stage: "validation",
+      reason: "validation_failed",
+      operation: operation("validation_failed"),
+      details: { errors: ["compiler rejected trigger"] },
+    }],
+  });
+  try {
+    const site = await context.newPage();
+    await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
+    const root = site.locator("#gtm-observability-root");
+    await root.getByRole("button", { name: "Open tracking assistant" }).click();
+    await root.getByLabel("Tracking request").fill("navigation");
+    await root.getByRole("button", { name: "Send request" }).click();
+    await root.getByRole("button", { name: "Track all" }).click();
+    await root.getByRole("button", { name: "Check GTM access" }).click();
+
+    await root.getByRole("button", { name: "Prepare GTM version" }).click();
+    const operationRegion = root.getByRole("region", { name: "Setup operation" });
+    await expect(operationRegion).toBeVisible();
+    await expect(operationRegion.getByText(/Workspace validation failed/).first()).toBeVisible();
+    await expect(operationRegion.getByText(/Review the validation errors before changing or publishing anything/).first()).toBeVisible();
+    await expect(operationRegion.getByText(/Version fingerprint version-8/)).toHaveCount(0);
     await expect(root.getByText(/platform-confirmed/i)).toHaveCount(0);
   } finally {
     await context.close();

@@ -140,6 +140,12 @@ and matched that ID to one accessible container with write access. The assistant
 the operation ID locally for the confirmed setup and re-reads the latest operation
 detail from the local workflow API when the same setup is opened again.
 
+Interrupted operation cards can be resumed from the assistant. A partial application
+shows a bounded resume state, re-reads GTM through the backend, and replaces the stale
+operation card with the latest durable state. Validation failures and other blocked
+states remain separate from publication and include review guidance instead of raw
+Google response details.
+
 The runner stops at the `versioned` state and returns `await_approval`. The assistant
 displays the immutable version fingerprint and prior live fingerprint, labels
 publication approval as a separate required step, and never publishes or labels the

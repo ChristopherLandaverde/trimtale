@@ -74,7 +74,7 @@ publishing.
       assistant and reach `await_approval` in deterministic E2E fixtures.
 - [x] Reopening the assistant displays the latest operation state from durable API
       storage, not from in-memory conversation state.
-- [ ] Resume is idempotent: repeated clicks do not duplicate GTM entities, create a
+- [x] Resume is idempotent: repeated clicks do not duplicate GTM entities, create a
       second managed workspace, or create a second version after the operation is
       already versioned.
 - [x] Read-only, disconnected, inaccessible, ambiguous, and multiple-container states

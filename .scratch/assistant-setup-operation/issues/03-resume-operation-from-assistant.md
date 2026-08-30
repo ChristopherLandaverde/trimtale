@@ -27,6 +27,8 @@ Add deterministic tests covering:
 Prefer an explicit persisted operation identifier over trying to reconstruct identity
 from chat transcript text. Never use browser cookies or Google web-login state.
 
-The assistant now stores the operation ID for a confirmed setup/container pair and
-re-reads versioned operation detail after reopening the same setup. Remaining work is
-explicit resume-button coverage for partially applied and blocked operations.
+The assistant now stores the operation ID for a confirmed setup/container pair,
+re-reads versioned operation detail after reopening the same setup, replaces stale
+operation cards on resume, and resumes a partially applied operation to version
+creation without leaving duplicate controls. Remaining work is explicit resume-button
+coverage for stale workspace, stale plan, revoked OAuth grant, and quota responses.
