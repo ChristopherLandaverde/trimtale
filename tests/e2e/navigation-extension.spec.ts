@@ -9,7 +9,7 @@ const screenshotOptions = {
   stylePath: resolve("tests/e2e/visual-stability.css"),
 };
 
-function operation(status: "planned" | "applying" | "validation_failed" | "versioned" = "versioned") {
+function operation(status: "planned" | "applying" | "validation_failed" | "versioned" | "published" = "versioned") {
   const completedActionSignatures = status === "planned"
     ? []
     : status === "applying"
@@ -86,7 +86,7 @@ function operation(status: "planned" | "applying" | "validation_failed" | "versi
       }],
     },
     completedActionSignatures,
-    ...((status === "validation_failed" || status === "versioned") ? {
+    ...((status === "validation_failed" || status === "versioned" || status === "published") ? {
       validation: {
         status: status === "validation_failed" ? "failed" : "passed",
         checkedAt: "2026-08-30T20:01:00.000Z",
@@ -94,12 +94,23 @@ function operation(status: "planned" | "applying" | "validation_failed" | "versi
         errors: status === "validation_failed" ? ["The preview compiler rejected the generated trigger."] : [],
       },
     } : {}),
-    ...(status === "versioned" ? {
+    ...((status === "versioned" || status === "published") ? {
       version: {
         path: "accounts/1/containers/10/versions/8",
         fingerprint: "version-8",
         priorLiveVersionPath: "accounts/1/containers/10/versions/7",
         priorLiveVersionFingerprint: "live-7",
+      },
+    } : {}),
+    ...(status === "published" ? {
+      approval: {
+        approvedAt: "2026-08-30T20:02:00.000Z",
+        approvedBy: "website assistant",
+        versionFingerprint: "version-8",
+      },
+      publication: {
+        publishedAt: "2026-08-30T20:03:00.000Z",
+        versionFingerprint: "version-8",
       },
     } : {}),
   };
@@ -109,8 +120,10 @@ async function mockWritableContainerAndWorkflow(
   context: BrowserContext,
   options: {
     resumeResults?: Array<Record<string, unknown>>;
+    publishResult?: Record<string, unknown>;
     storedOperation?: Record<string, unknown>;
     onResume?: () => void;
+    onPublish?: () => void;
   } = {},
 ) {
   await context.route("http://127.0.0.1:18787/api/google/containers/**", async (route) => {
@@ -166,6 +179,20 @@ async function mockWritableContainerAndWorkflow(
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({ operation: options.storedOperation ?? operation("versioned") }),
+    });
+  });
+  await context.route("http://127.0.0.1:18787/api/google/workflows/*/publish", async (route) => {
+    options.onPublish?.();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        result: options.publishResult ?? {
+          status: "published",
+          nextStep: "verify_publication",
+          operation: operation("published"),
+        },
+      }),
     });
   });
 }
@@ -580,6 +607,51 @@ test("renders blocked validation state with bounded guidance and no publish clai
     await expect(operationRegion.getByText(/Review the validation errors before changing or publishing anything/).first()).toBeVisible();
     await expect(operationRegion.getByText(/Version fingerprint version-8/)).toHaveCount(0);
     await expect(root.getByText(/platform-confirmed/i)).toHaveCount(0);
+  } finally {
+    await context.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});
+
+test("publishes only from an approved immutable version and keeps verification pending", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "gtm-observability-operation-publish-"));
+  const extensionPath = resolve("apps/extension/dist");
+  const context = await chromium.launchPersistentContext(profile, {
+    channel: "chromium",
+    headless: true,
+    args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+  });
+  let publishCount = 0;
+  await mockWritableContainerAndWorkflow(context, {
+    onPublish: () => {
+      publishCount += 1;
+    },
+  });
+  try {
+    const site = await context.newPage();
+    await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
+    const root = site.locator("#gtm-observability-root");
+    await root.getByRole("button", { name: "Open tracking assistant" }).click();
+    await root.getByLabel("Tracking request").fill("navigation");
+    await root.getByRole("button", { name: "Send request" }).click();
+    await root.getByRole("button", { name: "Track all" }).click();
+    await root.getByRole("button", { name: "Check GTM access" }).click();
+    await root.getByRole("button", { name: "Prepare GTM version" }).click();
+
+    let operationRegion = root.getByRole("region", { name: "Setup operation" });
+    await expect(operationRegion.getByText("Version fingerprint version-8")).toBeVisible();
+    await expect(operationRegion.getByRole("button", { name: "Publish version-8" })).toBeVisible();
+    expect(publishCount).toBe(0);
+
+    await operationRegion.getByRole("button", { name: "Publish version-8" }).click();
+    operationRegion = root.getByRole("region", { name: "Setup operation" });
+    await expect(operationRegion.getByText("Approved fingerprint version-8")).toBeVisible();
+    await expect(operationRegion.getByText("Published version version-8")).toBeVisible();
+    await expect(operationRegion.getByText("Run browser verification after publication")).toBeVisible();
+    await expect(operationRegion.getByText(/Platform confirmation requires separate receipt evidence/)).toBeVisible();
+    await expect(operationRegion.getByRole("button", { name: "Publish version-8" })).toHaveCount(0);
+    await expect(root.getByText(/platform-confirmed/i)).toHaveCount(0);
+    expect(publishCount).toBe(1);
   } finally {
     await context.close();
     await rm(profile, { recursive: true, force: true });

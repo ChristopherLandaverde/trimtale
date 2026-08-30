@@ -296,6 +296,42 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  const publishMatch = requestUrl.pathname.match(
+    /^\/api\/google\/workflows\/([A-Za-z0-9_-]+)\/publish$/,
+  );
+  if (request.method === "POST" && publishMatch) {
+    if (!workflowRunner) {
+      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
+      return;
+    }
+    try {
+      const body = await readJson(request);
+      const approvedFingerprint = typeof body === "object" && body !== null && "versionFingerprint" in body
+        ? (body as { versionFingerprint?: unknown }).versionFingerprint
+        : undefined;
+      const approvedBy = typeof body === "object" && body !== null && "approvedBy" in body
+        ? (body as { approvedBy?: unknown }).approvedBy
+        : undefined;
+      if (typeof approvedFingerprint !== "string" || typeof approvedBy !== "string") {
+        sendJson(response, 400, { error: "Publication approval requires a version fingerprint and approver." });
+        return;
+      }
+      const result = await workflowRunner.approveAndPublish(publishMatch[1] ?? "", approvedFingerprint, approvedBy);
+      sendJson(response, result.status === "blocked" ? 409 : 200, { result });
+    } catch (workflowError) {
+      const status = workflowError instanceof GoogleIntegrationError
+        ? workflowError.status
+        : workflowError instanceof Error && workflowError.message.includes("not found")
+          ? 404
+          : 409;
+      const message = workflowError instanceof Error
+        ? workflowError.message
+        : "Unable to publish the tracking workflow.";
+      sendJson(response, status, { error: message });
+    }
+    return;
+  }
+
   const contextMatch = requestUrl.pathname.match(
     /^\/api\/google\/accounts\/(\d+)\/containers\/(\d+)\/context$/,
   );

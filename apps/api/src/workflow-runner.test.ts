@@ -148,6 +148,75 @@ describe("resumable non-publishing tracking workflow", () => {
     expect(client.publishApprovedVersion).not.toHaveBeenCalled();
   });
 
+  it("publishes only after exact current fingerprint approval", async () => {
+    const store = await repository();
+    const client = google({
+      publishApprovedVersion: vi.fn().mockResolvedValue({
+        publishedAt: "2026-08-22T12:07:00.000Z",
+        versionFingerprint: "version-8",
+      }),
+    });
+    const runner = new TrackingWorkflowRunner(store, client, () => new Date("2026-08-22T12:00:00.000Z"));
+    const planned = await runner.plan(request);
+    if (planned.status === "blocked") throw new Error(planned.reason);
+    const versioned = await runner.resume(planned.operation.id);
+    if (versioned.status !== "versioned") throw new Error(versioned.status);
+
+    const published = await runner.approveAndPublish(
+      planned.operation.id,
+      "version-8",
+      "practitioner@example.test",
+    );
+    expect(published).toMatchObject({
+      status: "published",
+      nextStep: "verify_publication",
+      operation: {
+        status: "published",
+        approval: { versionFingerprint: "version-8", approvedBy: "practitioner@example.test" },
+        publication: { versionFingerprint: "version-8" },
+      },
+    });
+    expect(client.publishApprovedVersion).toHaveBeenCalledTimes(1);
+    expect(new TrackingOperationRepository(store.filePath).get(planned.operation.id)?.status).toBe("published");
+  });
+
+  it("blocks stale or repeated publication before any Google publish call", async () => {
+    const publishApprovedVersion = vi.fn();
+    const client = google({ publishApprovedVersion });
+    const runner = new TrackingWorkflowRunner(await repository(), client);
+    const planned = await runner.plan(request);
+    if (planned.status === "blocked") throw new Error(planned.reason);
+    const versioned = await runner.resume(planned.operation.id);
+    if (versioned.status !== "versioned") throw new Error(versioned.status);
+
+    await expect(runner.approveAndPublish(
+      planned.operation.id,
+      "wrong-version",
+      "practitioner@example.test",
+    )).resolves.toMatchObject({
+      status: "blocked",
+      stage: "approval",
+      reason: "fingerprint_mismatch",
+    });
+    expect(publishApprovedVersion).not.toHaveBeenCalled();
+
+    publishApprovedVersion.mockResolvedValue({
+      publishedAt: "2026-08-22T12:07:00.000Z",
+      versionFingerprint: "version-8",
+    });
+    await runner.approveAndPublish(planned.operation.id, "version-8", "practitioner@example.test");
+    await expect(runner.approveAndPublish(
+      planned.operation.id,
+      "version-8",
+      "practitioner@example.test",
+    )).resolves.toMatchObject({
+      status: "blocked",
+      stage: "approval",
+      reason: "operation_not_versioned",
+    });
+    expect(publishApprovedVersion).toHaveBeenCalledTimes(1);
+  });
+
   it("persists partial application evidence and resumes safely", async () => {
     const client = google({
       applyManagedWorkspace: vi.fn()

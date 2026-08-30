@@ -83,14 +83,15 @@ chrome.runtime.onConnect.addListener((port) => {
 });
 
 type GtmContainerOperation = "inspect" | "prepare";
-type GtmWorkflowAction = "start" | "resume" | "get";
+type GtmWorkflowAction = "start" | "resume" | "get" | "publish";
 type TrackingWorkflowRequest = SetupRequest | FormSetupRequest;
 type StoredWorkflowResult =
   | { status: "versioned"; operation: Record<string, unknown>; nextStep: "await_approval" }
+  | { status: "published"; operation: Record<string, unknown>; nextStep: "verify_publication" }
   | {
     status: "blocked" | "paused";
     operation: Record<string, unknown>;
-    stage: "planning" | "application" | "validation" | "version";
+    stage: "planning" | "application" | "validation" | "version" | "approval" | "publication";
     reason: string;
   };
 
@@ -226,6 +227,9 @@ function workflowResultFromStoredOperation(operation: Record<string, unknown>): 
   if (status === "versioned") {
     return { status: "versioned", operation, nextStep: "await_approval" };
   }
+  if (status === "published") {
+    return { status: "published", operation, nextStep: "verify_publication" };
+  }
   if (status === "planned") {
     return { status: "paused", operation, stage: "planning", reason: "ready_to_apply" };
   }
@@ -251,6 +255,8 @@ chrome.runtime.onMessage.addListener(
       action?: GtmWorkflowAction;
       request?: TrackingWorkflowRequest;
       operationId?: string;
+      versionFingerprint?: string;
+      approvedBy?: string;
     },
     _sender,
     sendResponse,
@@ -292,6 +298,26 @@ chrome.runtime.onMessage.addListener(
               ? { ok: true, result: workflowResultFromStoredOperation(operation) }
               : { ok: false, error: "The tracking setup operation detail was unavailable." }
             : { ok: false, error: workflowError(detail.status) });
+          return;
+        }
+
+        if (message.action === "publish") {
+          if (!operationId || !message.versionFingerprint || !message.approvedBy) {
+            sendResponse({ ok: false, error: "Publication requires an operation ID, version fingerprint, and approver." });
+            return;
+          }
+          const published = await fetch(`http://127.0.0.1:18787/api/google/workflows/${encodeURIComponent(operationId)}/publish`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              versionFingerprint: message.versionFingerprint,
+              approvedBy: message.approvedBy,
+            }),
+          });
+          const publishedBody = await readJsonResponse(published);
+          sendResponse(published.ok
+            ? { ok: true, result: publishedBody.result }
+            : { ok: false, error: workflowError(published.status) });
           return;
         }
 

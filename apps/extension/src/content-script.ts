@@ -77,9 +77,14 @@ type WorkflowResult =
     nextStep: "await_approval";
   }
   | {
+    status: "published";
+    operation: TrackingSetupOperationV1;
+    nextStep: "verify_publication";
+  }
+  | {
     status: "blocked" | "paused";
     operation?: TrackingSetupOperationV1;
-    stage?: string;
+    stage?: "planning" | "application" | "validation" | "version" | "approval" | "publication";
     reason: string;
     details?: unknown;
   };
@@ -422,13 +427,15 @@ async function requestGtmContainer(
 }
 
 async function requestSetupOperation(
-  action: "start" | "resume" | "get",
+  action: "start" | "resume" | "get" | "publish",
   value: TrackingWorkflowRequest | string,
+  approval?: { versionFingerprint: string; approvedBy: string },
 ): Promise<WorkflowBridgeResponse> {
   return chrome.runtime.sendMessage({
     type: "GTM_WORKFLOW_REQUEST",
     action,
     ...(typeof value === "string" ? { operationId: value } : { request: value }),
+    ...approval,
   }) as Promise<WorkflowBridgeResponse>;
 }
 
@@ -773,6 +780,9 @@ function operationStorageKey(request: TrackingWorkflowRequest): string {
 
 function operationSummary(operation: TrackingSetupOperationV1): string {
   const actions = operation.plan.actions.length;
+  if (operation.status === "published" && operation.publication) {
+    return `Published approved version ${operation.publication.versionFingerprint}. Browser verification is next.`;
+  }
   if (operation.status === "versioned" && operation.version) {
     return `Immutable version ${operation.version.fingerprint} is ready for separate publication approval. Prior live version: ${operation.version.priorLiveVersionFingerprint}.`;
   }
@@ -784,7 +794,11 @@ function operationSummary(operation: TrackingSetupOperationV1): string {
 }
 
 function setupOperationGuidance(result: WorkflowResult): string {
-  const reason = result.status === "versioned" ? "await_approval" : result.reason;
+  const reason = result.status === "versioned"
+    ? "await_approval"
+    : result.status === "published"
+      ? "verify_publication"
+      : result.reason;
   if (reason === "ready_to_apply") return "Ready to apply owned GTM entities from the saved plan.";
   if (reason === "partial_application" || reason === "partial_failure") {
     return "Interrupted after a partial application. Resume re-reads GTM state and applies only incomplete owned actions.";
@@ -806,6 +820,9 @@ function setupOperationGuidance(result: WorkflowResult): string {
   }
   if (reason === "version_creation_blocked") return "GTM refused version creation. Review validation evidence and current workspace state.";
   if (reason === "await_approval") return "Review the immutable version fingerprint before any separate publication step.";
+  if (reason === "verify_publication") return "Approved GTM version was published. Browser verification is required before platform confirmation.";
+  if (reason === "fingerprint_mismatch") return "The approved fingerprint did not match the immutable version. Publication was not attempted.";
+  if (reason === "operation_not_versioned") return "Only a versioned operation can be approved for publication.";
   return "Review the saved operation state before continuing. Nothing was published.";
 }
 
@@ -819,14 +836,24 @@ function renderSetupOperation(result: WorkflowResult, request?: TrackingWorkflow
   const title = document.createElement("span");
   title.textContent = "Setup operation";
   const label = document.createElement("small");
-  label.textContent = result.status === "versioned" ? "Awaiting approval" : result.status;
+  label.textContent = result.status === "versioned"
+    ? "Awaiting approval"
+    : result.status === "published"
+      ? "Published"
+      : result.status;
   heading.append(title, label);
   path.append(heading);
 
   const operation = result.operation;
   const status = operation?.status;
-  const blockedReason = result.status === "versioned" ? "Operation reached version creation" : result.reason;
-  const resultReason = result.status === "versioned" ? "await_approval" : result.reason;
+  const blockedReason = result.status === "versioned" || result.status === "published"
+    ? "Operation reached version creation"
+    : result.reason;
+  const resultReason = result.status === "versioned"
+    ? "await_approval"
+    : result.status === "published"
+      ? "verify_publication"
+      : result.reason;
   const guidanceText = setupOperationGuidance(result);
   const stages = [
     { key: "planned", label: "Tracking change plan", detail: operation ? operationSummary(operation) : blockedReason },
@@ -849,19 +876,40 @@ function renderSetupOperation(result: WorkflowResult, request?: TrackingWorkflow
         : "Validation has not run yet",
     },
     { key: "versioned", label: "Immutable version created", detail: operation?.version ? `Version fingerprint ${operation.version.fingerprint}` : "No immutable version yet" },
-    { key: "approval", label: "Publication approval", detail: "Separate approval is required; nothing was published" },
+    {
+      key: "approval",
+      label: "Publication approval",
+      detail: operation?.approval
+        ? `Approved fingerprint ${operation.approval.versionFingerprint}`
+        : "Separate approval is required; nothing was published",
+    },
+    {
+      key: "publication",
+      label: "Published version",
+      detail: operation?.publication
+        ? `Published version ${operation.publication.versionFingerprint}`
+        : "No version was published",
+    },
+    { key: "browser", label: "Browser verification", detail: "Run browser verification after publication" },
+    { key: "platform", label: "Platform confirmation", detail: "Platform confirmation requires separate receipt evidence" },
   ];
   for (const stage of stages) {
     const row = document.createElement("div");
     const passed = stage.key === "approval"
-      ? status === "versioned"
+      ? Boolean(status && ["versioned", "approved", "published", "verification_failed", "rollback_required", "rolled_back", "completed"].includes(status))
+      : stage.key === "publication"
+        ? Boolean(status && ["published", "verification_failed", "rollback_required", "rolled_back", "completed"].includes(status))
+        : stage.key === "browser"
+          ? Boolean(status && ["verification_failed", "rollback_required", "rolled_back", "completed"].includes(status))
+          : stage.key === "platform"
+            ? status === "completed"
       : stage.key === "planned"
         ? Boolean(status)
         : stage.key === "applying"
-          ? Boolean(status && ["applied", "validated", "versioned"].includes(status))
+          ? Boolean(status && ["applied", "validated", "versioned", "approved", "published", "verification_failed", "rollback_required", "rolled_back", "completed"].includes(status))
           : stage.key === "validated"
-            ? Boolean(status && ["validated", "versioned"].includes(status))
-            : status === "versioned";
+            ? Boolean(status && ["validated", "versioned", "approved", "published", "verification_failed", "rollback_required", "rolled_back", "completed"].includes(status))
+            : Boolean(status && ["versioned", "approved", "published", "verification_failed", "rollback_required", "rolled_back", "completed"].includes(status));
     row.className = `evidence-stage ${passed ? "passed" : "pending"}`;
     const icon = document.createElement("i");
     icon.setAttribute("aria-hidden", "true");
@@ -888,8 +936,16 @@ function renderSetupOperation(result: WorkflowResult, request?: TrackingWorkflow
         void runSetupOperation("resume", operation.id, request);
       });
     }
-  } else {
+  } else if (result.status === "versioned") {
     addMessage("GTM setup operation reached await_approval. Review the version fingerprint before any separate publication step.", "assistant");
+    const versionedOperation = result.operation;
+    if (versionedOperation.version) {
+      appendInlineAction(path, `Publish ${versionedOperation.version.fingerprint}`, () => {
+        void runPublishOperation(versionedOperation.id, versionedOperation.version!.fingerprint, request);
+      });
+    }
+  } else {
+    addMessage("Approved GTM version was published. Browser verification is next; platform confirmation remains pending.", "assistant");
   }
   responseList?.append(path);
   responseList?.scrollTo({ top: responseList.scrollHeight });
@@ -916,6 +972,25 @@ async function runSetupOperation(
   const response = await requestSetupOperation(action, value);
   if (!response.ok) {
     addMessage(`${response.error} Nothing was published.`, "assistant");
+    return;
+  }
+  const operation = response.result.operation;
+  if (operation && request) await rememberOperation(request, operation.id);
+  renderSetupOperation(response.result, request);
+}
+
+async function runPublishOperation(
+  operationId: string,
+  versionFingerprint: string,
+  request?: TrackingWorkflowRequest,
+): Promise<void> {
+  addMessage(`Approving and publishing immutable version ${versionFingerprint}…`, "assistant");
+  const response = await requestSetupOperation("publish", operationId, {
+    versionFingerprint,
+    approvedBy: "website assistant",
+  });
+  if (!response.ok) {
+    addMessage(`${response.error} Browser verification and platform confirmation remain pending.`, "assistant");
     return;
   }
   const operation = response.result.operation;

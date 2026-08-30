@@ -7,7 +7,8 @@ Status: in progress
 Expose the existing resumable automation API in the website assistant so a tracking
 practitioner can turn a confirmed tracking specification into a durable tracking setup
 operation that prepares the managed workspace, applies owned GTM entities, validates
-the workspace, creates an immutable version, and stops at publication approval.
+the workspace, creates an immutable version, publishes it only after exact fingerprint
+approval, and stops before browser verification or platform confirmation.
 
 ## User outcome
 
@@ -23,12 +24,16 @@ Confirmed specification
   -> Workspace validated
   -> Immutable version created
   -> Awaiting publication approval
+  -> Published approved version
+  -> Awaiting browser verification
 ```
 
 The practitioner can close and reopen the assistant without losing progress. If the
 operation blocks, the assistant reports the precise reviewable state without retrying
 dangerous actions, choosing a different container, resolving workspace conflicts, or
-publishing.
+publishing. Publishing requires a versioned operation, current backend publication
+enablement, publication OAuth scope, and the exact immutable version fingerprint shown
+to the practitioner.
 
 ## Product boundaries
 
@@ -40,8 +45,11 @@ publishing.
   workspace preparation, entity application, validation, versioning, publication
   approval, publication, browser verification, and platform confirmation as separate
   evidence stages.
-- The assistant must stop at `await_approval`. It must not publish, request publication
-  scope, approve a fingerprint, roll back, or imply that platform confirmation passed.
+- The assistant may publish only from `await_approval` by submitting the exact
+  immutable version fingerprint to the backend approval/publish route.
+- The assistant must not request publication scope, publish a mismatched or stale
+  fingerprint, roll back, or imply that browser verification or platform confirmation
+  passed.
 - Operation creation must require container-write access. Read-only, disconnected,
   unconfigured, inaccessible, ambiguous, multiple-container, capacity-blocked,
   ownership-conflict, synchronization-conflict, stale-workspace, stale-plan, and quota
@@ -64,7 +72,13 @@ publishing.
 6. When the backend reaches a versioned state, the assistant displays the immutable
    version fingerprint, prior-live fingerprint, validation evidence, and a disabled
    publication step labelled as requiring separate approval.
-7. Blocked states show the blocking reason and the safest next practitioner action.
+7. The practitioner can choose **Publish `<fingerprint>`** only from the versioned
+   operation card.
+8. The backend approves and publishes only that exact fingerprint, then returns the
+   published operation.
+9. The assistant displays publication separately from browser verification and
+   platform confirmation.
+10. Blocked states show the blocking reason and the safest next practitioner action.
 
 ## Acceptance criteria
 
@@ -77,6 +91,8 @@ publishing.
 - [x] Resume is idempotent: repeated clicks do not duplicate GTM entities, create a
       second managed workspace, or create a second version after the operation is
       already versioned.
+- [x] Publication requires exact immutable version fingerprint approval and does not
+      run from non-versioned, stale, or mismatched operation state.
 - [x] Read-only, disconnected, inaccessible, ambiguous, and multiple-container states
       do not render an operation-start action.
 - [ ] Capacity, ownership, synchronization, stale-workspace, stale-plan, validation,
@@ -89,7 +105,6 @@ publishing.
 
 ## Out of scope
 
-- Publication approval and publication from the assistant.
 - Rollback from the assistant.
 - Real Google live-write E2E in ordinary verification.
 - Model-backed operation decisions.

@@ -1,4 +1,5 @@
 import {
+  approveTrackingVersion,
   createFormSetupProposal,
   createSetupProposal,
   type FormSetupRequest,
@@ -14,6 +15,7 @@ export type WorkflowGoogleClient = Pick<GtmDiscoveryClient,
   | "applyManagedWorkspace"
   | "validateManagedWorkspace"
   | "createValidatedVersion"
+  | "publishApprovedVersion"
 >;
 
 export type TrackingWorkflowRequest = SetupRequest | FormSetupRequest;
@@ -28,6 +30,16 @@ export type WorkflowResumeResult =
     status: "blocked" | "paused";
     operation: TrackingSetupOperationV1;
     stage: "planning" | "application" | "validation" | "version";
+    reason: string;
+    details?: unknown;
+  };
+
+export type WorkflowPublishResult =
+  | { status: "published"; operation: TrackingSetupOperationV1; nextStep: "verify_publication" }
+  | {
+    status: "blocked";
+    operation: TrackingSetupOperationV1;
+    stage: "approval" | "publication";
     reason: string;
     details?: unknown;
   };
@@ -204,6 +216,41 @@ export class TrackingWorkflowRunner {
       version: version.version,
     });
     return { status: "versioned", operation, nextStep: "await_approval" };
+  }
+
+  async approveAndPublish(
+    id: string,
+    approvedFingerprint: string,
+    approvedBy: string,
+  ): Promise<WorkflowPublishResult> {
+    const operation = this.requiredOperation(id);
+    if (operation.status !== "versioned" || !operation.version) {
+      return {
+        status: "blocked",
+        operation,
+        stage: "approval",
+        reason: "operation_not_versioned",
+      };
+    }
+    if (approvedFingerprint !== operation.version.fingerprint) {
+      return {
+        status: "blocked",
+        operation,
+        stage: "approval",
+        reason: "fingerprint_mismatch",
+      };
+    }
+    const approved = this.save(operation, approveTrackingVersion(
+      operation,
+      approvedBy,
+      nextTimestamp(operation.updatedAt, this.now),
+    ));
+    const publication = await this.google.publishApprovedVersion(approved);
+    const published = this.save(approved, {
+      status: "published",
+      publication,
+    });
+    return { status: "published", operation: published, nextStep: "verify_publication" };
   }
 
   private requiredOperation(id: string): TrackingSetupOperationV1 {
