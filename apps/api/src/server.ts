@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { assertTrackingRunEvidence, createSetupProposal, type SetupRequest } from "@gtm-observability/core";
+import { createSetupProposal, type SetupRequest } from "@gtm-observability/core";
 import { resolve } from "node:path";
 import { corsDecision } from "./cors.js";
 import { intakeEvaluationApiResponse } from "./intake-evaluation-api.js";
@@ -14,7 +14,8 @@ import {
   googleOAuthConfig,
 } from "./google.js";
 import { TrackingOperationRepository } from "./tracking-operations.js";
-import { TrackingWorkflowRunner, type TrackingWorkflowRequest } from "./workflow-runner.js";
+import { TrackingWorkflowRunner } from "./workflow-runner.js";
+import { handleGoogleWorkflowRoute } from "./workflow-routes.js";
 
 const port = Number.parseInt(process.env.PORT ?? "18787", 10);
 const configuredExtensionOrigin = process.env.EXTENSION_ORIGIN;
@@ -239,170 +240,7 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (request.method === "POST" && requestUrl.pathname === "/api/google/workflows/plan") {
-    if (!workflowRunner) {
-      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
-      return;
-    }
-    try {
-      const result = await workflowRunner.plan((await readJson(request)) as TrackingWorkflowRequest);
-      sendJson(response, result.status === "planned" ? 201 : result.status === "blocked" ? 409 : 200, { result });
-    } catch (workflowError) {
-      const status = workflowError instanceof GoogleIntegrationError
-        ? workflowError.status
-        : workflowError instanceof SyntaxError
-          ? 400
-          : 400;
-      const message = workflowError instanceof Error
-        ? workflowError.message
-        : "Unable to plan the tracking workflow.";
-      sendJson(response, status, { error: message });
-    }
-    return;
-  }
-
-  const workflowMatch = requestUrl.pathname.match(/^\/api\/google\/workflows\/([A-Za-z0-9_-]+)$/);
-  if (request.method === "GET" && workflowMatch) {
-    if (!workflowRunner) {
-      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
-      return;
-    }
-    const operation = workflowRunner.get(workflowMatch[1] ?? "");
-    sendJson(response, operation ? 200 : 404, operation ? { operation } : { error: "Tracking operation was not found." });
-    return;
-  }
-
-  const resumeMatch = requestUrl.pathname.match(
-    /^\/api\/google\/workflows\/([A-Za-z0-9_-]+)\/resume$/,
-  );
-  if (request.method === "POST" && resumeMatch) {
-    if (!workflowRunner) {
-      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
-      return;
-    }
-    try {
-      sendJson(response, 200, { result: await workflowRunner.resume(resumeMatch[1] ?? "") });
-    } catch (workflowError) {
-      const status = workflowError instanceof GoogleIntegrationError
-        ? workflowError.status
-        : workflowError instanceof Error && workflowError.message.includes("not found")
-          ? 404
-          : 409;
-      const message = workflowError instanceof Error
-        ? workflowError.message
-        : "Unable to resume the tracking workflow.";
-      sendJson(response, status, { error: message });
-    }
-    return;
-  }
-
-  const publishMatch = requestUrl.pathname.match(
-    /^\/api\/google\/workflows\/([A-Za-z0-9_-]+)\/publish$/,
-  );
-  if (request.method === "POST" && publishMatch) {
-    if (!workflowRunner) {
-      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
-      return;
-    }
-    try {
-      const body = await readJson(request);
-      const approvedFingerprint = typeof body === "object" && body !== null && "versionFingerprint" in body
-        ? (body as { versionFingerprint?: unknown }).versionFingerprint
-        : undefined;
-      const approvedBy = typeof body === "object" && body !== null && "approvedBy" in body
-        ? (body as { approvedBy?: unknown }).approvedBy
-        : undefined;
-      if (typeof approvedFingerprint !== "string" || typeof approvedBy !== "string") {
-        sendJson(response, 400, { error: "Publication approval requires a version fingerprint and approver." });
-        return;
-      }
-      const result = await workflowRunner.approveAndPublish(publishMatch[1] ?? "", approvedFingerprint, approvedBy);
-      sendJson(response, result.status === "blocked" ? 409 : 200, { result });
-    } catch (workflowError) {
-      const status = workflowError instanceof GoogleIntegrationError
-        ? workflowError.status
-        : workflowError instanceof Error && workflowError.message.includes("not found")
-          ? 404
-          : 409;
-      const message = workflowError instanceof Error
-        ? workflowError.message
-        : "Unable to publish the tracking workflow.";
-      sendJson(response, status, { error: message });
-    }
-    return;
-  }
-
-  const browserVerificationMatch = requestUrl.pathname.match(
-    /^\/api\/google\/workflows\/([A-Za-z0-9_-]+)\/browser-verification$/,
-  );
-  if (request.method === "POST" && browserVerificationMatch) {
-    if (!workflowRunner) {
-      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
-      return;
-    }
-    try {
-      const body = await readJson(request);
-      const evidence = typeof body === "object" && body !== null && "evidence" in body
-        ? (body as { evidence?: unknown }).evidence
-        : undefined;
-      assertTrackingRunEvidence(evidence);
-      const result = await workflowRunner.recordBrowserVerification(browserVerificationMatch[1] ?? "", evidence);
-      sendJson(response, 200, { result });
-    } catch (workflowError) {
-      const status = workflowError instanceof Error && workflowError.message.includes("not found")
-        ? 404
-        : workflowError instanceof SyntaxError
-          ? 400
-          : 409;
-      const message = status === 404
-        ? "Tracking operation was not found."
-        : status === 400
-          ? "Browser verification evidence must be valid JSON."
-          : "Unable to record browser verification for the tracking workflow.";
-      sendJson(response, status, { error: message });
-    }
-    return;
-  }
-
-  const rollbackMatch = requestUrl.pathname.match(
-    /^\/api\/google\/workflows\/([A-Za-z0-9_-]+)\/rollback$/,
-  );
-  if (request.method === "POST" && rollbackMatch) {
-    if (!workflowRunner) {
-      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
-      return;
-    }
-    try {
-      const body = await readJson(request);
-      const targetVersionFingerprint = typeof body === "object" && body !== null && "targetVersionFingerprint" in body
-        ? (body as { targetVersionFingerprint?: unknown }).targetVersionFingerprint
-        : undefined;
-      const approvedBy = typeof body === "object" && body !== null && "approvedBy" in body
-        ? (body as { approvedBy?: unknown }).approvedBy
-        : undefined;
-      if (typeof targetVersionFingerprint !== "string" || typeof approvedBy !== "string" || approvedBy.trim().length === 0) {
-        sendJson(response, 400, { error: "Rollback approval requires a target version fingerprint and approver." });
-        return;
-      }
-      const result = await workflowRunner.approveAndRollback(rollbackMatch[1] ?? "", targetVersionFingerprint);
-      sendJson(response, result.status === "blocked" ? 409 : 200, { result });
-    } catch (workflowError) {
-      const status = workflowError instanceof GoogleIntegrationError
-        ? workflowError.status
-        : workflowError instanceof Error && workflowError.message.includes("not found")
-          ? 404
-          : workflowError instanceof SyntaxError
-            ? 400
-            : 409;
-      const message = status === 404
-        ? "Tracking operation was not found."
-        : status === 400
-          ? "Rollback approval must be valid JSON."
-          : status === 403
-            ? "GTM publication is disabled for this backend."
-            : "Unable to roll back the tracking workflow.";
-      sendJson(response, status, { error: message });
-    }
+  if (await handleGoogleWorkflowRoute({ request, response, requestUrl, workflowRunner, readJson, sendJson })) {
     return;
   }
 

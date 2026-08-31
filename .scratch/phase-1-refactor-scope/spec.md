@@ -1,6 +1,6 @@
 # Phase 1 Refactor Scope
 
-Status: proposed
+Status: resolved
 
 ## Objective
 

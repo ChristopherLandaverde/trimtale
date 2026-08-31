@@ -1,6 +1,6 @@
 # Consider API workflow handler extraction
 
-Status: proposed
+Status: resolved
 
 ## Problem
 
@@ -18,6 +18,15 @@ extension-side refactors reduce the active churn.
 
 ## Acceptance Criteria
 
-- [ ] Handler extraction is either completed with identical behavior or explicitly
+- [x] Handler extraction is either completed with identical behavior or explicitly
       deferred with rationale.
-- [ ] No endpoint path, status code, or safety guard changes.
+- [x] No endpoint path, status code, or safety guard changes.
+
+## Resolution Notes
+
+- Added `apps/api/src/workflow-routes.ts` for the `/api/google/workflows/*`
+  handler set.
+- Updated `apps/api/src/server.ts` to delegate workflow routes after the existing
+  OAuth/container routes and before the remaining context/setup routes.
+- Preserved route paths, bounded errors, status code mapping, OAuth availability
+  checks, and feature-flag behavior.
