@@ -148,7 +148,7 @@ Pass condition:
 
 ## Acceptance Criteria
 
-- [ ] Lane 1 has a documented, repeatable credential-readiness checklist.
+- [x] Lane 1 has a documented, repeatable credential-readiness checklist.
 - [ ] Lane 2 has a disposable dry-run procedure that stops at immutable version
       creation.
 - [ ] Lane 3 has an approved publication smoke procedure with browser verification

@@ -1,6 +1,6 @@
 # Document credential readiness checklist
 
-Status: proposed
+Status: resolved
 
 ## Problem
 
@@ -17,7 +17,13 @@ printing, committing, or over-broadly authorizing credentials.
 
 ## Acceptance Criteria
 
-- [ ] Checklist names `npm run preflight:google` and `npm run preflight:publication`.
-- [ ] Checklist states which flags are required for read, write, and publication
+- [x] Checklist names `npm run preflight:google` and `npm run preflight:publication`.
+- [x] Checklist states which flags are required for read, write, and publication
       sessions.
-- [ ] Checklist says secrets must not be pasted into issues, specs, logs, or commits.
+- [x] Checklist says secrets must not be pasted into issues, specs, logs, or commits.
+
+## Resolution Notes
+
+- Added `docs/engineering/real-google-testing.md` with credential readiness,
+  disposable dry-run, approved publication smoke, rollback drill, stop conditions,
+  and platform-confirmation decision boundaries.
