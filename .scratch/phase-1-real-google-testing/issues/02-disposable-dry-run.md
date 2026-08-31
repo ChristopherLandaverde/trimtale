@@ -1,6 +1,6 @@
 # Specify disposable container dry run
 
-Status: proposed
+Status: resolved
 
 ## Problem
 
@@ -17,7 +17,12 @@ validation, and version creation.
 
 ## Acceptance Criteria
 
-- [ ] Procedure uses only disposable GTM resources.
-- [ ] Procedure records operation ID, immutable version fingerprint, and prior live
+- [x] Procedure uses only disposable GTM resources.
+- [x] Procedure records operation ID, immutable version fingerprint, and prior live
       fingerprint.
-- [ ] Procedure stops before exact publication approval.
+- [x] Procedure stops before exact publication approval.
+
+## Resolution Notes
+
+- Documented the disposable dry-run procedure in
+  `docs/engineering/real-google-testing.md`.

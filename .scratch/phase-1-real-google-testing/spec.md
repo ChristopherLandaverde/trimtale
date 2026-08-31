@@ -1,6 +1,6 @@
 # Phase 1 Real Google Testing Plan
 
-Status: proposed
+Status: resolved
 
 ## Objective
 
@@ -149,12 +149,12 @@ Pass condition:
 ## Acceptance Criteria
 
 - [x] Lane 1 has a documented, repeatable credential-readiness checklist.
-- [ ] Lane 2 has a disposable dry-run procedure that stops at immutable version
+- [x] Lane 2 has a disposable dry-run procedure that stops at immutable version
       creation.
-- [ ] Lane 3 has an approved publication smoke procedure with browser verification
+- [x] Lane 3 has an approved publication smoke procedure with browser verification
       evidence and no platform-confirmation claim.
-- [ ] Lane 4 has a rollback drill using the recorded prior live fingerprint.
-- [ ] Lane 5 has a product decision record before any destination-side confirmation
+- [x] Lane 4 has a rollback drill using the recorded prior live fingerprint.
+- [x] Lane 5 has a product decision record before any destination-side confirmation
       language is implemented.
 
 ## Out of Scope

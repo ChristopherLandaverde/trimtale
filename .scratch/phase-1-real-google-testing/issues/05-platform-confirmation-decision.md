@@ -1,6 +1,6 @@
 # Decide platform confirmation evidence source
 
-Status: proposed
+Status: resolved
 
 ## Problem
 
@@ -17,8 +17,14 @@ GA4, Ads, or other platform receipt.
 
 ## Acceptance Criteria
 
-- [ ] Decision records at least GA4 DebugView, GA4 reporting/Data API, BigQuery
+- [x] Decision records at least GA4 DebugView, GA4 reporting/Data API, BigQuery
       export, and Ads diagnostics as candidates or non-candidates.
-- [ ] Decision names the accepted product language.
-- [ ] Existing browser-verification language remains unchanged unless a new
+- [x] Decision names the accepted product language.
+- [x] Existing browser-verification language remains unchanged unless a new
       destination-side signal is implemented.
+
+## Resolution Notes
+
+- Added `docs/engineering/platform-confirmation-decision.md`.
+- Phase 1 remains browser-verification only; destination-side platform confirmation
+  is deferred to a separate future feature.

@@ -1,6 +1,6 @@
 # Specify approved publication smoke
 
-Status: proposed
+Status: resolved
 
 ## Problem
 
@@ -17,7 +17,12 @@ confirmation honesty.
 
 ## Acceptance Criteria
 
-- [ ] Publication cannot proceed without exact fingerprint approval.
-- [ ] Browser verification observes exactly one expected Google collection request.
-- [ ] The resulting operation reaches `completed`.
-- [ ] The assistant and notes say platform confirmation is unavailable, not confirmed.
+- [x] Publication cannot proceed without exact fingerprint approval.
+- [x] Browser verification observes exactly one expected Google collection request.
+- [x] The resulting operation reaches `completed`.
+- [x] The assistant and notes say platform confirmation is unavailable, not confirmed.
+
+## Resolution Notes
+
+- Documented the approved disposable publication smoke in
+  `docs/engineering/real-google-testing.md`.
