@@ -113,3 +113,63 @@ Platform confirmation remained `unverified`; no GA4, Ads, reporting, attribution
 other destination-side receipt was claimed.
 
 Approved publication smoke result: pass.
+
+## Rollback drill
+
+The rollback drill started from live disposable version `7`, fingerprint
+`1788183353134`. A fresh disposable operation was created to publish a distinct
+version, then a controlled failed browser-verification run forced rollback approval.
+
+Rollback drill operation:
+
+- Operation: `operation_spec_disposable_form_smoke_2026_08_31_rollback_drill`
+- Specification: `spec_disposable_form_smoke_2026_08_31_rollback_drill`
+- Target page: `https://consentflow-psi.vercel.app/`
+- Target selector: `#workflow-smoke-form`
+- Success evidence: visible element `#workflow-smoke-success`
+- Event: `generate_lead`
+
+The operation used managed workspace:
+
+- Path: `accounts/6305900974/containers/261236292/workspaces/10`
+- Fingerprint: `1788185157115`
+
+Resume reached the approval gate:
+
+- Status: `versioned`
+- Validation: `passed`
+- Immutable version path: `accounts/6305900974/containers/261236292/versions/8`
+- Immutable version fingerprint: `1788185422573`
+- Prior live version path: `accounts/6305900974/containers/261236292/versions/7`
+- Prior live fingerprint: `1788183353134`
+
+After exact-fingerprint approval, the product published version `8`:
+
+- Published at: `2026-08-31T14:10:57.886Z`
+- Published fingerprint: `1788185422573`
+
+Controlled failed browser verification loaded the live disposable page in Chromium,
+submitted the form once, and blocked GA4 collection for the run. The visible success
+state and data-layer success event were observed, but no GA4 collection request was
+recorded:
+
+- Evidence run:
+  `run_spec_disposable_form_smoke_2026_08_31_rollback_drill_blocked_collect_1788185485815`
+- Verdict: `tag_fired_request_missing`
+- Browser verification: `failed`
+- Platform confirmation: `unverified`
+
+The durable operation moved to `rollback_required` and named exact rollback target
+fingerprint `1788183353134`. Rollback was then approved only for that target and
+completed:
+
+- Rollback status: `completed`
+- Rollback completed at: `2026-08-31T14:11:59.540Z`
+- Restored live version path: `accounts/6305900974/containers/261236292/versions/7`
+- Restored live fingerprint: `1788183353134`
+
+Live container readback after rollback confirmed version `7`, fingerprint
+`1788183353134`.
+
+Rollback drill result: pass. No autonomous rollback occurred, and platform
+confirmation remained unavailable.
