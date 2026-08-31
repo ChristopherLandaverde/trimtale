@@ -270,26 +270,37 @@ Current completion gate:
 npm run verify
 ```
 
-The most recent full completion run passed 264 deterministic tests across 37 files and
-all 33 Chromium workflows.
+The most recent full completion run passed 292 deterministic tests across 40 files and
+all 45 Chromium workflows.
 
 ## Credentialed disposable-container evidence
 
-The first complete credentialed exercise used only disposable container
-`GTM-PCJ3Q5RK`. It reused owned trigger `6` and tag `7`, validated two expected changes,
-created immutable version `3`, and published fingerprint `1787458659661` after exact
-approval. Prior-live version `2` remains available at fingerprint `1786828091962`.
+Credentialed Phase 1 evidence uses only disposable container `GTM-PCJ3Q5RK`
+(`ConsentFlow Verification`) and disposable page `https://consentflow-psi.vercel.app/`.
+No ordinary verification or CI path consumes real Google credentials.
 
-A live Chromium signal produced exactly one correctly parameterized `generate_lead`
-request. GA4 transmitted the standard `page_location` field as wire parameter `dl`;
-the evidence normalizer and verdict engine now accept and privacy-filter that standard
-representation. The live ConsentFlow page now contains the real
-`#workflow-smoke-form` interaction. Evidence run
-`run_spec_disposable_form_smoke_v3_1787493019725` observed one successful outcome,
-one metadata-only event, and exactly one expected GA4 request. Its normalized verdict
-was `browser_verified`, so operation `operation_spec_disposable_form_smoke_v3` is now
-`completed` with no rollback required. Browser evidence continues to leave platform
-confirmation unverified.
+The current real-Google lane evidence is recorded in
+`docs/reviews/2026-08-31-real-google-dry-run.md`:
+
+- Disposable dry run
+  `operation_spec_disposable_form_smoke_2026_08_31_dry_run` reached `versioned`,
+  validation passed, and immutable version `7` was created at fingerprint
+  `1788183353134` while publication remained disabled.
+- Approved publication smoke published only exact fingerprint `1788183353134`, then
+  browser evidence run
+  `run_spec_disposable_form_smoke_2026_08_31_dry_run_1788184399167` observed exactly
+  one sanitized GA4 `generate_lead` request for `G-YV879ECLRV` with `form_id`,
+  `form_name`, and page location transported through GA4's `dl` wire parameter.
+- Rollback drill published distinct disposable version `8`, fingerprint
+  `1788185422573`, then controlled failed browser evidence
+  `run_spec_disposable_form_smoke_2026_08_31_rollback_drill_blocked_collect_1788185485815`
+  moved the operation to `rollback_required`.
+- Rollback was approved only for prior-live fingerprint `1788183353134`; live
+  container readback confirmed version `7`, fingerprint `1788183353134`, after
+  rollback completed.
+
+Browser evidence continues to leave platform confirmation `unverified`; Phase 1 does
+not claim GA4, Ads, reporting, attribution, or destination-side receipt.
 
 ## What is not built yet
 
