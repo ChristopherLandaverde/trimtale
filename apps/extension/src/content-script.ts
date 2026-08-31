@@ -20,7 +20,8 @@ import {
   type TrackingSetupOperationV1,
   type TrackingSpecificationV1,
 } from "@gtm-observability/core";
-import { presentSetupOperation, type SetupOperationAction, type WorkflowResult } from "./setup-operation-presenter.js";
+import { presentSetupOperation, type SetupOperationAction } from "./setup-operation-presenter.js";
+import type { TrackingWorkflowRequest, WorkflowBridgeResponse, WorkflowResult } from "./workflow-bridge.js";
 
 declare global {
   interface Window { __gtmObservabilityInstalled?: boolean; }
@@ -70,11 +71,6 @@ interface GtmBridgeResponse {
   result?: GtmContainerResult;
   containerWritesEnabled?: boolean;
 }
-
-type TrackingWorkflowRequest = SetupRequest | FormSetupRequest;
-type WorkflowBridgeResponse =
-  | { ok: true; result: WorkflowResult }
-  | { ok: false; error: string };
 
 interface GtmConnectionStatus {
   configured: boolean;

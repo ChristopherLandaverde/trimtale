@@ -1,38 +1,5 @@
 import type { TrackingSetupOperationV1 } from "@gtm-observability/core";
-
-export type WorkflowResult =
-  | {
-    status: "versioned";
-    operation: TrackingSetupOperationV1;
-    nextStep: "await_approval";
-  }
-  | {
-    status: "published";
-    operation: TrackingSetupOperationV1;
-    nextStep: "verify_publication";
-  }
-  | {
-    status: "completed";
-    operation: TrackingSetupOperationV1;
-    nextStep: "platform_unavailable";
-  }
-  | {
-    status: "rollback_required";
-    operation: TrackingSetupOperationV1;
-    nextStep: "rollback_approval";
-  }
-  | {
-    status: "rolled_back";
-    operation: TrackingSetupOperationV1;
-    nextStep: "complete";
-  }
-  | {
-    status: "blocked" | "paused";
-    operation?: TrackingSetupOperationV1;
-    stage?: "planning" | "application" | "validation" | "version" | "approval" | "publication" | "browser_verification";
-    reason: string;
-    details?: unknown;
-  };
+import type { WorkflowResult } from "./workflow-bridge.js";
 
 export interface SetupOperationStage {
   key: "planned" | "applying" | "validated" | "versioned" | "approval" | "publication" | "browser" | "platform" | "rollback";

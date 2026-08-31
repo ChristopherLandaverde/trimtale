@@ -165,7 +165,7 @@ No refactor issue may be marked resolved if it:
 
 ## Acceptance Criteria
 
-- [ ] `content-script.ts` no longer owns workflow bridge types and
+- [ ] `content-script.ts` no longer owns
       post-publication evidence orchestration in one file.
 - [x] Workflow operation fixtures are reusable outside
       `tests/e2e/navigation-extension.spec.ts`.

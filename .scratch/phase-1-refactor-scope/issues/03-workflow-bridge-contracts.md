@@ -1,6 +1,6 @@
 # Extract workflow bridge contracts
 
-Status: proposed
+Status: resolved
 
 ## Problem
 
@@ -18,7 +18,16 @@ risky.
 
 ## Acceptance Criteria
 
-- [ ] Content script and service worker import one shared workflow bridge contract.
-- [ ] Mapping tests cover `published`, `completed`, `rollback_required`, and
+- [x] Content script and service worker import one shared workflow bridge contract.
+- [x] Mapping tests cover `published`, `completed`, `rollback_required`, and
       `rolled_back`.
-- [ ] Unsupported operation states still fail closed as blocked.
+- [x] Unsupported operation states still fail closed as blocked.
+
+## Resolution Notes
+
+- Added `apps/extension/src/workflow-bridge.ts` for workflow action names,
+  request/response/result types, and stored-operation mapping.
+- Updated the content script, service worker, and setup-operation presenter to import
+  shared bridge types instead of duplicating workflow result contracts.
+- Added `apps/extension/src/workflow-bridge.test.ts` to cover Phase 1 terminal
+  mappings, resumable stored states, and unsupported states that fail closed.

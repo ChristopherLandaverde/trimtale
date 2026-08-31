@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { TrackingSetupOperationV1 } from "@gtm-observability/core";
-import { presentSetupOperation, type WorkflowResult } from "./setup-operation-presenter.js";
+import { presentSetupOperation } from "./setup-operation-presenter.js";
+import type { WorkflowResult } from "./workflow-bridge.js";
 
 function operation(status: TrackingSetupOperationV1["status"]): TrackingSetupOperationV1 {
   const base: TrackingSetupOperationV1 = {
