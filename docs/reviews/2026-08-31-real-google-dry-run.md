@@ -1,4 +1,4 @@
-# Real Google disposable dry-run review
+# Real Google disposable workflow review
 
 Date: 2026-08-31
 
@@ -10,9 +10,11 @@ or secrets were printed or recorded.
 
 ## Scope
 
-This review exercised the Phase 1 real-Google dry-run lane against the documented
-disposable GTM container. The lane intentionally stops at immutable version creation
-and does not publish.
+This review exercised the Phase 1 real-Google disposable workflow lanes against the
+documented disposable GTM container. The dry-run lane stopped at immutable version
+creation. After owner approval for exact fingerprint `1788183353134`, the approved
+publication smoke published that same disposable version and recorded browser
+verification evidence.
 
 ## Credential and safety state
 
@@ -72,3 +74,42 @@ The workflow reached `versioned` with publication disabled. This confirms the pr
 can continue through planning, owned GTM workspace application, validation, and
 immutable version creation against the disposable Google container. Platform
 confirmation remains unavailable by design.
+
+## Approved publication smoke
+
+Owner approval was given after the dry run reached `versioned`. The API session was
+restarted with:
+
+- `GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED=true`
+- `GOOGLE_GTM_PUBLICATION_ENABLED=true`
+
+Publication preflight passed with OAuth client configuration, callback, extension
+origin, container writes, token persistence, publication OAuth scope, and publication
+execution enabled.
+
+The product publish route accepted only the approved immutable version fingerprint:
+
+- Operation: `operation_spec_disposable_form_smoke_2026_08_31_dry_run`
+- Approved fingerprint: `1788183353134`
+- Published at: `2026-08-31T13:52:25.577Z`
+- Published fingerprint: `1788183353134`
+
+Browser verification then loaded `https://consentflow-psi.vercel.app/` in Chromium,
+submitted `#workflow-smoke-form` once, observed the visible success state, and posted
+sanitized evidence:
+
+- Evidence run: `run_spec_disposable_form_smoke_2026_08_31_dry_run_1788184399167`
+- Raw matching GA4 requests observed: `1`
+- Sanitized request host/path: `https://www.google-analytics.com/g/collect`
+- Event: `generate_lead`
+- Measurement ID: `G-YV879ECLRV`
+- `form_id`: `workflow-smoke-form`
+- `form_name`: `Disposable workflow smoke form`
+- Page location was transported through GA4's `dl` parameter and normalized to
+  `https://consentflow-psi.vercel.app/`.
+
+The durable operation reached `completed` with browser verdict `browser_verified`.
+Platform confirmation remained `unverified`; no GA4, Ads, reporting, attribution, or
+other destination-side receipt was claimed.
+
+Approved publication smoke result: pass.
