@@ -1,6 +1,6 @@
 # Review and document post-publication browser verification
 
-Status: open
+Status: resolved
 
 Blocked by: 01, 02, 03, 04
 
@@ -26,3 +26,17 @@ Before resolving this issue:
 
 Do not mark this workflow resolved until browser evidence is connected to durable
 operation state and reviewed in Chromium.
+
+## Resolution Notes
+
+- Browser evidence is connected to durable operation state for navigation and
+  lead-form post-publication verification.
+- Exploratory review is recorded in
+  `docs/reviews/2026-08-30-post-publication-browser-verification.md`; it covers a
+  passing path, rollback-required behavior, adversarial page-controlled text, and no
+  unresolved blocker or high-severity findings.
+- Product state and boundary language are documented in
+  `docs/product-plan/current-capabilities.md`.
+- The original implementation change record is
+  `.changes/2026-08-30-post-publication-browser-verification.md`; the privacy
+  expansion has its own change record for the added sentinel regressions.

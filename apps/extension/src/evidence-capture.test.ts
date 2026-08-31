@@ -141,6 +141,86 @@ describe("FormEvidenceController", () => {
     expect(evidence.observations.network.ga4Requests[0]?.url).toContain("ep.page_location=http%3A%2F%2F127.0.0.1%3A14173%2F");
   });
 
+  it("excludes storage, token-shaped values, hostile page URLs, and raw browser errors", () => {
+    const oauthToken = "ya29.private-oauth-token";
+    const sessionSecret = "session-secret-123";
+    const hostileUrl = "https://attacker.example/collect?token=private-token";
+    const rawBrowserError = "net::ERR_BLOCKED_BY_CLIENT private-token";
+
+    const evidence = buildFormRunEvidence({
+      specification: formSpecification,
+      target: formSpecification.targets[0]!,
+      success: formSuccess,
+      startedAt: "2026-08-30T20:00:00.000Z",
+      pageState: {
+        transport: "ajax",
+        submitAttempted: "true",
+        submissionResult: "success",
+        outcomeObserved: "true",
+        dataLayerEvent: "true",
+        tagFired: "true",
+        consent: "granted",
+        localStorage: oauthToken,
+        sessionStorage: sessionSecret,
+        pageUrl: hostileUrl,
+        browserError: rawBrowserError,
+      } as Record<string, string>,
+      requests: [{
+        url: "https://www.google-analytics.com/g/collect?v=2&tid=G-TEST123456&en=generate_lead&ep.form_id=contact&ep.form_name=Contact_sales&dl=https%3A%2F%2Fexample.test%2Fcontact%3Ftoken%3Dprivate-token",
+        observedAt: "2026-08-30T20:00:00.100Z",
+      }],
+      now: 1798646400001,
+    });
+
+    expect(evidence.verdict).toMatchObject({
+      code: "browser_verified",
+      browserVerification: "passed",
+      platformConfirmation: "unverified",
+    });
+    const serialized = JSON.stringify(evidence);
+    expect(serialized).not.toContain(oauthToken);
+    expect(serialized).not.toContain(sessionSecret);
+    expect(serialized).not.toContain(hostileUrl);
+    expect(serialized).not.toContain(rawBrowserError);
+    expect(serialized).not.toContain("private-token");
+    expect(evidence.observations.network.ga4Requests[0]?.url).toContain("dl=https%3A%2F%2Fexample.test%2Fcontact");
+  });
+
+  it("drops non-Google collection URLs and keeps a bounded missing-request verdict", () => {
+    const evidence = buildFormRunEvidence({
+      specification: formSpecification,
+      target: formSpecification.targets[0]!,
+      success: formSuccess,
+      startedAt: "2026-08-30T20:00:00.000Z",
+      pageState: {
+        transport: "ajax",
+        submitAttempted: "true",
+        submissionResult: "success",
+        outcomeObserved: "true",
+        dataLayerEvent: "true",
+        tagFired: "true",
+        consent: "granted",
+        networkError: "failed to fetch https://evil.example/g/collect?cookie=session-secret",
+      } as Record<string, string>,
+      requests: [{
+        url: "https://evil.example/g/collect?v=2&tid=G-TEST123456&en=generate_lead&ep.form_id=contact&ep.form_name=Contact_sales&ep.page_location=https%3A%2F%2Fexample.test%2Fcontact",
+        observedAt: "2026-08-30T20:00:00.100Z",
+      }],
+      now: 1798646400002,
+    });
+
+    expect(evidence.observations.network.ga4Requests).toEqual([]);
+    expect(evidence.verdict).toMatchObject({
+      code: "tag_fired_request_missing",
+      browserVerification: "failed",
+      platformConfirmation: "unverified",
+      nextAction: "Inspect the GA4 tag configuration, consent behavior, and browser delivery errors.",
+    });
+    const serialized = JSON.stringify(evidence);
+    expect(serialized).not.toContain("evil.example");
+    expect(serialized).not.toContain("session-secret");
+  });
+
   it("finishes post-publication form evidence through the active operation", () => {
     const controller = new FormEvidenceController();
     controller.startPostPublication("operation_form", formRequest());

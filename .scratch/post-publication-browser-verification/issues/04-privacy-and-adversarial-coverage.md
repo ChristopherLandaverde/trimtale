@@ -1,6 +1,6 @@
 # Harden browser verification privacy and adversarial coverage
 
-Status: open
+Status: resolved
 
 Blocked by: 01, 02, 03
 
@@ -24,3 +24,16 @@ Add tests covering:
 
 Use sentinel values in deterministic fixtures. This issue is a blocker before using
 the workflow for client-facing proof reports.
+
+## Resolution Notes
+
+- Added permanent extension evidence-capture regressions in
+  `apps/extension/src/evidence-capture.test.ts`.
+- Coverage now proves private form values, token-shaped strings, local/session
+  storage-shaped fields, hostile page URLs, raw browser/network error strings,
+  attacker collection hosts, unsafe query parameters, and private page-location query
+  values do not enter persisted post-publication form evidence.
+- Non-Google collection URLs are dropped and produce the bounded
+  `tag_fired_request_missing` verdict while platform confirmation remains
+  `unverified`.
+- Focused regression passed: `npm test -- apps/extension/src/evidence-capture.test.ts`.

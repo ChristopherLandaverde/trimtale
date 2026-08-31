@@ -1,6 +1,6 @@
 # Add assistant post-publication verification UI
 
-Status: open
+Status: resolved
 
 Blocked by: 01, 02
 
@@ -24,3 +24,16 @@ Add extension E2E coverage for:
 
 Use the existing verification capture mechanisms where possible. The assistant should
 not rerun publication or assume platform processing from network evidence.
+
+## Resolution Notes
+
+- The assistant now renders post-publication browser verification controls only from
+  published operation state and posts browser evidence through the workflow API.
+- `tests/e2e/navigation-extension.spec.ts` covers successful navigation verification,
+  successful lead-form verification, rollback-required failed verification,
+  publication failure boundaries, durable reload behavior, and absence of
+  `platform-confirmed` claims.
+- `apps/extension/src/evidence-capture.test.ts` covers the navigation and form
+  evidence controllers used by the assistant workflow.
+- Exploratory review evidence is recorded in
+  `docs/reviews/2026-08-30-post-publication-browser-verification.md`.

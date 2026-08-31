@@ -1,6 +1,6 @@
 # Post-Publication Browser Verification
 
-Status: implemented for API recording, assistant UI, navigation E2E, lead-form E2E, private form-value evidence sentinels, and rollback approval automation. Remaining expansion covers broader hostile-input privacy sentinels.
+Status: resolved
 
 ## Objective
 
@@ -122,10 +122,11 @@ restores the exact recorded prior-live fingerprint and records `rolled_back`.
       existing verdict engine and workflow-runner rollback tests; wrong-event
       expansion remains for a later fixture.
 - [x] Platform confirmation is labelled unavailable, not pending or confirmed.
-- [ ] Privacy sentinels prove form values, cookies, credentials, arbitrary labels,
+- [x] Privacy sentinels prove form values, cookies, credentials, arbitrary labels,
       hostile URLs, and raw browser errors do not enter persisted evidence.
-      Current coverage includes private form values and page-controlled navigation
-      labels; broader hostile URL and raw-error sentinels remain.
+      Coverage includes private form values, page-controlled navigation labels,
+      token-shaped values, storage-shaped fields, hostile URLs, unsafe query
+      parameters, attacker collection hosts, and raw browser/network error strings.
 - [x] Completed and rollback-required operation states reload from durable API state.
 - [x] Exploratory Chromium review covers one passing path, one rollback-required path,
       and one adversarial page state.
@@ -133,13 +134,12 @@ restores the exact recorded prior-live fingerprint and records `rolled_back`.
 
 ## Open decisions
 
-- Should inconclusive post-publication evidence become `rollback_required`, stay
-  `published` with verification blocked, or use a new operation status?
-- Should navigation and form post-publication verification share one API request shape,
-  or should they use separate versioned evidence envelopes?
-- What exact UI label should replace older `Platform confirmation: unverified` copy:
-  `Platform confirmation unavailable`, `Platform receipt unavailable`, or
-  `Platform processing not verified`?
+- Inconclusive evidence remains bounded and does not become platform confirmation.
+  Any future product change to status handling should be scoped as a separate issue.
+- Navigation and form post-publication verification share the existing
+  `TrackingRunEvidenceV1` evidence envelope.
+- Phase 1 uses `Platform confirmation unavailable` in the assistant while persisted
+  evidence remains `platformConfirmation: "unverified"`.
 
 ## Out of scope
 

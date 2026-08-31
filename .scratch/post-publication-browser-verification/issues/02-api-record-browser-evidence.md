@@ -1,6 +1,6 @@
 # Add API route for browser verification evidence
 
-Status: open
+Status: resolved
 
 Blocked by: 01
 
@@ -24,3 +24,16 @@ Add API tests covering:
 
 This route should update operation persistence only. It should not perform browser
 automation itself.
+
+## Resolution Notes
+
+- Added `POST /api/google/workflows/:id/browser-verification` as a narrow persistence
+  route for already-published operations.
+- `apps/api/src/workflow-routes.ts` validates the evidence envelope and delegates to
+  `TrackingWorkflowRunner.recordBrowserVerification`; it does not run browser
+  automation or call Google publication, rollback, or platform-confirmation APIs.
+- `apps/api/src/workflow-runner.test.ts` covers matching evidence, wrong
+  specification rejection, pre-publication rejection, completed state, and
+  rollback-required state.
+- Extension E2E in `tests/e2e/navigation-extension.spec.ts` covers the route from the
+  visible assistant for navigation and lead-form workflows.
