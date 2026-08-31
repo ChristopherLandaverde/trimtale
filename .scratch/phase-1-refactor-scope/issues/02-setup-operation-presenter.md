@@ -1,6 +1,6 @@
 # Extract setup operation presenter
 
-Status: proposed
+Status: resolved
 
 ## Problem
 
@@ -19,7 +19,18 @@ accidentally overclaim platform confirmation or hide rollback actions.
 
 ## Acceptance Criteria
 
-- [ ] Platform confirmation is always unavailable in presenter output.
-- [ ] **Start browser verification** appears only for `published`.
-- [ ] **Rollback <fingerprint>** appears only for `rollback_required`.
-- [ ] `rolled_back` renders rollback completion without platform confirmation.
+- [x] Platform confirmation is always unavailable in presenter output.
+- [x] **Start browser verification** appears only for `published`.
+- [x] **Rollback <fingerprint>** appears only for `rollback_required`.
+- [x] `rolled_back` renders rollback completion without platform confirmation.
+
+## Resolution Notes
+
+- Added `apps/extension/src/setup-operation-presenter.ts` as the pure presenter for
+  setup-operation labels, guidance, timeline rows, assistant copy, and action
+  descriptors.
+- Updated `apps/extension/src/content-script.ts` so DOM rendering consumes presenter
+  output and wires the returned action descriptors to existing workflow commands.
+- Added `apps/extension/src/setup-operation-presenter.test.ts` covering versioned,
+  published, completed, rollback-required, rolled-back, and paused/blocked action
+  visibility.

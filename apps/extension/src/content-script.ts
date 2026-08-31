@@ -20,6 +20,7 @@ import {
   type TrackingSetupOperationV1,
   type TrackingSpecificationV1,
 } from "@gtm-observability/core";
+import { presentSetupOperation, type SetupOperationAction, type WorkflowResult } from "./setup-operation-presenter.js";
 
 declare global {
   interface Window { __gtmObservabilityInstalled?: boolean; }
@@ -71,40 +72,6 @@ interface GtmBridgeResponse {
 }
 
 type TrackingWorkflowRequest = SetupRequest | FormSetupRequest;
-type WorkflowResult =
-  | {
-    status: "versioned";
-    operation: TrackingSetupOperationV1;
-    nextStep: "await_approval";
-  }
-  | {
-    status: "published";
-    operation: TrackingSetupOperationV1;
-    nextStep: "verify_publication";
-  }
-  | {
-    status: "completed";
-    operation: TrackingSetupOperationV1;
-    nextStep: "platform_unavailable";
-  }
-  | {
-    status: "rollback_required";
-    operation: TrackingSetupOperationV1;
-    nextStep: "rollback_approval";
-  }
-  | {
-    status: "rolled_back";
-    operation: TrackingSetupOperationV1;
-    nextStep: "complete";
-  }
-  | {
-    status: "blocked" | "paused";
-    operation?: TrackingSetupOperationV1;
-    stage?: "planning" | "application" | "validation" | "version" | "approval" | "publication" | "browser_verification";
-    reason: string;
-    details?: unknown;
-  };
-
 type WorkflowBridgeResponse =
   | { ok: true; result: WorkflowResult }
   | { ok: false; error: string };
@@ -861,83 +828,9 @@ function operationStorageKey(request: TrackingWorkflowRequest): string {
   return `trackingOperation:${request.container.publicId}:${specificationId}`;
 }
 
-function operationSummary(operation: TrackingSetupOperationV1): string {
-  const actions = operation.plan.actions.length;
-  if (operation.status === "completed") {
-    return "Google collection request verified from browser evidence. Platform confirmation unavailable.";
-  }
-  if (operation.status === "rollback_required") {
-    return `Browser verification failed; rollback approval is required for prior live version ${operation.rollback?.targetVersionFingerprint ?? "unknown"}.`;
-  }
-  if (operation.status === "rolled_back") {
-    return `Rolled back to prior live version ${operation.rollback?.targetVersionFingerprint ?? "unknown"}.`;
-  }
-  if (operation.status === "published" && operation.publication) {
-    return `Published approved version ${operation.publication.versionFingerprint}. Browser verification is next.`;
-  }
-  if (operation.status === "versioned" && operation.version) {
-    return `Immutable version ${operation.version.fingerprint} is ready for separate publication approval. Prior live version: ${operation.version.priorLiveVersionFingerprint}.`;
-  }
-  if (operation.status === "validation_failed") return "Workspace validation failed; no version was created.";
-  if (operation.status === "validated") return "Workspace validation passed; immutable version creation is next.";
-  if (operation.status === "applied") return "Owned GTM entities were applied; workspace validation is next.";
-  if (operation.status === "applying") return `Applying owned GTM entities (${operation.completedActionSignatures.length}/${actions} complete).`;
-  return `Tracking change plan is ready with ${actions} action${actions === 1 ? "" : "s"}.`;
-}
-
-function setupOperationGuidance(result: WorkflowResult): string {
-  const reason = result.status === "versioned"
-    ? "await_approval"
-    : result.status === "published"
-      ? "verify_publication"
-      : result.status === "completed"
-        ? "platform_unavailable"
-      : result.status === "rollback_required"
-        ? "rollback_approval"
-        : result.status === "rolled_back"
-          ? "complete"
-      : result.reason;
-  if (reason === "ready_to_apply") return "Ready to apply owned GTM entities from the saved plan.";
-  if (reason === "partial_application" || reason === "partial_failure") {
-    return "Interrupted after a partial application. Resume re-reads GTM state and applies only incomplete owned actions.";
-  }
-  if (reason === "ready_to_validate") return "Owned entities were applied. Resume runs workspace validation before any version is created.";
-  if (reason === "ready_to_version") return "Workspace validation passed. Resume creates the immutable version for separate approval.";
-  if (reason === "validation_failed") return "Workspace validation failed. Review the validation errors before changing or publishing anything.";
-  if (reason === "stale_workspace") return "The managed workspace changed since planning. Recheck GTM access before resuming.";
-  if (reason === "stale_plan") return "The GTM entities no longer match the saved plan. Regenerate and review the setup before applying.";
-  if (reason === "ownership_conflict" || reason === "plan_conflict") {
-    return "An existing GTM entity conflicts with the owned plan. Manual review is required before any write.";
-  }
-  if (reason === "sync_conflict") return "The managed workspace has synchronization conflicts. Resolve them in GTM before resuming.";
-  if (reason === "capacity_blocked" || reason === "workspace_unavailable") {
-    return "A managed workspace is unavailable. Free capacity or resolve workspace ownership before continuing.";
-  }
-  if (reason === "not_accessible" || reason === "ambiguous") {
-    return "The connected Google account cannot uniquely access the observed container. Reconnect or choose the correct account.";
-  }
-  if (reason === "version_creation_blocked") return "GTM refused version creation. Review validation evidence and current workspace state.";
-  if (reason === "await_approval") return "Review the immutable version fingerprint before any separate publication step.";
-  if (reason === "verify_publication") return "Approved GTM version was published. Run browser verification to confirm the Google collection request.";
-  if (reason === "platform_unavailable") return "Google request verified from browser evidence. Platform confirmation remains unavailable.";
-  if (reason === "rollback_approval") return "Browser verification failed. Rollback approval is required before restoring the prior live version.";
-  if (reason === "complete") return "Rollback completed. The prior live version was restored.";
-  if (reason === "fingerprint_mismatch") return "The approved fingerprint did not match the immutable version. Publication was not attempted.";
-  if (reason === "operation_not_versioned") return "Only a versioned operation can be approved for publication.";
-  return "Review the saved operation state before continuing. Nothing was published.";
-}
-
-function workflowReason(result: WorkflowResult): string {
-  if (result.status === "versioned") return "await_approval";
-  if (result.status === "published") return "verify_publication";
-  if (result.status === "completed") return "platform_unavailable";
-  if (result.status === "rollback_required") return "rollback_approval";
-  if (result.status === "rolled_back") return "complete";
-  return result.reason;
-}
-
 function renderSetupOperation(result: WorkflowResult, request?: TrackingWorkflowRequest): void {
   responseList?.querySelectorAll("section[aria-label=\"Setup operation\"]").forEach((element) => element.remove());
+  const presentation = presentSetupOperation(result);
   const path = document.createElement("section");
   path.className = "evidence-path";
   path.setAttribute("aria-label", "Setup operation");
@@ -946,108 +839,16 @@ function renderSetupOperation(result: WorkflowResult, request?: TrackingWorkflow
   const title = document.createElement("span");
   title.textContent = "Setup operation";
   const label = document.createElement("small");
-  label.textContent = result.status === "versioned"
-    ? "Awaiting approval"
-    : result.status === "published"
-      ? "Published"
-      : result.status === "completed"
-        ? "Google request verified"
-        : result.status === "rollback_required"
-          ? "Rollback required"
-          : result.status === "rolled_back"
-            ? "Rolled back"
-      : result.status;
+  label.textContent = presentation.label;
   heading.append(title, label);
   path.append(heading);
 
-  const operation = result.operation;
-  const status = operation?.status;
-  const terminalWorkflow = result.status === "versioned"
-    || result.status === "published"
-    || result.status === "completed"
-    || result.status === "rollback_required"
-    || result.status === "rolled_back";
-  const blockedReason = terminalWorkflow ? "Operation reached version creation" : result.reason;
-  const resultReason = workflowReason(result);
-  const guidanceText = setupOperationGuidance(result);
-  const stages = [
-    { key: "planned", label: "Tracking change plan", detail: operation ? operationSummary(operation) : blockedReason },
-    {
-      key: "applying",
-      label: "Owned entities applied",
-      detail: operation
-        ? resultReason === "partial_application" || resultReason === "partial_failure"
-          ? guidanceText
-          : `${operation.completedActionSignatures.length}/${operation.plan.actions.length} actions complete`
-        : blockedReason,
-    },
-    {
-      key: "validated",
-      label: "Workspace validated",
-      detail: operation?.validation
-        ? operation.validation.status === "failed"
-          ? guidanceText
-          : `${operation.validation.status} at ${operation.validation.checkedAt}`
-        : "Validation has not run yet",
-    },
-    { key: "versioned", label: "Immutable version created", detail: operation?.version ? `Version fingerprint ${operation.version.fingerprint}` : "No immutable version yet" },
-    {
-      key: "approval",
-      label: "Publication approval",
-      detail: operation?.approval
-        ? `Approved fingerprint ${operation.approval.versionFingerprint}`
-        : "Separate approval is required; nothing was published",
-    },
-    {
-      key: "publication",
-      label: "Published version",
-      detail: operation?.publication
-        ? `Published version ${operation.publication.versionFingerprint}`
-        : "No version was published",
-    },
-    {
-      key: "browser",
-      label: "Browser verification",
-      detail: operation?.status === "completed"
-        ? "Google request verified"
-        : operation?.status === "rollback_required"
-          ? `Verification failed; prior live version ${operation.rollback?.targetVersionFingerprint ?? "unknown"} is ready for rollback approval`
-          : "Run browser verification after publication",
-    },
-    { key: "platform", label: "Platform confirmation", detail: "Platform confirmation unavailable" },
-    {
-      key: "rollback",
-      label: "Rollback",
-      detail: operation?.status === "rolled_back"
-        ? `Restored prior live version ${operation.rollback?.targetVersionFingerprint ?? "unknown"}`
-        : operation?.status === "rollback_required"
-          ? `Approval required to restore ${operation.rollback?.targetVersionFingerprint ?? "unknown"}`
-          : "No rollback required",
-    },
-  ];
-  for (const stage of stages) {
+  for (const stage of presentation.stages) {
     const row = document.createElement("div");
-    const passed = stage.key === "approval"
-      ? Boolean(status && ["versioned", "approved", "published", "verification_failed", "rollback_required", "rolled_back", "completed"].includes(status))
-      : stage.key === "publication"
-        ? Boolean(status && ["published", "verification_failed", "rollback_required", "rolled_back", "completed"].includes(status))
-        : stage.key === "browser"
-          ? Boolean(status && ["verification_failed", "rollback_required", "rolled_back", "completed"].includes(status))
-        : stage.key === "platform"
-            ? false
-          : stage.key === "rollback"
-            ? status === "rolled_back"
-      : stage.key === "planned"
-        ? Boolean(status)
-        : stage.key === "applying"
-          ? Boolean(status && ["applied", "validated", "versioned", "approved", "published", "verification_failed", "rollback_required", "rolled_back", "completed"].includes(status))
-          : stage.key === "validated"
-            ? Boolean(status && ["validated", "versioned", "approved", "published", "verification_failed", "rollback_required", "rolled_back", "completed"].includes(status))
-            : Boolean(status && ["versioned", "approved", "published", "verification_failed", "rollback_required", "rolled_back", "completed"].includes(status));
-    row.className = `evidence-stage ${passed ? "passed" : "pending"}`;
+    row.className = `evidence-stage ${stage.passed ? "passed" : "pending"}`;
     const icon = document.createElement("i");
     icon.setAttribute("aria-hidden", "true");
-    icon.textContent = passed ? "✓" : "○";
+    icon.textContent = stage.passed ? "✓" : "○";
     const copy = document.createElement("span");
     const stageLabel = document.createElement("strong");
     stageLabel.textContent = stage.label;
@@ -1060,43 +861,32 @@ function renderSetupOperation(result: WorkflowResult, request?: TrackingWorkflow
 
   const guidance = document.createElement("p");
   guidance.className = "evidence-note";
-  guidance.textContent = guidanceText;
+  guidance.textContent = presentation.guidance;
   path.append(guidance);
 
-  if (result.status === "blocked" || result.status === "paused") {
-    addMessage(`Setup operation ${result.status}: ${guidanceText} Nothing was published.`, "assistant");
-    if (operation) {
-      appendInlineAction(path, "Resume operation", () => {
-        void runSetupOperation("resume", operation.id, request);
-      });
-    }
-  } else if (result.status === "versioned") {
-    addMessage("GTM setup operation reached await_approval. Review the version fingerprint before any separate publication step.", "assistant");
-    const versionedOperation = result.operation;
-    if (versionedOperation.version) {
-      appendInlineAction(path, `Publish ${versionedOperation.version.fingerprint}`, () => {
-        void runPublishOperation(versionedOperation.id, versionedOperation.version!.fingerprint, request);
-      });
-    }
-  } else if (result.status === "published") {
-    addMessage("Approved GTM version was published. Browser verification is next; platform confirmation remains unavailable.", "assistant");
-    appendInlineAction(path, "Start browser verification", () => {
-      void startPostPublicationBrowserVerification(result.operation, request);
-    });
-  } else if (result.status === "completed") {
-    addMessage("Google request verified from browser evidence. Platform confirmation remains unavailable.", "assistant");
-  } else if (result.status === "rollback_required") {
-    addMessage(`Browser verification failed. Rollback approval is required before restoring ${result.operation.rollback?.targetVersionFingerprint ?? "the prior live version"}.`, "assistant");
-    if (result.operation.rollback) {
-      appendInlineAction(path, `Rollback ${result.operation.rollback.targetVersionFingerprint}`, () => {
-        void runRollbackOperation(result.operation.id, result.operation.rollback!.targetVersionFingerprint, request);
-      });
-    }
-  } else if (result.status === "rolled_back") {
-    addMessage(`Rollback completed. Prior live version ${result.operation.rollback?.targetVersionFingerprint ?? "unknown"} was restored.`, "assistant");
-  }
+  addMessage(presentation.assistantMessage, "assistant");
+  for (const action of presentation.actions) appendSetupOperationAction(path, action, result, request);
   responseList?.append(path);
   responseList?.scrollTo({ top: responseList.scrollHeight });
+}
+
+function appendSetupOperationAction(
+  parent: HTMLElement,
+  action: SetupOperationAction,
+  result: WorkflowResult,
+  request?: TrackingWorkflowRequest,
+): void {
+  appendInlineAction(parent, action.label, () => {
+    if (action.kind === "resume") {
+      void runSetupOperation("resume", action.operationId, request);
+    } else if (action.kind === "publish") {
+      void runPublishOperation(action.operationId, action.versionFingerprint, request);
+    } else if (action.kind === "browserVerification" && result.status === "published") {
+      void startPostPublicationBrowserVerification(result.operation, request);
+    } else if (action.kind === "rollback") {
+      void runRollbackOperation(action.operationId, action.targetVersionFingerprint, request);
+    }
+  });
 }
 
 async function rememberOperation(request: TrackingWorkflowRequest, operationId: string): Promise<void> {

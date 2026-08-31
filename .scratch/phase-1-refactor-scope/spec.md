@@ -165,14 +165,14 @@ No refactor issue may be marked resolved if it:
 
 ## Acceptance Criteria
 
-- [ ] `content-script.ts` no longer owns setup-operation presentation, workflow bridge
-      types, and post-publication evidence orchestration in one file.
+- [ ] `content-script.ts` no longer owns workflow bridge types and
+      post-publication evidence orchestration in one file.
 - [x] Workflow operation fixtures are reusable outside
       `tests/e2e/navigation-extension.spec.ts`.
-- [ ] Platform-confirmation boundary has unit-level presenter coverage.
-- [ ] Rollback action visibility has unit-level presenter coverage.
-- [ ] Navigation and lead-form post-publication E2E remain green.
-- [ ] Full `npm run verify` passes after each refactor slice.
+- [x] Platform-confirmation boundary has unit-level presenter coverage.
+- [x] Rollback action visibility has unit-level presenter coverage.
+- [x] Navigation and lead-form post-publication E2E remain green.
+- [x] Full `npm run verify` passes after each refactor slice.
 
 ## Out of Scope
 
