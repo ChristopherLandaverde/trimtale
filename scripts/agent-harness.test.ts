@@ -19,6 +19,7 @@ describe("agent command harness", () => {
       preflight: ["npm", ["run", "preflight"], "Check local workflow readiness"],
       status: ["git", ["status", "--short"], "Show concise repository status"],
       test: ["npm", ["test"], "Run deterministic unit and scenario tests"],
+      "update-snapshots": ["npm", ["run", "test:e2e:update-snapshots"], "Update reviewed Playwright visual baselines"],
       verify: ["npm", ["run", "verify"], "Run the required completion gate"],
     } as const;
 
@@ -49,6 +50,18 @@ describe("agent command harness", () => {
     const executor = vi.fn<CommandExecutor>();
     expect(() => dispatchAgentCommand(args, executor)).toThrow(message);
     expect(executor).not.toHaveBeenCalled();
+  });
+
+  it("routes visual baseline updates through a fixed npm script", () => {
+    const command = resolveAgentCommand(["update-snapshots"]);
+    expect(command).toEqual({
+      executable: "npm",
+      args: ["run", "test:e2e:update-snapshots"],
+      description: "Update reviewed Playwright visual baselines",
+    });
+    expect(() => resolveAgentCommand(["update-snapshots", "--update-snapshots"])).toThrow(
+      "Agent command 'update-snapshots' does not accept arguments",
+    );
   });
 
   it("keeps risky executable surfaces outside the allowlist", () => {

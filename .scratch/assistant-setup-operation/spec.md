@@ -1,6 +1,6 @@
 # Assistant Setup Operation
 
-Status: in progress
+Status: resolved
 
 ## Objective
 

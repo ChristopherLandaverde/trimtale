@@ -50,6 +50,11 @@ const commands = {
     args: ["test"],
     description: "Run deterministic unit and scenario tests",
   },
+  "update-snapshots": {
+    executable: "npm",
+    args: ["run", "test:e2e:update-snapshots"],
+    description: "Update reviewed Playwright visual baselines",
+  },
   verify: {
     executable: "npm",
     args: ["run", "verify"],
