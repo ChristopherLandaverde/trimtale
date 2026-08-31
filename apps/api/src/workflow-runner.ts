@@ -18,6 +18,7 @@ export type WorkflowGoogleClient = Pick<GtmDiscoveryClient,
   | "validateManagedWorkspace"
   | "createValidatedVersion"
   | "publishApprovedVersion"
+  | "rollbackPublishedVersion"
 >;
 
 export type TrackingWorkflowRequest = SetupRequest | FormSetupRequest;
@@ -49,6 +50,16 @@ export type WorkflowPublishResult =
 export type WorkflowBrowserVerificationResult =
   | { status: "completed"; operation: TrackingSetupOperationV1; nextStep: "platform_unavailable" }
   | { status: "rollback_required"; operation: TrackingSetupOperationV1; nextStep: "rollback_approval" };
+
+export type WorkflowRollbackResult =
+  | { status: "rolled_back"; operation: TrackingSetupOperationV1; nextStep: "complete" }
+  | {
+    status: "blocked";
+    operation: TrackingSetupOperationV1;
+    stage: "rollback";
+    reason: string;
+    details?: unknown;
+  };
 
 function nextTimestamp(previous: string, now: () => Date): string {
   const candidate = now().getTime();
@@ -275,6 +286,35 @@ export class TrackingWorkflowRunner {
     return saved.status === "completed"
       ? { status: "completed", operation: saved, nextStep: "platform_unavailable" }
       : { status: "rollback_required", operation: saved, nextStep: "rollback_approval" };
+  }
+
+  async approveAndRollback(
+    id: string,
+    approvedTargetFingerprint: string,
+  ): Promise<WorkflowRollbackResult> {
+    const operation = this.requiredOperation(id);
+    if (operation.status !== "rollback_required" || !operation.rollback) {
+      return {
+        status: "blocked",
+        operation,
+        stage: "rollback",
+        reason: "operation_not_rollback_required",
+      };
+    }
+    if (approvedTargetFingerprint !== operation.rollback.targetVersionFingerprint) {
+      return {
+        status: "blocked",
+        operation,
+        stage: "rollback",
+        reason: "rollback_fingerprint_mismatch",
+      };
+    }
+    const rollback = await this.google.rollbackPublishedVersion(operation);
+    const rolledBack = this.save(operation, {
+      status: "rolled_back",
+      rollback,
+    });
+    return { status: "rolled_back", operation: rolledBack, nextStep: "complete" };
   }
 
   private requiredOperation(id: string): TrackingSetupOperationV1 {

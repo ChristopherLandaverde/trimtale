@@ -84,13 +84,14 @@ chrome.runtime.onConnect.addListener((port) => {
 });
 
 type GtmContainerOperation = "inspect" | "prepare";
-type GtmWorkflowAction = "start" | "resume" | "get" | "publish" | "browserVerification";
+type GtmWorkflowAction = "start" | "resume" | "get" | "publish" | "browserVerification" | "rollback";
 type TrackingWorkflowRequest = SetupRequest | FormSetupRequest;
 type StoredWorkflowResult =
   | { status: "versioned"; operation: Record<string, unknown>; nextStep: "await_approval" }
   | { status: "published"; operation: Record<string, unknown>; nextStep: "verify_publication" }
   | { status: "completed"; operation: Record<string, unknown>; nextStep: "platform_unavailable" }
   | { status: "rollback_required"; operation: Record<string, unknown>; nextStep: "rollback_approval" }
+  | { status: "rolled_back"; operation: Record<string, unknown>; nextStep: "complete" }
   | {
     status: "blocked" | "paused";
     operation: Record<string, unknown>;
@@ -240,6 +241,9 @@ function workflowResultFromStoredOperation(operation: Record<string, unknown>): 
   if (status === "rollback_required") {
     return { status: "rollback_required", operation, nextStep: "rollback_approval" };
   }
+  if (status === "rolled_back") {
+    return { status: "rolled_back", operation, nextStep: "complete" };
+  }
   if (status === "planned") {
     return { status: "paused", operation, stage: "planning", reason: "ready_to_apply" };
   }
@@ -268,6 +272,7 @@ chrome.runtime.onMessage.addListener(
       versionFingerprint?: string;
       approvedBy?: string;
       evidence?: TrackingRunEvidenceV1;
+      targetVersionFingerprint?: string;
     },
     _sender,
     sendResponse,
@@ -346,6 +351,26 @@ chrome.runtime.onMessage.addListener(
           sendResponse(verified.ok
             ? { ok: true, result: verifiedBody.result }
             : { ok: false, error: workflowError(verified.status) });
+          return;
+        }
+
+        if (message.action === "rollback") {
+          if (!operationId || !message.targetVersionFingerprint || !message.approvedBy) {
+            sendResponse({ ok: false, error: "Rollback requires an operation ID, target fingerprint, and approver." });
+            return;
+          }
+          const rolledBack = await fetch(`http://127.0.0.1:18787/api/google/workflows/${encodeURIComponent(operationId)}/rollback`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              targetVersionFingerprint: message.targetVersionFingerprint,
+              approvedBy: message.approvedBy,
+            }),
+          });
+          const rolledBackBody = await readJsonResponse(rolledBack);
+          sendResponse(rolledBack.ok
+            ? { ok: true, result: rolledBackBody.result }
+            : { ok: false, error: workflowError(rolledBack.status, "publish") });
           return;
         }
 

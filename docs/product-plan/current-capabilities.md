@@ -2,7 +2,7 @@
 
 Status date: 2026-08-30
 
-GTM Observability currently turns a supported tracking intent into a confirmed tracking specification, generates a reviewable GTM setup, observes the website's GTM runtime, matches the observed container to Google access, and safely prepares one reusable managed workspace. When container-write access is enabled, the website assistant can now start the guarded backend setup operation for confirmed navigation-click and lead-form setups, render the durable operation timeline, create an immutable GTM version, publish only after exact fingerprint approval, and record post-publication browser evidence. Separate backend clients can restore a recorded prior-live version; the website assistant still does not expose rollback approval or platform confirmation.
+GTM Observability currently turns a supported tracking intent into a confirmed tracking specification, generates a reviewable GTM setup, observes the website's GTM runtime, matches the observed container to Google access, and safely prepares one reusable managed workspace. When container-write access is enabled, the website assistant can now start the guarded backend setup operation for confirmed navigation-click and lead-form setups, render the durable operation timeline, create an immutable GTM version, publish only after exact fingerprint approval, record post-publication browser evidence, and restore the recorded prior-live version after exact rollback approval. The website assistant still does not expose autonomous rollback or platform confirmation.
 
 ## Current product workflow
 
@@ -20,6 +20,7 @@ Open the assistant and inspect page GTM / authorized access
     -> optionally prepare a durable GTM version
     -> optionally publish the exact approved version fingerprint
     -> optionally verify the browser-to-Google collection request
+    -> if verification fails, optionally approve rollback to the exact prior live fingerprint
     -> stop before platform confirmation
 ```
 
@@ -50,6 +51,8 @@ The assistant currently supports:
   the exact immutable version fingerprint to the backend approval/publish route.
 - A post-publication **Start browser verification** action that records whether the
   confirmed interaction produced exactly one expected Google collection request.
+- A rollback action that appears only from a `rollback_required` operation and submits
+  the exact prior-live fingerprint for approval-gated restoration.
 
 The conversation classifier and state transitions are deterministic today. Model-backed conversation intake is the next product slice, but no production model currently interprets tracking intents or decides whether evidence passed.
 
@@ -167,7 +170,10 @@ confirmation.
 After publication, the assistant can run browser verification for the confirmed
 navigation or lead-form interaction. Passing evidence marks the operation completed
 with `Google request verified`; failed evidence marks it `rollback_required` and
-shows the prior live version fingerprint for a future rollback approval workflow.
+shows the prior live version fingerprint for explicit rollback approval. If rollback
+is approved, the backend re-reads the target version and live container state, then
+publishes the prior-live version with Google's fingerprint guard and records
+`rolled_back`.
 Platform confirmation remains unavailable because browser evidence cannot prove GA4
 processing, reporting, attribution, or destination receipt.
 

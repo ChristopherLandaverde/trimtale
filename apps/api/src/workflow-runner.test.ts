@@ -117,6 +117,7 @@ function google(overrides: Partial<WorkflowGoogleClient> = {}) {
       },
     }),
     publishApprovedVersion: vi.fn(),
+    rollbackPublishedVersion: vi.fn(),
     ...overrides,
   };
   return client;
@@ -336,6 +337,53 @@ describe("resumable non-publishing tracking workflow", () => {
         rollback: { targetVersionFingerprint: "live-7", status: "required" },
       },
     });
+  });
+
+  it("rolls back only after exact target fingerprint approval", async () => {
+    const store = await repository();
+    const client = google({
+      publishApprovedVersion: vi.fn().mockResolvedValue({
+        publishedAt: "2026-08-22T12:07:00.000Z",
+        versionFingerprint: "version-8",
+      }),
+      rollbackPublishedVersion: vi.fn().mockResolvedValue({
+        targetVersionFingerprint: "live-7",
+        status: "completed",
+        completedAt: "2026-08-22T12:09:00.000Z",
+      }),
+    });
+    const runner = new TrackingWorkflowRunner(store, client, () => new Date("2026-08-22T12:00:00.000Z"));
+    const planned = await runner.plan(request);
+    if (planned.status === "blocked") throw new Error(planned.reason);
+    await runner.resume(planned.operation.id);
+    const published = await runner.approveAndPublish(planned.operation.id, "version-8", "practitioner@example.test");
+    if (published.status !== "published") throw new Error(published.status);
+    await runner.recordBrowserVerification(
+      planned.operation.id,
+      runEvidence(published.operation, "tag_fired_request_missing"),
+    );
+
+    await expect(runner.approveAndRollback(planned.operation.id, "wrong-live")).resolves.toMatchObject({
+      status: "blocked",
+      stage: "rollback",
+      reason: "rollback_fingerprint_mismatch",
+    });
+    expect(client.rollbackPublishedVersion).not.toHaveBeenCalled();
+
+    await expect(runner.approveAndRollback(planned.operation.id, "live-7")).resolves.toMatchObject({
+      status: "rolled_back",
+      nextStep: "complete",
+      operation: {
+        status: "rolled_back",
+        rollback: {
+          targetVersionFingerprint: "live-7",
+          status: "completed",
+          completedAt: "2026-08-22T12:09:00.000Z",
+        },
+      },
+    });
+    expect(client.rollbackPublishedVersion).toHaveBeenCalledTimes(1);
+    expect(new TrackingOperationRepository(store.filePath).get(planned.operation.id)?.status).toBe("rolled_back");
   });
 
   it("rejects browser verification before publish or for another specification", async () => {

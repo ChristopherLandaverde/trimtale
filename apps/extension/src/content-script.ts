@@ -93,6 +93,11 @@ type WorkflowResult =
     nextStep: "rollback_approval";
   }
   | {
+    status: "rolled_back";
+    operation: TrackingSetupOperationV1;
+    nextStep: "complete";
+  }
+  | {
     status: "blocked" | "paused";
     operation?: TrackingSetupOperationV1;
     stage?: "planning" | "application" | "validation" | "version" | "approval" | "publication" | "browser_verification";
@@ -504,6 +509,19 @@ async function requestBrowserVerification(
   }) as Promise<WorkflowBridgeResponse>;
 }
 
+async function requestRollback(
+  operationId: string,
+  targetVersionFingerprint: string,
+): Promise<WorkflowBridgeResponse> {
+  return chrome.runtime.sendMessage({
+    type: "GTM_WORKFLOW_REQUEST",
+    action: "rollback",
+    operationId,
+    targetVersionFingerprint,
+    approvedBy: "website assistant",
+  }) as Promise<WorkflowBridgeResponse>;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -851,6 +869,9 @@ function operationSummary(operation: TrackingSetupOperationV1): string {
   if (operation.status === "rollback_required") {
     return `Browser verification failed; rollback approval is required for prior live version ${operation.rollback?.targetVersionFingerprint ?? "unknown"}.`;
   }
+  if (operation.status === "rolled_back") {
+    return `Rolled back to prior live version ${operation.rollback?.targetVersionFingerprint ?? "unknown"}.`;
+  }
   if (operation.status === "published" && operation.publication) {
     return `Published approved version ${operation.publication.versionFingerprint}. Browser verification is next.`;
   }
@@ -871,8 +892,10 @@ function setupOperationGuidance(result: WorkflowResult): string {
       ? "verify_publication"
       : result.status === "completed"
         ? "platform_unavailable"
-        : result.status === "rollback_required"
-          ? "rollback_approval"
+      : result.status === "rollback_required"
+        ? "rollback_approval"
+        : result.status === "rolled_back"
+          ? "complete"
       : result.reason;
   if (reason === "ready_to_apply") return "Ready to apply owned GTM entities from the saved plan.";
   if (reason === "partial_application" || reason === "partial_failure") {
@@ -898,6 +921,7 @@ function setupOperationGuidance(result: WorkflowResult): string {
   if (reason === "verify_publication") return "Approved GTM version was published. Run browser verification to confirm the Google collection request.";
   if (reason === "platform_unavailable") return "Google request verified from browser evidence. Platform confirmation remains unavailable.";
   if (reason === "rollback_approval") return "Browser verification failed. Rollback approval is required before restoring the prior live version.";
+  if (reason === "complete") return "Rollback completed. The prior live version was restored.";
   if (reason === "fingerprint_mismatch") return "The approved fingerprint did not match the immutable version. Publication was not attempted.";
   if (reason === "operation_not_versioned") return "Only a versioned operation can be approved for publication.";
   return "Review the saved operation state before continuing. Nothing was published.";
@@ -908,6 +932,7 @@ function workflowReason(result: WorkflowResult): string {
   if (result.status === "published") return "verify_publication";
   if (result.status === "completed") return "platform_unavailable";
   if (result.status === "rollback_required") return "rollback_approval";
+  if (result.status === "rolled_back") return "complete";
   return result.reason;
 }
 
@@ -929,6 +954,8 @@ function renderSetupOperation(result: WorkflowResult, request?: TrackingWorkflow
         ? "Google request verified"
         : result.status === "rollback_required"
           ? "Rollback required"
+          : result.status === "rolled_back"
+            ? "Rolled back"
       : result.status;
   heading.append(title, label);
   path.append(heading);
@@ -938,7 +965,8 @@ function renderSetupOperation(result: WorkflowResult, request?: TrackingWorkflow
   const terminalWorkflow = result.status === "versioned"
     || result.status === "published"
     || result.status === "completed"
-    || result.status === "rollback_required";
+    || result.status === "rollback_required"
+    || result.status === "rolled_back";
   const blockedReason = terminalWorkflow ? "Operation reached version creation" : result.reason;
   const resultReason = workflowReason(result);
   const guidanceText = setupOperationGuidance(result);
@@ -987,6 +1015,15 @@ function renderSetupOperation(result: WorkflowResult, request?: TrackingWorkflow
           : "Run browser verification after publication",
     },
     { key: "platform", label: "Platform confirmation", detail: "Platform confirmation unavailable" },
+    {
+      key: "rollback",
+      label: "Rollback",
+      detail: operation?.status === "rolled_back"
+        ? `Restored prior live version ${operation.rollback?.targetVersionFingerprint ?? "unknown"}`
+        : operation?.status === "rollback_required"
+          ? `Approval required to restore ${operation.rollback?.targetVersionFingerprint ?? "unknown"}`
+          : "No rollback required",
+    },
   ];
   for (const stage of stages) {
     const row = document.createElement("div");
@@ -998,6 +1035,8 @@ function renderSetupOperation(result: WorkflowResult, request?: TrackingWorkflow
           ? Boolean(status && ["verification_failed", "rollback_required", "rolled_back", "completed"].includes(status))
         : stage.key === "platform"
             ? false
+          : stage.key === "rollback"
+            ? status === "rolled_back"
       : stage.key === "planned"
         ? Boolean(status)
         : stage.key === "applying"
@@ -1048,6 +1087,13 @@ function renderSetupOperation(result: WorkflowResult, request?: TrackingWorkflow
     addMessage("Google request verified from browser evidence. Platform confirmation remains unavailable.", "assistant");
   } else if (result.status === "rollback_required") {
     addMessage(`Browser verification failed. Rollback approval is required before restoring ${result.operation.rollback?.targetVersionFingerprint ?? "the prior live version"}.`, "assistant");
+    if (result.operation.rollback) {
+      appendInlineAction(path, `Rollback ${result.operation.rollback.targetVersionFingerprint}`, () => {
+        void runRollbackOperation(result.operation.id, result.operation.rollback!.targetVersionFingerprint, request);
+      });
+    }
+  } else if (result.status === "rolled_back") {
+    addMessage(`Rollback completed. Prior live version ${result.operation.rollback?.targetVersionFingerprint ?? "unknown"} was restored.`, "assistant");
   }
   responseList?.append(path);
   responseList?.scrollTo({ top: responseList.scrollHeight });
@@ -1097,6 +1143,20 @@ async function runPublishOperation(
   }
   const operation = response.result.operation;
   if (operation && request) await rememberOperation(request, operation.id);
+  renderSetupOperation(response.result, request);
+}
+
+async function runRollbackOperation(
+  operationId: string,
+  targetVersionFingerprint: string,
+  request?: TrackingWorkflowRequest,
+): Promise<void> {
+  addMessage(`Approving rollback to ${targetVersionFingerprint}…`, "assistant");
+  const response = await requestRollback(operationId, targetVersionFingerprint);
+  if (!response.ok) {
+    addMessage(`${response.error} The failed publication still requires recovery.`, "assistant");
+    return;
+  }
   renderSetupOperation(response.result, request);
 }
 

@@ -12,7 +12,7 @@ const screenshotOptions = {
 const navigationSpecId = "spec_e8d91c6baf9f";
 const navigationOperationId = `operation_${navigationSpecId}`;
 
-function operation(status: "planned" | "applying" | "validation_failed" | "versioned" | "published" | "completed" | "rollback_required" = "versioned") {
+function operation(status: "planned" | "applying" | "validation_failed" | "versioned" | "published" | "completed" | "rollback_required" | "rolled_back" = "versioned") {
   const completedActionSignatures = status === "planned"
     ? []
     : status === "applying"
@@ -89,7 +89,7 @@ function operation(status: "planned" | "applying" | "validation_failed" | "versi
       }],
     },
     completedActionSignatures,
-    ...((status === "validation_failed" || status === "versioned" || status === "published" || status === "completed" || status === "rollback_required") ? {
+    ...((status === "validation_failed" || status === "versioned" || status === "published" || status === "completed" || status === "rollback_required" || status === "rolled_back") ? {
       validation: {
         status: status === "validation_failed" ? "failed" : "passed",
         checkedAt: "2026-08-30T20:01:00.000Z",
@@ -97,7 +97,7 @@ function operation(status: "planned" | "applying" | "validation_failed" | "versi
         errors: status === "validation_failed" ? ["The preview compiler rejected the generated trigger."] : [],
       },
     } : {}),
-    ...((status === "versioned" || status === "published" || status === "completed" || status === "rollback_required") ? {
+    ...((status === "versioned" || status === "published" || status === "completed" || status === "rollback_required" || status === "rolled_back") ? {
       version: {
         path: "accounts/1/containers/10/versions/8",
         fingerprint: "version-8",
@@ -105,7 +105,7 @@ function operation(status: "planned" | "applying" | "validation_failed" | "versi
         priorLiveVersionFingerprint: "live-7",
       },
     } : {}),
-    ...((status === "published" || status === "completed" || status === "rollback_required") ? {
+    ...((status === "published" || status === "completed" || status === "rollback_required" || status === "rolled_back") ? {
       approval: {
         approvedAt: "2026-08-30T20:02:00.000Z",
         approvedBy: "website assistant",
@@ -119,14 +119,18 @@ function operation(status: "planned" | "applying" | "validation_failed" | "versi
     ...(status === "completed" ? {
       postPublicationEvidenceId: "run_nav_services_1798646400000",
     } : {}),
-    ...(status === "rollback_required" ? {
+    ...((status === "rollback_required" || status === "rolled_back") ? {
       postPublicationEvidenceId: "run_nav_services_1798646400000",
-      rollback: { targetVersionFingerprint: "live-7", status: "required" },
+      rollback: {
+        targetVersionFingerprint: "live-7",
+        status: status === "rolled_back" ? "completed" : "required",
+        ...(status === "rolled_back" ? { completedAt: "2026-08-30T20:05:00.000Z" } : {}),
+      },
     } : {}),
   };
 }
 
-function formOperation(status: "planned" | "applying" | "validation_failed" | "versioned" | "published" | "completed" | "rollback_required" = "versioned") {
+function formOperation(status: "planned" | "applying" | "validation_failed" | "versioned" | "published" | "completed" | "rollback_required" | "rolled_back" = "versioned") {
   const completedActionSignatures = status === "planned"
     ? []
     : status === "applying"
@@ -203,7 +207,7 @@ function formOperation(status: "planned" | "applying" | "validation_failed" | "v
       }],
     },
     completedActionSignatures,
-    ...((status === "validation_failed" || status === "versioned" || status === "published" || status === "completed" || status === "rollback_required") ? {
+    ...((status === "validation_failed" || status === "versioned" || status === "published" || status === "completed" || status === "rollback_required" || status === "rolled_back") ? {
       validation: {
         status: status === "validation_failed" ? "failed" : "passed",
         checkedAt: "2026-08-30T20:01:00.000Z",
@@ -211,7 +215,7 @@ function formOperation(status: "planned" | "applying" | "validation_failed" | "v
         errors: status === "validation_failed" ? ["The preview compiler rejected the generated trigger."] : [],
       },
     } : {}),
-    ...((status === "versioned" || status === "published" || status === "completed" || status === "rollback_required") ? {
+    ...((status === "versioned" || status === "published" || status === "completed" || status === "rollback_required" || status === "rolled_back") ? {
       version: {
         path: "accounts/1/containers/10/versions/8",
         fingerprint: "version-8",
@@ -219,7 +223,7 @@ function formOperation(status: "planned" | "applying" | "validation_failed" | "v
         priorLiveVersionFingerprint: "live-7",
       },
     } : {}),
-    ...((status === "published" || status === "completed" || status === "rollback_required") ? {
+    ...((status === "published" || status === "completed" || status === "rollback_required" || status === "rolled_back") ? {
       approval: {
         approvedAt: "2026-08-30T20:02:00.000Z",
         approvedBy: "website assistant",
@@ -233,9 +237,13 @@ function formOperation(status: "planned" | "applying" | "validation_failed" | "v
     ...(status === "completed" ? {
       postPublicationEvidenceId: "run_form_contact",
     } : {}),
-    ...(status === "rollback_required" ? {
+    ...((status === "rollback_required" || status === "rolled_back") ? {
       postPublicationEvidenceId: "run_form_contact",
-      rollback: { targetVersionFingerprint: "live-7", status: "required" },
+      rollback: {
+        targetVersionFingerprint: "live-7",
+        status: status === "rolled_back" ? "completed" : "required",
+        ...(status === "rolled_back" ? { completedAt: "2026-08-30T20:05:00.000Z" } : {}),
+      },
     } : {}),
   };
 }
@@ -249,6 +257,10 @@ async function mockWritableContainerAndWorkflow(
     publishError?: string;
     browserVerificationResult?: Record<string, unknown>;
     onBrowserVerification?: (body: Record<string, unknown>) => void;
+    rollbackResult?: Record<string, unknown>;
+    rollbackStatus?: number;
+    rollbackError?: string;
+    onRollback?: (body: Record<string, unknown>) => void;
     storedOperation?: Record<string, unknown>;
     workflowOperation?: typeof operation;
     onResume?: () => void;
@@ -349,6 +361,34 @@ async function mockWritableContainerAndWorkflow(
           status: "completed",
           nextStep: "platform_unavailable",
           operation: workflowOperation("completed"),
+        },
+      }),
+    });
+  });
+  await context.route("http://127.0.0.1:18787/api/google/workflows/*/rollback", async (route) => {
+    let raw: unknown = {};
+    try {
+      raw = route.request().postDataJSON();
+    } catch {
+      raw = {};
+    }
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) options.onRollback?.(raw as Record<string, unknown>);
+    if (options.rollbackStatus && options.rollbackStatus >= 400) {
+      await route.fulfill({
+        status: options.rollbackStatus,
+        contentType: "application/json",
+        body: JSON.stringify({ error: options.rollbackError ?? "Rollback blocked." }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        result: options.rollbackResult ?? {
+          status: "rolled_back",
+          nextStep: "complete",
+          operation: workflowOperation("rolled_back"),
         },
       }),
     });
@@ -1030,6 +1070,60 @@ test("records post-publication lead-form browser verification without leaking fo
       : undefined).toBe("spec_form_contact");
     expect(JSON.stringify(postedEvidence)).not.toContain("private@example.com");
     expect(JSON.stringify(postedEvidence)).not.toContain("cookie");
+    await expect(root.getByText(/platform-confirmed/i)).toHaveCount(0);
+  } finally {
+    await context.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});
+
+test("rolls back a failed publication only after exact target approval", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "gtm-observability-rollback-approval-"));
+  const extensionPath = resolve("apps/extension/dist");
+  const context = await chromium.launchPersistentContext(profile, {
+    channel: "chromium",
+    headless: true,
+    args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+  });
+  let postedRollback: Record<string, unknown> | undefined;
+  await mockWritableContainerAndWorkflow(context, {
+    browserVerificationResult: {
+      status: "rollback_required",
+      nextStep: "rollback_approval",
+      operation: operation("rollback_required"),
+    },
+    onRollback: (body) => {
+      postedRollback = body;
+    },
+  });
+  try {
+    const site = await context.newPage();
+    await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123&scenario=duplicate");
+    const root = site.locator("#gtm-observability-root");
+    await root.getByRole("button", { name: "Open tracking assistant" }).click();
+    await root.getByLabel("Tracking request").fill("navigation");
+    await root.getByRole("button", { name: "Send request" }).click();
+    await root.getByRole("button", { name: "Track all" }).click();
+    await root.getByRole("button", { name: "Check GTM access" }).click();
+    await root.getByRole("button", { name: "Prepare GTM version" }).click();
+
+    let operationRegion = root.getByRole("region", { name: "Setup operation" });
+    await operationRegion.getByRole("button", { name: "Publish version-8" }).click();
+    operationRegion = root.getByRole("region", { name: "Setup operation" });
+    await operationRegion.getByRole("button", { name: "Start browser verification" }).click();
+    await site.getByRole("link", { name: "Services" }).click();
+
+    operationRegion = root.getByRole("region", { name: "Setup operation" });
+    await expect(operationRegion.getByText(/Verification failed; prior live version live-7 is ready for rollback approval/)).toBeVisible();
+    await operationRegion.getByRole("button", { name: "Rollback live-7" }).click();
+
+    await expect.poll(() => postedRollback).toMatchObject({
+      targetVersionFingerprint: "live-7",
+      approvedBy: "website assistant",
+    });
+    operationRegion = root.getByRole("region", { name: "Setup operation" });
+    await expect(operationRegion.getByText(/Rollback completed/)).toBeVisible();
+    await expect(operationRegion.getByText(/Restored prior live version live-7/)).toBeVisible();
     await expect(root.getByText(/platform-confirmed/i)).toHaveCount(0);
   } finally {
     await context.close();

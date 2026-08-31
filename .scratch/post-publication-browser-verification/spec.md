@@ -1,6 +1,6 @@
 # Post-Publication Browser Verification
 
-Status: implemented for API recording, assistant UI, navigation E2E, lead-form E2E, and private form-value evidence sentinels; remaining expansion covers broader hostile-input privacy sentinels and rollback approval automation.
+Status: implemented for API recording, assistant UI, navigation E2E, lead-form E2E, private form-value evidence sentinels, and rollback approval automation. Remaining expansion covers broader hostile-input privacy sentinels.
 
 ## Objective
 
@@ -45,7 +45,8 @@ Published approved version
 ```
 
 If verification fails, the operation moves to a rollback-ready state with the prior
-live version fingerprint visible for explicit rollback approval.
+live version fingerprint visible for explicit rollback approval. Approved rollback
+restores the exact recorded prior-live fingerprint and records `rolled_back`.
 
 ## Testing plan
 
@@ -134,8 +135,6 @@ live version fingerprint visible for explicit rollback approval.
 
 - Should inconclusive post-publication evidence become `rollback_required`, stay
   `published` with verification blocked, or use a new operation status?
-- Should the assistant immediately guide rollback after failed browser verification,
-  or should rollback be a separate explicit workflow slice?
 - Should navigation and form post-publication verification share one API request shape,
   or should they use separate versioned evidence envelopes?
 - What exact UI label should replace older `Platform confirmation: unverified` copy:

@@ -364,6 +364,48 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  const rollbackMatch = requestUrl.pathname.match(
+    /^\/api\/google\/workflows\/([A-Za-z0-9_-]+)\/rollback$/,
+  );
+  if (request.method === "POST" && rollbackMatch) {
+    if (!workflowRunner) {
+      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
+      return;
+    }
+    try {
+      const body = await readJson(request);
+      const targetVersionFingerprint = typeof body === "object" && body !== null && "targetVersionFingerprint" in body
+        ? (body as { targetVersionFingerprint?: unknown }).targetVersionFingerprint
+        : undefined;
+      const approvedBy = typeof body === "object" && body !== null && "approvedBy" in body
+        ? (body as { approvedBy?: unknown }).approvedBy
+        : undefined;
+      if (typeof targetVersionFingerprint !== "string" || typeof approvedBy !== "string" || approvedBy.trim().length === 0) {
+        sendJson(response, 400, { error: "Rollback approval requires a target version fingerprint and approver." });
+        return;
+      }
+      const result = await workflowRunner.approveAndRollback(rollbackMatch[1] ?? "", targetVersionFingerprint);
+      sendJson(response, result.status === "blocked" ? 409 : 200, { result });
+    } catch (workflowError) {
+      const status = workflowError instanceof GoogleIntegrationError
+        ? workflowError.status
+        : workflowError instanceof Error && workflowError.message.includes("not found")
+          ? 404
+          : workflowError instanceof SyntaxError
+            ? 400
+            : 409;
+      const message = status === 404
+        ? "Tracking operation was not found."
+        : status === 400
+          ? "Rollback approval must be valid JSON."
+          : status === 403
+            ? "GTM publication is disabled for this backend."
+            : "Unable to roll back the tracking workflow.";
+      sendJson(response, status, { error: message });
+    }
+    return;
+  }
+
   const contextMatch = requestUrl.pathname.match(
     /^\/api\/google\/accounts\/(\d+)\/containers\/(\d+)\/context$/,
   );
