@@ -1,6 +1,6 @@
 # Extract evidence capture controllers
 
-Status: proposed
+Status: resolved
 
 ## Problem
 
@@ -18,7 +18,18 @@ the content script. This makes timing and privacy boundaries harder to reason ab
 
 ## Acceptance Criteria
 
-- [ ] Navigation post-publication evidence records only after a matching request is
+- [x] Navigation post-publication evidence records only after a matching request is
       observed or the existing failure policy applies.
-- [ ] Lead-form post-publication evidence continues to exclude private form values.
-- [ ] Duplicate/missing request verdict behavior remains unchanged.
+- [x] Lead-form post-publication evidence continues to exclude private form values.
+- [x] Duplicate/missing request verdict behavior remains unchanged.
+
+## Resolution Notes
+
+- Added `apps/extension/src/evidence-capture.ts` with navigation and form evidence
+  controllers for post-publication active state, verification scope, evidence
+  completion, and sanitized form run evidence construction.
+- Updated `apps/extension/src/content-script.ts` so click, submit, runtime evidence,
+  and form analytics request handlers delegate evidence state to the controllers.
+- Added `apps/extension/src/evidence-capture.test.ts` for navigation completion,
+  out-of-scope evidence, private form value exclusion, and post-publication form
+  completion.

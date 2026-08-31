@@ -1,9 +1,6 @@
 import {
   createFormSetupProposal,
   createSetupProposal,
-  determineFormVerdict,
-  evaluateEvidence,
-  normalizeFormRunEvidence,
   observeGtmRuntime,
   selectConversationSuccess,
   selectConversationTarget,
@@ -20,6 +17,11 @@ import {
   type TrackingSetupOperationV1,
   type TrackingSpecificationV1,
 } from "@gtm-observability/core";
+import {
+  FormEvidenceController,
+  NavigationEvidenceController,
+  type PostPublicationEvidenceCompletion,
+} from "./evidence-capture.js";
 import { presentSetupOperation, type SetupOperationAction } from "./setup-operation-presenter.js";
 import type { TrackingWorkflowRequest, WorkflowBridgeResponse, WorkflowResult } from "./workflow-bridge.js";
 
@@ -117,8 +119,8 @@ type ExtensionRequest =
   | { type: "TOGGLE_OVERLAY" };
 
 const analyticsPattern = /(?:google-analytics\.com|analytics\.google\.com)\/g\/collect/i;
-const evidence = new Map<string, BrowserEvidence>();
-let verificationScope = new Map<string, NavigationElement>();
+const navigationEvidence = new NavigationEvidenceController();
+const formEvidence = new FormEvidenceController();
 let preferences: OverlayPreferences = { width: 380, height: 260, collapsed: true };
 let host: HTMLDivElement | undefined;
 let frame: HTMLElement | undefined;
@@ -135,10 +137,7 @@ const navigationByRequest = new Map<string, NavigationElement[]>();
 const requestTimeouts = new Map<string, number>();
 const intakeByRequest = new Map<string, ConversationIntakeResult>();
 const formsByRequest = new Map<string, FormCandidate[]>();
-const recentFormRequests: Array<{ url: string; observedAt: string }> = [];
 let activeFormVerification: { requestId: string; intake: ConversationIntakeResult } | undefined;
-let activePostPublicationFormVerification: { operationId: string; request: FormSetupRequest } | undefined;
-let activePostPublicationNavigationVerification: { operationId: string; request: SetupRequest } | undefined;
 let gtmConnectionLoaded = false;
 let gtmConnectionRequestSequence = 0;
 let currentGtmConnection: GtmConnectionContext | undefined;
@@ -241,56 +240,6 @@ function formExplanation(verdict: TrackingRunEvidenceV1["verdict"]): string {
   return `${verdict.code.replaceAll("_", " ")}. ${verdict.nextAction} Platform confirmation remains unavailable.`;
 }
 
-function classifySubmissionResult(value: string | undefined): "success" | "validation_error" | "server_error" | "unknown" {
-  return value === "success" || value === "validation_error" || value === "server_error" ? value : "unknown";
-}
-
-function classifyTransport(value: string | undefined): "native" | "redirect" | "ajax" | "spa" | "unobservable" {
-  return value === "native" || value === "redirect" || value === "ajax" || value === "spa" ? value : "unobservable";
-}
-
-function classifyConsent(value: string | undefined): "granted" | "denied" | "unknown" {
-  return value === "granted" || value === "denied" ? value : "unknown";
-}
-
-function formRunEvidence(
-  specification: TrackingSpecificationV1,
-  target: TrackingSpecificationV1["targets"][number],
-  success: SuccessEvidence,
-  startedAt: string,
-): TrackingRunEvidenceV1 {
-  const pageState = document.documentElement.dataset;
-  const requestUrls = recentFormRequests
-    .filter((request) => Date.parse(request.observedAt) >= Date.parse(startedAt))
-    .map((request) => request.url);
-  const provisionalVerdict: TrackingRunEvidenceV1["verdict"] = {
-    code: "insufficient_observable_evidence",
-    browserVerification: "inconclusive",
-    platformConfirmation: "unverified",
-    nextAction: "Await deterministic classification.",
-  };
-  const provisional = normalizeFormRunEvidence({
-    runId: `run_form_${Date.now()}`,
-    specificationId: specification.id,
-    startedAt,
-    transport: classifyTransport(pageState.transport),
-    targetId: target.id,
-    submitAttempted: pageState.submitAttempted === "true",
-    submissionResult: classifySubmissionResult(pageState.submissionResult),
-    outcomeObserved: pageState.outcomeObserved === "true",
-    outcomeObservable: pageState.outcomeObservable !== "false",
-    outcomeEvidenceType: success.type,
-    dataLayerEvents: pageState.dataLayerEvent === "true"
-      ? [{ event: "generate_lead", form_id: target.id, form_name: target.label.replaceAll(" ", "_") }]
-      : [],
-    tagFired: pageState.tagFired === "true" ? true : pageState.tagFired === "false" ? false : null,
-    networkUrls: requestUrls,
-    consent: classifyConsent(pageState.consent),
-  }, provisionalVerdict);
-  const verdict = determineFormVerdict(provisional.observations);
-  return { ...provisional, verdict };
-}
-
 function renderFormEvidence(evidence: TrackingRunEvidenceV1): HTMLElement {
   const verdictMessage = addMessage(
     `Verdict: ${evidence.verdict.code}\nBrowser verification: ${evidence.verdict.browserVerification}\nPlatform confirmation: ${evidence.verdict.platformConfirmation}\nNext action: ${evidence.verdict.nextAction}`,
@@ -306,33 +255,35 @@ function finishFormVerification(result: ConversationIntakeResult, startedAt: str
   const target = result.target;
   const success = successEvidenceFor(result);
   if (!specification || !target || !success) return;
-  renderFormEvidence(formRunEvidence(specification, target, success, startedAt));
+  renderFormEvidence(formEvidence.buildRunEvidence(
+    specification,
+    target,
+    success,
+    startedAt,
+    document.documentElement.dataset,
+  ));
   activeFormVerification = undefined;
 }
 
 function finishPostPublicationFormVerification(startedAt: string): void {
-  const active = activePostPublicationFormVerification;
-  const target = active?.request.specification.targets[0];
-  const success = active?.request.specification.successEvidence[0];
-  if (!active || !target || !success) return;
-  const evidence = formRunEvidence(active.request.specification, target, success, startedAt);
-  renderFormEvidence(evidence);
-  activePostPublicationFormVerification = undefined;
-  void recordPostPublicationBrowserEvidence(active.operationId, evidence, active.request);
+  const completion = formEvidence.finishPostPublication(startedAt, document.documentElement.dataset);
+  if (!completion) return;
+  renderFormEvidence(completion.evidence);
+  void recordPostPublicationBrowserEvidence(completion.operationId, completion.evidence, completion.request);
 }
 
 function finishPostPublicationNavigationVerification(expected: NavigationElement, item: BrowserEvidence): void {
-  const active = activePostPublicationNavigationVerification;
-  if (!active) return;
-  const verdict = evaluateEvidence(expected, item, createSetupProposal(active.request).specification.id);
-  if (!verdict.runEvidence) return;
-  activePostPublicationNavigationVerification = undefined;
-  verificationScope.clear();
+  const completion = navigationEvidence.completePostPublication(expected, item);
+  if (!completion) return;
+  recordPostPublicationNavigationCompletion(completion);
+}
+
+function recordPostPublicationNavigationCompletion(completion: PostPublicationEvidenceCompletion): void {
   addMessage(
-    `Verdict: ${verdict.runEvidence.verdict.code}\nBrowser verification: ${verdict.runEvidence.verdict.browserVerification}\nPlatform confirmation: ${verdict.runEvidence.verdict.platformConfirmation}\nNext action: ${verdict.runEvidence.verdict.nextAction}`,
+    `Verdict: ${completion.evidence.verdict.code}\nBrowser verification: ${completion.evidence.verdict.browserVerification}\nPlatform confirmation: ${completion.evidence.verdict.platformConfirmation}\nNext action: ${completion.evidence.verdict.nextAction}`,
     "assistant",
   );
-  void recordPostPublicationBrowserEvidence(active.operationId, verdict.runEvidence, active.request);
+  void recordPostPublicationBrowserEvidence(completion.operationId, completion.evidence, completion.request);
 }
 
 function areaFor(element: Element): NavigationArea {
@@ -972,16 +923,13 @@ async function startPostPublicationBrowserVerification(
   request?: TrackingWorkflowRequest,
 ): Promise<void> {
   if (isNavigationWorkflowRequest(request)) {
-    activePostPublicationNavigationVerification = { operationId: operation.id, request };
-    evidence.clear();
-    verificationScope = new Map(request.navigation.map((item) => [item.id, item]));
+    navigationEvidence.startPostPublication(operation.id, request);
     highlightTargets(navigationTargets(request.navigation), "confirmed");
     addMessage("Browser verification is ready. Click one confirmed navigation link once.", "assistant");
     return;
   }
   if (isFormWorkflowRequest(request)) {
-    recentFormRequests.length = 0;
-    activePostPublicationFormVerification = { operationId: operation.id, request };
+    formEvidence.startPostPublication(operation.id, request);
     const target = request.specification.targets[0];
     if (target) highlightTargets([{ id: target.id, label: target.label, selector: target.selector }], "confirmed");
     addMessage(`Browser verification is ready. Submit ${target?.label ?? "the selected form"} once.`, "assistant");
@@ -1357,7 +1305,7 @@ function handleAssistantAction(actionId: string, requestId: string): void {
     return;
   }
   if (actionId === "start-form-verification" && intake?.canConfirm) {
-    recentFormRequests.length = 0;
+    formEvidence.startInteractiveVerification();
     activeFormVerification = { requestId, intake };
     addMessage(`Verification is ready. Submit ${intake.target?.label ?? "the selected form"} once.`, "assistant");
     return;
@@ -1604,23 +1552,21 @@ async function mountOverlay(): Promise<void> {
 
 document.addEventListener("click", (event) => {
   const anchor = (event.target as Element | null)?.closest<HTMLAnchorElement>("a[href]");
-  if (!anchor || verificationScope.size === 0) return;
-  const expected = [...verificationScope.values()].find((item) => item.href === anchor.href && anchor.matches(item.selector));
+  if (!anchor || navigationEvidence.scopeSize === 0) return;
+  const expected = navigationEvidence.expectedForAnchor(anchor);
   if (!expected) return;
   const startedAt = performance.now();
   const initial: BrowserEvidence = { navigationId: expected.id, clickedAt: new Date().toISOString(), pageUrl: location.href, linkText: (anchor.innerText || expected.text).trim(), linkUrl: anchor.href, requests: [] };
-  evidence.set(expected.id, initial);
+  navigationEvidence.recordClick(expected, initial);
   void chrome.runtime.sendMessage({ type: "VERIFICATION_EVIDENCE", evidence: initial });
-  if (activePostPublicationNavigationVerification) {
-    window.setTimeout(() => {
-      const item = { ...initial, requests: recentAnalyticsRequests(startedAt) };
-      evidence.set(expected.id, item);
-      if (item.requests.length > 0) finishPostPublicationNavigationVerification(expected, item);
-    }, 180);
-  }
   window.setTimeout(() => {
     const item = { ...initial, requests: recentAnalyticsRequests(startedAt) };
-    evidence.set(expected.id, item);
+    navigationEvidence.recordClick(expected, item);
+    if (item.requests.length > 0) finishPostPublicationNavigationVerification(expected, item);
+  }, 180);
+  window.setTimeout(() => {
+    const item = { ...initial, requests: recentAnalyticsRequests(startedAt) };
+    navigationEvidence.recordClick(expected, item);
     void chrome.runtime.sendMessage({ type: "VERIFICATION_EVIDENCE", evidence: item });
     if (item.requests.length > 0) finishPostPublicationNavigationVerification(expected, item);
   }, 1200);
@@ -1628,11 +1574,9 @@ document.addEventListener("click", (event) => {
 
 document.addEventListener("submit", (event) => {
   const active = activeFormVerification;
-  const postPublication = activePostPublicationFormVerification;
   const form = event.target instanceof HTMLFormElement ? event.target : undefined;
   const target = active?.intake.target;
-  const postPublicationTarget = postPublication?.request.specification.targets[0];
-  if (postPublication && form && postPublicationTarget && form.matches(postPublicationTarget.selector)) {
+  if (form && formEvidence.matchesPostPublicationForm(form)) {
     const startedAt = new Date().toISOString();
     window.setTimeout(() => finishPostPublicationFormVerification(startedAt), 800);
     return;
@@ -1648,15 +1592,14 @@ if (!window.__gtmObservabilityInstalled) {
   chrome.runtime.onMessage.addListener((request: ExtensionRequest, _sender, sendResponse) => {
     if (request.type === "TOGGLE_OVERLAY") { void mountOverlay().then(() => setCollapsed(!preferences.collapsed)); sendResponse({ toggled: true }); return true; }
     if (request.type === "SCAN_NAVIGATION") { sendResponse(scanNavigation()); return; }
-    if (request.type === "START_VERIFICATION") { evidence.clear(); verificationScope = new Map(request.navigation.map((item) => [item.id, item])); sendResponse({ started: true, count: verificationScope.size }); return; }
+    if (request.type === "START_VERIFICATION") { const count = navigationEvidence.startVerification(request.navigation); sendResponse({ started: true, count }); return; }
     if (request.type === "VERIFICATION_EVIDENCE" && request.evidence) {
-      evidence.set(request.evidence.navigationId, request.evidence);
-      const expected = verificationScope.get(request.evidence.navigationId);
-      if (expected) finishPostPublicationNavigationVerification(expected, request.evidence);
+      const completion = navigationEvidence.recordEvidence(request.evidence);
+      if (completion) recordPostPublicationNavigationCompletion(completion);
       sendResponse({ recorded: true });
       return;
     }
-    if (request.type === "FORM_ANALYTICS_REQUEST") { recentFormRequests.push(request.request); sendResponse({ recorded: true }); return; }
-    if (request.type === "GET_EVIDENCE") sendResponse({ evidence: [...evidence.values()] });
+    if (request.type === "FORM_ANALYTICS_REQUEST") { formEvidence.recordAnalyticsRequest(request.request); sendResponse({ recorded: true }); return; }
+    if (request.type === "GET_EVIDENCE") sendResponse({ evidence: navigationEvidence.evidence });
   });
 }
