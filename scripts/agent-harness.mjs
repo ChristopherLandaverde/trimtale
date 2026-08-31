@@ -1,8 +1,11 @@
 import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const commitMessagePath = resolve(repositoryRoot, ".scratch/commit-message.md");
+const commitMessageDisplayPath = ".scratch/commit-message.md";
 
 const commands = {
   build: {
@@ -19,6 +22,12 @@ const commands = {
     executable: "npm",
     args: ["run", "check"],
     description: "Run strict TypeScript checks",
+  },
+  commit: {
+    executable: "git",
+    args: ["commit", "--file", commitMessageDisplayPath],
+    description: "Commit staged changes using .scratch/commit-message.md",
+    preflight: "commit",
   },
   diff: {
     executable: "git",
@@ -87,6 +96,58 @@ export function resolveAgentCommand(args) {
 
 const execute = (executable, args, options) => spawnSync(executable, args, options);
 
+function checkedStatus(result, label) {
+  if (result.error) throw result.error;
+  if (result.status === null) throw new Error(`${label} ended without an exit status`);
+  return result.status;
+}
+
+function runCommitCommand(command, executor, writeOutput) {
+  if (!existsSync(commitMessagePath)) {
+    writeOutput(`Commit message file is missing: ${commitMessageDisplayPath}`);
+    return 2;
+  }
+  const message = readFileSync(commitMessagePath, "utf8").trim();
+  if (!message) {
+    writeOutput(`Commit message file is empty: ${commitMessageDisplayPath}`);
+    return 2;
+  }
+
+  const branch = executor("git", ["branch", "--show-current"], {
+    cwd: repositoryRoot,
+    stdio: ["ignore", "pipe", "inherit"],
+    env: process.env,
+    encoding: "utf8",
+  });
+  const branchStatus = checkedStatus(branch, "Branch check");
+  if (branchStatus !== 0) return branchStatus;
+  if (String(branch.stdout ?? "").trim() === "main") {
+    writeOutput("Refusing to commit on main.");
+    return 2;
+  }
+
+  const staged = executor("git", ["diff", "--cached", "--quiet"], {
+    cwd: repositoryRoot,
+    stdio: "inherit",
+    env: process.env,
+  });
+  const stagedStatus = checkedStatus(staged, "Staged diff check");
+  if (stagedStatus === 0) {
+    writeOutput("Refusing to commit because nothing is staged.");
+    return 2;
+  }
+  if (stagedStatus !== 1) return stagedStatus;
+
+  const commit = executor(command.executable, command.args, {
+    cwd: repositoryRoot,
+    stdio: "inherit",
+    env: process.env,
+  });
+  const commitStatus = checkedStatus(commit, "Commit command");
+  if (commitStatus === 0) unlinkSync(commitMessagePath);
+  return commitStatus;
+}
+
 export function dispatchAgentCommand(
   args,
   executor = execute,
@@ -98,14 +159,15 @@ export function dispatchAgentCommand(
   }
 
   const command = resolveAgentCommand(args);
+  if (command.preflight === "commit") {
+    return runCommitCommand(command, executor, writeOutput);
+  }
   const result = executor(command.executable, command.args, {
     cwd: repositoryRoot,
     stdio: "inherit",
     env: process.env,
   });
-  if (result.error) throw result.error;
-  if (result.status === null) throw new Error(`Agent command '${args[0]}' ended without an exit status`);
-  return result.status;
+  return checkedStatus(result, `Agent command '${args[0]}'`);
 }
 
 const invokedPath = process.argv[1] ? resolve(process.argv[1]) : undefined;

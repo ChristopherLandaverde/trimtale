@@ -23,7 +23,9 @@ writes, destructive Git operations, or credentialed integrations.
 - [x] Commands and arguments are matched against a closed allowlist.
 - [x] Every child process runs from the repository root with inherited output.
 - [x] The harness does not install dependencies, use the network intentionally,
-  mutate Git state, or access credentialed integrations.
+  stage changes, push, run destructive Git commands, or access credentialed
+  integrations. Its only Git mutation is the guarded `commit` command for an
+  already-staged index and fixed message file.
 - [x] The harness inherits the invoking process environment, matching direct `npm`
   and `git` use, but does not load environment files or select credentialed scripts.
 - [x] Unknown commands and extra arguments fail before a child process starts.
@@ -33,7 +35,8 @@ writes, destructive Git operations, or credentialed integrations.
 ## Out of scope
 
 - Dependency installation or arbitrary package execution.
-- Git branch creation, commits, pushes, resets, or other repository mutation.
+- Git branch creation, staging, pushes, resets, or other repository mutation beyond
+  the guarded fixed-message `commit` command.
 - GitHub, Google, or other external-service operations.
 - A general-purpose shell escape hatch.
 
@@ -42,3 +45,6 @@ writes, destructive Git operations, or credentialed integrations.
 Repository-wide ignore rules exclude `.env*.local`, `.vercel/`, and generated
 `.build/` directories so local credentials, deployment linkage, and build output do
 not enter a harness change through broad staging.
+
+The fixed harness commit message file `.scratch/commit-message.md` is ignored and
+deleted after a successful harness commit.

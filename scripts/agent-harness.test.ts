@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   commandNames,
   dispatchAgentCommand,
@@ -6,6 +8,23 @@ import {
 } from "./agent-harness.mjs";
 
 type CommandExecutor = NonNullable<Parameters<typeof dispatchAgentCommand>[1]>;
+const commitMessagePath = resolve(".scratch/commit-message.md");
+
+let originalCommitMessage: string | undefined;
+
+beforeEach(() => {
+  originalCommitMessage = existsSync(commitMessagePath)
+    ? readFileSync(commitMessagePath, "utf8")
+    : undefined;
+});
+
+afterEach(() => {
+  if (originalCommitMessage === undefined) {
+    if (existsSync(commitMessagePath)) unlinkSync(commitMessagePath);
+  } else {
+    writeFileSync(commitMessagePath, originalCommitMessage);
+  }
+});
 
 describe("agent command harness", () => {
   it("resolves every supported command to a fixed local invocation", () => {
@@ -13,6 +32,7 @@ describe("agent command harness", () => {
       build: ["npm", ["run", "build"], "Build every workspace"],
       "change-docs": ["npm", ["run", "check:change-docs"], "Validate change records"],
       check: ["npm", ["run", "check"], "Run strict TypeScript checks"],
+      commit: ["git", ["commit", "--file", ".scratch/commit-message.md"], "Commit staged changes using .scratch/commit-message.md"],
       diff: ["git", ["diff", "--check"], "Check the working diff for whitespace errors"],
       e2e: ["npm", ["run", "test:e2e"], "Run the local browser workflow"],
       inspect: ["git", ["diff", "--stat"], "Summarize working-tree changes"],
@@ -25,7 +45,7 @@ describe("agent command harness", () => {
 
     expect(commandNames).toEqual(Object.keys(expectedCommands).sort());
     for (const [name, [executable, args, description]] of Object.entries(expectedCommands)) {
-      expect(resolveAgentCommand([name])).toEqual({ executable, args, description });
+      expect(resolveAgentCommand([name])).toMatchObject({ executable, args, description });
     }
   });
 
@@ -45,6 +65,7 @@ describe("agent command harness", () => {
   it.each([
     [["unknown"], "Unknown agent command: unknown"],
     [["test", "--watch"], "Agent command 'test' does not accept arguments"],
+    [["commit", "-m", "message"], "Agent command 'commit' does not accept arguments"],
     [[], "Missing agent command"],
   ])("rejects invalid input before execution", (args, message) => {
     const executor = vi.fn<CommandExecutor>();
@@ -62,6 +83,72 @@ describe("agent command harness", () => {
     expect(() => resolveAgentCommand(["update-snapshots", "--update-snapshots"])).toThrow(
       "Agent command 'update-snapshots' does not accept arguments",
     );
+  });
+
+  it("commits staged changes from a fixed message file and removes it after success", () => {
+    writeFileSync(commitMessagePath, "Harness commit message\n");
+    const executor = vi.fn<CommandExecutor>()
+      .mockReturnValueOnce({ status: 0, stdout: "feature/testing\n" })
+      .mockReturnValueOnce({ status: 1 })
+      .mockReturnValueOnce({ status: 0 });
+
+    expect(dispatchAgentCommand(["commit"], executor)).toBe(0);
+    expect(executor).toHaveBeenNthCalledWith(1, "git", ["branch", "--show-current"], {
+      cwd: expect.stringMatching(/gtm-observability$/),
+      stdio: ["ignore", "pipe", "inherit"],
+      env: process.env,
+      encoding: "utf8",
+    });
+    expect(executor).toHaveBeenNthCalledWith(2, "git", ["diff", "--cached", "--quiet"], {
+      cwd: expect.stringMatching(/gtm-observability$/),
+      stdio: "inherit",
+      env: process.env,
+    });
+    expect(executor).toHaveBeenNthCalledWith(3, "git", ["commit", "--file", ".scratch/commit-message.md"], {
+      cwd: expect.stringMatching(/gtm-observability$/),
+      stdio: "inherit",
+      env: process.env,
+    });
+    expect(existsSync(commitMessagePath)).toBe(false);
+  });
+
+  it.each([
+    ["missing", undefined, "Commit message file is missing: .scratch/commit-message.md"],
+    ["empty", "  \n", "Commit message file is empty: .scratch/commit-message.md"],
+  ])("refuses to commit with a %s message file", (_name, message, expected) => {
+    if (message === undefined) {
+      if (existsSync(commitMessagePath)) unlinkSync(commitMessagePath);
+    } else {
+      writeFileSync(commitMessagePath, message);
+    }
+    const executor = vi.fn<CommandExecutor>();
+    const writeOutput = vi.fn();
+
+    expect(dispatchAgentCommand(["commit"], executor, writeOutput)).toBe(2);
+    expect(executor).not.toHaveBeenCalled();
+    expect(writeOutput).toHaveBeenCalledWith(expected);
+  });
+
+  it("refuses to commit on main", () => {
+    writeFileSync(commitMessagePath, "Harness commit message\n");
+    const executor = vi.fn<CommandExecutor>().mockReturnValue({ status: 0, stdout: "main\n" });
+    const writeOutput = vi.fn();
+
+    expect(dispatchAgentCommand(["commit"], executor, writeOutput)).toBe(2);
+    expect(executor).toHaveBeenCalledOnce();
+    expect(writeOutput).toHaveBeenCalledWith("Refusing to commit on main.");
+  });
+
+  it("refuses to commit when nothing is staged", () => {
+    writeFileSync(commitMessagePath, "Harness commit message\n");
+    const executor = vi.fn<CommandExecutor>()
+      .mockReturnValueOnce({ status: 0, stdout: "feature/testing\n" })
+      .mockReturnValueOnce({ status: 0 });
+    const writeOutput = vi.fn();
+
+    expect(dispatchAgentCommand(["commit"], executor, writeOutput)).toBe(2);
+    expect(executor).toHaveBeenCalledTimes(2);
+    expect(writeOutput).toHaveBeenCalledWith("Refusing to commit because nothing is staged.");
   });
 
   it("keeps risky executable surfaces outside the allowlist", () => {

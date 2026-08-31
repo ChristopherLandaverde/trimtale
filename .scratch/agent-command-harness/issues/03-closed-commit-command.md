@@ -1,6 +1,6 @@
 # Add a closed `commit` command (staging stays manual)
 
-Status: open
+Status: resolved
 
 ## Objective
 
@@ -70,3 +70,16 @@ Required invariants:
 - `npm run verify` passes.
 - README documents the fixed message-file convention and that staging
   (`git add`) remains outside the harness by design.
+
+## Resolution Notes
+
+- Added `npm run agent -- commit`, which commits only the already-staged index with
+  message file `.scratch/commit-message.md`.
+- The harness refuses to commit when the message file is missing or empty, the branch
+  is `main`, or no staged diff exists.
+- A successful harness commit deletes `.scratch/commit-message.md`; the file is
+  ignored so it does not become a tracked scratch artifact.
+- `git add` and `git push` remain outside the harness.
+- `scripts/agent-harness.test.ts` covers the exact command mapping, missing/empty
+  message file failures, main-branch refusal, no-staged-diff refusal, argument
+  rejection, and post-commit message-file cleanup.
