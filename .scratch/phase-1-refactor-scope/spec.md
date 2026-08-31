@@ -167,7 +167,7 @@ No refactor issue may be marked resolved if it:
 
 - [ ] `content-script.ts` no longer owns setup-operation presentation, workflow bridge
       types, and post-publication evidence orchestration in one file.
-- [ ] Workflow operation fixtures are reusable outside
+- [x] Workflow operation fixtures are reusable outside
       `tests/e2e/navigation-extension.spec.ts`.
 - [ ] Platform-confirmation boundary has unit-level presenter coverage.
 - [ ] Rollback action visibility has unit-level presenter coverage.
