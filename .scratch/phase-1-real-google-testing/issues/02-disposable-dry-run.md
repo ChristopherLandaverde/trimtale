@@ -26,3 +26,8 @@ validation, and version creation.
 
 - Documented the disposable dry-run procedure in
   `docs/engineering/real-google-testing.md`.
+- Executed the disposable dry-run on 2026-08-31 and recorded evidence in
+  `docs/reviews/2026-08-31-real-google-dry-run.md`.
+- Operation `operation_spec_disposable_form_smoke_2026_08_31_dry_run` reached
+  `versioned` with immutable version fingerprint `1788183353134` and prior live
+  fingerprint `1787798811643`; no publication was recorded.
