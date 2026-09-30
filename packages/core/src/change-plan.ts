@@ -1,4 +1,9 @@
 import type { GtmContainerExport } from "./types.js";
+import {
+  GTM_REST_PARAMETER_KEY_ALIASES,
+  GTM_REST_PROPERTY_ALIASES,
+  GTM_REST_STRING_ALIASES,
+} from "./gtm-rest-aliases.js";
 
 export type GtmEntityKind = "tag" | "trigger" | "variable" | "builtInVariable";
 
@@ -61,34 +66,6 @@ const volatileKeys = new Set([
 const identityKeys = new Set(["tagId", "triggerId", "variableId"]);
 const emptyDefaultParameterKeys = new Set(["uniqueTriggerId", "waitForTagsTimeout"]);
 const emptyDefaultArrayKeys = new Set(["blockingTriggerId"]);
-const propertyAliases = new Map([
-  ["autoEventFilter", "filter"],
-]);
-const parameterKeyAliases = new Map([
-  ["measurementId", "measurementIdOverride"],
-  ["eventParameters", "eventSettingsTable"],
-  ["name", "parameter"],
-  ["value", "parameterValue"],
-]);
-const gtmValueAliases = new Map([
-  ["BOOLEAN", "boolean"],
-  ["CLICK_TEXT", "clickText"],
-  ["CLICK_URL", "clickUrl"],
-  ["CSS_SELECTOR", "cssSelector"],
-  ["CUSTOM_EVENT", "customEvent"],
-  ["ELEMENT_VISIBILITY", "elementVisibility"],
-  ["EQUALS", "equals"],
-  ["JUST_LINKS", "linkClick"],
-  ["LIST", "list"],
-  ["MAP", "map"],
-  ["MATCH_REGEX", "matchRegex"],
-  ["NOT_SET", "notSet"],
-  ["ONCE_PER_EVENT", "oncePerEvent"],
-  ["ONCE_PER_PAGE", "oncePerPage"],
-  ["PAGE_URL", "pageUrl"],
-  ["PAGEVIEW", "pageview"],
-  ["TEMPLATE", "template"],
-]);
 
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -131,13 +108,14 @@ function canonicalize(
   }
   if (!isRecord(value)) {
     if (typeof value !== "string") return value;
-    if (key === "key") return parameterKeyAliases.get(value) ?? value;
-    return gtmValueAliases.get(value) ?? value;
+    if (key === "key") return GTM_REST_PARAMETER_KEY_ALIASES.get(value) ?? value;
+    return GTM_REST_STRING_ALIASES.get(value) ?? value;
   }
 
   const result: JsonRecord = {};
   for (const [childKey, childValue] of Object.entries(value).sort(([left], [right]) =>
-    (propertyAliases.get(left) ?? left).localeCompare(propertyAliases.get(right) ?? right))) {
+    (GTM_REST_PROPERTY_ALIASES.get(left) ?? left)
+      .localeCompare(GTM_REST_PROPERTY_ALIASES.get(right) ?? right))) {
     if (volatileKeys.has(childKey)) continue;
     if (emptyDefaultParameterKeys.has(childKey) && emptyTemplateParameter(childValue)) continue;
     if (emptyDefaultArrayKeys.has(childKey)
@@ -145,7 +123,7 @@ function canonicalize(
     if ((childKey === "map" || childKey === "list")
       && Array.isArray(childValue) && childValue.length === 0) continue;
     if (mode === "semantic" && (childKey === "name" || identityKeys.has(childKey))) continue;
-    const canonicalKey = propertyAliases.get(childKey) ?? childKey;
+    const canonicalKey = GTM_REST_PROPERTY_ALIASES.get(childKey) ?? childKey;
     result[canonicalKey] = canonicalize(childValue, mode, triggerSignatures, childKey);
   }
   return result;

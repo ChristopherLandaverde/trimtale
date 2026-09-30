@@ -12,6 +12,7 @@ export * from "./explanation-eval.js";
 export * from "./conversation.js";
 export * from "./agent-turn.js";
 export * from "./change-plan.js";
+export * from "./gtm-rest-aliases.js";
 export * from "./tracking-operation.js";
 export * from "./provider-progress.js";
 export * from "./publication.js";

@@ -1,8 +1,26 @@
 # Duplicated GTM REST alias tables between change-plan and Google client
 
-Status: open
+Delivery mode: implementation
+Status: resolved
 
-## Objective
+## Production outcome
+
+Semantic change planning and outgoing Google Tag Manager REST requests use one shared
+definition for import-notation aliases, so a supported alias cannot drift between
+comparison and application.
+
+## Non-goals
+
+- Changing supported GTM entities, alias values, or user-visible behavior.
+- Accessing a live Google account or container.
+- Publishing, pushing, merging, or changing repository settings.
+
+## Authorization
+
+Christopher explicitly authorized this issue as the first supervised workflow pilot
+on 2026-09-30.
+
+## Context
 
 `packages/core/src/change-plan.ts:56-83` (`propertyAliases`, `parameterKeyAliases`,
 `gtmValueAliases`) and `apps/api/src/google.ts:1320-1347`
@@ -74,3 +92,13 @@ Required invariants:
 - `apps/api/src/google.ts` has no locally-defined alias `Map`s of its own.
 - The regression contract runs in `npm test`.
 - `npm run verify` passes.
+
+## Comments
+
+- 2026-09-30: Claimed as the first supervised workflow pilot. Added a failing
+  regression for a missing shared alias export, consolidated the three tables into
+  `packages/core/src/gtm-rest-aliases.ts`, and passed 19 focused planning/application
+  tests. Full verification remains pending.
+- 2026-09-30: The canary regression now proves one added string alias controls both
+  semantic reuse and the outgoing REST body. `npm run verify` passed 483 deterministic
+  tests and all 95 Chromium journeys. No live Google resource was accessed.

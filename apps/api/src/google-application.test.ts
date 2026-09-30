@@ -5,6 +5,7 @@ import {
   GTM_MANAGED_ENTITY_NOTE,
   GTM_MANAGED_WORKSPACE_DESCRIPTION,
   GTM_MANAGED_WORKSPACE_NAME,
+  GTM_REST_STRING_ALIASES,
   type GtmEntitySet,
   type TrackingSetupOperationV1,
 } from "@gtm-observability/core";
@@ -176,6 +177,44 @@ function applicationFetch(initial: GtmEntitySet = {}, options: {
 }
 
 describe("idempotent managed-workspace application", () => {
+  it("shares added aliases between planning and REST writes", async () => {
+    const importAlias = "TEST_ONLY_ALIAS";
+    const restAlias = "testOnlyAlias";
+    GTM_REST_STRING_ALIASES.set(importAlias, restAlias);
+
+    try {
+      const generated = setup();
+      generated.containerVersion.tag = [];
+      generated.containerVersion.variable = [];
+      generated.containerVersion.builtInVariable = [];
+      const generatedTrigger = generated.containerVersion.trigger[0] as Record<string, unknown>;
+      generatedTrigger.type = importAlias;
+
+      const current = structuredClone(generated.containerVersion);
+      const currentTrigger = current.trigger[0] as Record<string, unknown>;
+      currentTrigger.triggerId = "42";
+      currentTrigger.type = restAlias;
+
+      expect(createTrackingChangePlan(generated, current).actions).toEqual([
+        expect.objectContaining({ kind: "trigger", action: "reuse", existingId: "42" }),
+      ]);
+
+      const input = operation();
+      input.generatedSetup = generated;
+      input.plan = createTrackingChangePlan(generated, {});
+      const fake = applicationFetch();
+      const client = new GtmDiscoveryClient(async () => "token", fake.fetcher, true);
+
+      expect(await client.applyManagedWorkspace(input)).toMatchObject({ status: "applied" });
+      const triggerCreate = fake.fetcher.mock.calls.find(([request, init]) =>
+        request.toString().endsWith("/triggers") && init?.method === "POST");
+      const triggerBody = JSON.parse(String(triggerCreate?.[1]?.body)) as Record<string, unknown>;
+      expect(triggerBody.type).toBe(restAlias);
+    } finally {
+      GTM_REST_STRING_ALIASES.delete(importAlias);
+    }
+  });
+
   it("creates missing entities, remaps trigger IDs, and converges repeated application to no entity writes", async () => {
     const fake = applicationFetch();
     const client = new GtmDiscoveryClient(async () => "token", fake.fetcher, true);

@@ -17,6 +17,9 @@ import {
   GTM_MANAGED_ENTITY_NOTE,
   GTM_MANAGED_WORKSPACE_DESCRIPTION,
   GTM_MANAGED_WORKSPACE_NAME,
+  GTM_REST_PARAMETER_KEY_ALIASES,
+  GTM_REST_PROPERTY_ALIASES,
+  GTM_REST_STRING_ALIASES,
   inspectManagedWorkspace,
   normalizePublicContainerId,
   publicationApprovalCurrent,
@@ -1376,38 +1379,9 @@ function applicationEntityBody(
   return body;
 }
 
-const googleRestPropertyAliases = new Map([
-  ["autoEventFilter", "filter"],
-]);
-const googleRestParameterKeyAliases = new Map([
-  ["measurementId", "measurementIdOverride"],
-  ["eventParameters", "eventSettingsTable"],
-  ["name", "parameter"],
-  ["value", "parameterValue"],
-]);
-const googleRestStringAliases = new Map([
-  ["BOOLEAN", "boolean"],
-  ["CLICK_TEXT", "clickText"],
-  ["CLICK_URL", "clickUrl"],
-  ["CSS_SELECTOR", "cssSelector"],
-  ["CUSTOM_EVENT", "customEvent"],
-  ["ELEMENT_VISIBILITY", "elementVisibility"],
-  ["EQUALS", "equals"],
-  ["JUST_LINKS", "linkClick"],
-  ["LIST", "list"],
-  ["MAP", "map"],
-  ["MATCH_REGEX", "matchRegex"],
-  ["NOT_SET", "notSet"],
-  ["ONCE_PER_EVENT", "oncePerEvent"],
-  ["ONCE_PER_PAGE", "oncePerPage"],
-  ["PAGE_URL", "pageUrl"],
-  ["PAGEVIEW", "pageview"],
-  ["TEMPLATE", "template"],
-]);
-
 function googleRestString(value: string, key?: string): string {
-  if (key === "key") return googleRestParameterKeyAliases.get(value) ?? value;
-  return googleRestStringAliases.get(value) ?? value;
+  if (key === "key") return GTM_REST_PARAMETER_KEY_ALIASES.get(value) ?? value;
+  return GTM_REST_STRING_ALIASES.get(value) ?? value;
 }
 
 function googleRestValue(value: unknown, key?: string): unknown {
@@ -1415,7 +1389,7 @@ function googleRestValue(value: unknown, key?: string): unknown {
   if (!isJsonRecord(value)) return typeof value === "string" ? googleRestString(value, key) : value;
   const result: JsonRecord = {};
   for (const [childKey, childValue] of Object.entries(value)) {
-    result[googleRestPropertyAliases.get(childKey) ?? childKey] = googleRestValue(childValue, childKey);
+    result[GTM_REST_PROPERTY_ALIASES.get(childKey) ?? childKey] = googleRestValue(childValue, childKey);
   }
   return result;
 }
