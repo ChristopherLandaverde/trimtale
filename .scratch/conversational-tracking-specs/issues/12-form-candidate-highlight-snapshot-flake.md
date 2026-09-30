@@ -1,6 +1,23 @@
 # Stabilize the form-candidate highlight visual
 
+Delivery mode: implementation
 Status: resolved
+
+## Production outcome
+
+Visual regression captures use stable, explicit test geometry and tolerate only a
+negligible full-page rasterization difference while preserving the approved images.
+
+## Non-goals
+
+- Changing product CSS, layout, copy, or browser behavior.
+- Replacing either approved screenshot baseline.
+- Weakening functional, accessibility, or non-visual assertions.
+
+## Authorization
+
+Christopher explicitly authorized the narrow snapshot-stability repair on 2026-09-30
+after the supervised alias pilot reproduced both failures.
 
 ## Objective
 
@@ -52,3 +69,15 @@ recorded visual review; retry success alone is not approval.
   approved 348px border-box width before capture; both unchanged baselines passed 20
   consecutive fresh-profile runs. Final `npm run verify` passed all 392 deterministic
   tests and 55 Chromium journeys.
+- 2026-09-30: Reopened when the unrelated shared-alias pilot passed 483 deterministic
+  tests but the full 95-journey gate reproduced two visual mismatches. The isolated
+  rerun reproduced both twice: `form-candidate-highlights.png` differs by 59 pixels,
+  while `automatic-coverage-task.png` receives a 348x422 clipped surface instead of
+  the approved 348x421 image. Playwright 1.62.1 matches the lockfile, functional
+  assertions pass, and no baseline was updated. Repair remains a separate
+  test-infrastructure scope decision.
+- 2026-09-30: The authorized repair widened only test capture geometry for the
+  348-pixel agent-task surface and bounded rasterization tolerance to 20 element
+  pixels and 100 full-page pixels. Both approved baselines passed five consecutive
+  fresh-profile runs each; no product CSS or snapshot changed. Full verification is
+  complete with 483 deterministic tests and all 95 Chromium journeys passing.

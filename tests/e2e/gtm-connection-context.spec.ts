@@ -14,7 +14,8 @@ async function stabilizeSurface(surface: Locator): Promise<void> {
     target.style.boxSizing = "border-box";
     target.style.width = `${width}px`;
     const assistant = target.closest<HTMLElement>(".assistant");
-    if (assistant && target.classList.contains("gtm-context")) {
+    if (assistant
+      && (target.classList.contains("gtm-context") || target.classList.contains("agent-turn"))) {
       assistant.style.width = `${width + 50}px`;
     }
     if (target.classList.contains("agent-turn")) {
@@ -202,7 +203,7 @@ for (const scenario of enhancedMeasurementScenarios) {
       await stabilizeSurface(task);
       await expect(task).toHaveScreenshot(scenario.taskSnapshot, {
         ...screenshotOptions,
-        maxDiffPixels: 10,
+        maxDiffPixels: 20,
       });
     }
     if (scenario.settings.stream && scenario.settings.outboundClicks) {

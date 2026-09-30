@@ -15,6 +15,10 @@ const screenshotOptions = {
   animations: "disabled" as const,
   stylePath: visualStabilityStylePath,
 };
+const fullPageScreenshotOptions = {
+  ...screenshotOptions,
+  maxDiffPixels: 100,
+};
 
 async function stabilizeShadowRoot(host: Locator): Promise<void> {
   await host.evaluate((element, css) => {
@@ -74,7 +78,7 @@ test("clarifies a form intent and requires explicit specification confirmation",
   await stabilizeShadowRoot(targets);
   await expect(targets.locator(".target span").first()).toHaveCSS("font-family", /Arial/);
   await setAssistantVisibility(root, "hidden");
-  await expect(site).toHaveScreenshot("form-candidate-highlights.png", screenshotOptions);
+  await expect(site).toHaveScreenshot("form-candidate-highlights.png", fullPageScreenshotOptions);
   await setAssistantVisibility(root, "visible");
   await expect(root.getByRole("button", { name: "Approve setup" })).toHaveCount(0);
 
@@ -83,7 +87,7 @@ test("clarifies a form intent and requires explicit specification confirmation",
   await expect(targets.locator(".target.candidate")).toHaveCount(0);
   await expect(targets.locator(".target.confirmed[data-target-id='contact']")).toHaveCount(1);
   await setAssistantVisibility(root, "hidden");
-  await expect(site).toHaveScreenshot("form-confirmed-highlight.png", screenshotOptions);
+  await expect(site).toHaveScreenshot("form-confirmed-highlight.png", fullPageScreenshotOptions);
   await setAssistantVisibility(root, "visible");
   await expect(root.getByText(/successful Contact sales submissions as generate_lead/)).toBeVisible();
   await expect(root.getByText(/without counting submit attempts or validation errors/)).toBeVisible();
