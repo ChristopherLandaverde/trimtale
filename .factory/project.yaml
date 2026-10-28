@@ -1,0 +1,28 @@
+version: 1
+
+project:
+  name: gtm-observability
+  repository: ChristopherLandaverde/gtm-observability
+  default_branch: main
+  language: TypeScript
+
+commands:
+  setup: npm ci
+  preflight: npm run agent -- preflight
+  format_check: npm run check:change-docs
+  lint: npm run check
+  test: npm test
+  build: npm run build
+  verify: npm run verify
+
+agents:
+  max_parallel: 3
+  max_delegation_depth: 1
+
+permissions:
+  network: restricted
+  direct_push_to_default_branch: false
+  merge_pull_requests: false
+  modify_repository_settings: false
+  access_production: false
+  access_live_google_resources: false

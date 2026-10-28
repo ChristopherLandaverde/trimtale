@@ -78,7 +78,7 @@ export interface TrackingRunEvidenceV1 {
   startedAt: string;
   observations: {
     interaction: {
-      type: InteractionType;
+      type: InteractionType | "phone_click" | "email_click" | "outbound_click" | "file_download";
       targetId: string;
       attempted: boolean;
       submissionResult: "success" | "validation_error" | "server_error" | "unknown";
@@ -86,7 +86,7 @@ export interface TrackingRunEvidenceV1 {
     outcome: {
       observed: boolean;
       observable: boolean;
-      evidenceType?: SuccessEvidence["type"] | "navigation_click";
+      evidenceType?: SuccessEvidence["type"] | "navigation_click" | "phone_click" | "email_click" | "outbound_click" | "file_download" | "provider_completion";
     };
     dataLayer: { matchingEvents: unknown[] };
     tagFired: boolean | null;

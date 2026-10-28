@@ -94,6 +94,22 @@ describe("approved publication and rollback", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
+  it("refuses off-target publication before any Google call", async () => {
+    const fetcher = publicationFetch();
+    const client = new GtmDiscoveryClient(
+      async () => "token",
+      fetcher,
+      true,
+      true,
+      () => now,
+      undefined,
+      "GTM-LOCKED123",
+    );
+
+    await expect(client.publishApprovedVersion(approved())).rejects.toMatchObject({ status: 403 });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it("rolls back only from the failed published fingerprint to the recorded prior live fingerprint", async () => {
     const operation = approved();
     operation.status = "rollback_required";
@@ -106,5 +122,26 @@ describe("approved publication and rollback", () => {
     expect(result).toEqual({ targetVersionFingerprint: "live-7", status: "completed", completedAt: "2026-08-22T12:20:00.000Z" });
     expect(fetcher.mock.calls.find(([input]) => input.toString().includes(":publish"))?.[0].toString())
       .toContain("/versions/7:publish?fingerprint=live-7");
+  });
+
+  it("refuses off-target rollback before any Google call", async () => {
+    const operation = approved();
+    operation.status = "rollback_required";
+    operation.publication = { publishedAt: "2026-08-22T12:20:00.000Z", versionFingerprint: "version-8" };
+    operation.postPublicationEvidenceId = "run_failed";
+    operation.rollback = { targetVersionFingerprint: "live-7", status: "required" };
+    const fetcher = publicationFetch({ liveFingerprint: "version-8" });
+    const client = new GtmDiscoveryClient(
+      async () => "token",
+      fetcher,
+      true,
+      true,
+      () => now,
+      undefined,
+      "GTM-LOCKED123",
+    );
+
+    await expect(client.rollbackPublishedVersion(operation)).rejects.toMatchObject({ status: 403 });
+    expect(fetcher).not.toHaveBeenCalled();
   });
 });

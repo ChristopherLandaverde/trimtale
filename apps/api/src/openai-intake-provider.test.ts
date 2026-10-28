@@ -1,12 +1,15 @@
 import {
+  createIntakeInterpretationInputV2,
   IntakeShadowHarness,
   type IntakeInterpretationInputV1,
   type IntakeInterpretationV1,
+  type IntakeInterpretationV2,
 } from "@gtm-observability/core";
 import { describe, expect, it, vi } from "vitest";
 import {
   OPENAI_RESPONSES_ENDPOINT,
   OpenAIIntakeProvider,
+  openAILiveIntakeConfig,
   type IntakeProviderFetch,
 } from "./openai-intake-provider.js";
 
@@ -45,6 +48,42 @@ const interpretation: IntakeInterpretationV1 = {
   },
 };
 
+const liveInput = createIntakeInterpretationInputV2("Show me when a visitor becomes a qualified prospect", {
+  navigationCount: 0,
+  forms: [{
+    id: "contact",
+    label: "Contact sales",
+    selector: "form#contact",
+    pageUrl: "https://example.test/",
+    successSignals: [{
+      id: "success",
+      label: "Inquiry received",
+      type: "visible_element",
+      value: "#success",
+    }],
+  }],
+});
+
+const liveInterpretation: IntakeInterpretationV2 = {
+  schemaVersion: 2,
+  statedOutcome: "Generate qualified inquiries",
+  measurements: [{
+    id: "qualified_inquiry_form",
+    conversionOutcome: "Qualified inquiry",
+    interactionCandidate: "form_submission",
+    groundedTargetCandidateIds: ["form_1"],
+    groundedSuccessEvidenceCandidateIds: ["form_1_evidence_1"],
+  }],
+  ambiguities: [],
+  clarification: null,
+  authority: {
+    canConfirmSpecification: false,
+    canWriteGtm: false,
+    canReportEvidenceVerdict: false,
+    canClaimPlatformReceipt: false,
+  },
+};
+
 function responseBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     status: "completed",
@@ -56,6 +95,17 @@ function responseBody(overrides: Record<string, unknown> = {}): Record<string, u
     usage: { input_tokens: 1_000, output_tokens: 500 },
     ...overrides,
   };
+}
+
+function liveResponseBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return responseBody({
+    output: [{
+      type: "message",
+      status: "completed",
+      content: [{ type: "output_text", text: JSON.stringify(liveInterpretation) }],
+    }],
+    ...overrides,
+  });
 }
 
 function provider(fetchImpl: IntakeProviderFetch): OpenAIIntakeProvider {
@@ -207,5 +257,83 @@ describe("OpenAI intake shadow provider", () => {
     expect(() => new OpenAIIntakeProvider({ ...base, inputCostPerMillionTokensUsd: 0 }, fetchImpl)).toThrow(/cost/i);
     expect(() => new OpenAIIntakeProvider({ ...base, maxOutputTokens: 0 }, fetchImpl)).toThrow(/output/i);
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("requires explicit complete configuration before live intake is enabled", () => {
+    expect(openAILiveIntakeConfig({})).toBeUndefined();
+    expect(openAILiveIntakeConfig({ OPENAI_LIVE_INTAKE_ENABLED: "TRUE" })).toBeUndefined();
+    expect(() => openAILiveIntakeConfig({ OPENAI_LIVE_INTAKE_ENABLED: "true" }))
+      .toThrow("Live OpenAI intake configuration is incomplete");
+
+    expect(openAILiveIntakeConfig({
+      OPENAI_LIVE_INTAKE_ENABLED: "true",
+      OPENAI_API_KEY: API_KEY,
+      OPENAI_LIVE_INTAKE_MODEL: "model-a-2026-08-27",
+      OPENAI_LIVE_INTAKE_INPUT_COST_PER_MILLION_USD: "2.5",
+      OPENAI_LIVE_INTAKE_OUTPUT_COST_PER_MILLION_USD: "10",
+      OPENAI_LIVE_INTAKE_MAX_OUTPUT_TOKENS: "1200",
+    })).toEqual({
+      id: "openai-live-intake",
+      model: "model-a-2026-08-27",
+      apiKey: API_KEY,
+      inputCostPerMillionTokensUsd: 2.5,
+      outputCostPerMillionTokensUsd: 10,
+      maxOutputTokens: 1200,
+    });
+  });
+
+  it("requests one non-stored strict live interpretation without tools", async () => {
+    const fetchImpl = vi.fn<IntakeProviderFetch>(async () => new Response(
+      JSON.stringify(liveResponseBody()),
+      { status: 200 },
+    ));
+    const controller = new AbortController();
+
+    await expect(provider(fetchImpl).interpretLive(liveInput, controller.signal))
+      .resolves.toEqual(liveInterpretation);
+    const body = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)) as {
+      store: boolean;
+      tools: unknown[];
+      input: string;
+      text: { format: { name: string; strict: boolean; schema: Record<string, unknown> } };
+    };
+    expect(body).toMatchObject({
+      store: false,
+      tools: [],
+      input: JSON.stringify(liveInput),
+      text: { format: { name: "intake_interpretation_v2", strict: true } },
+    });
+    expect(body.text.format.schema).toMatchObject({
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "schemaVersion",
+        "statedOutcome",
+        "measurements",
+        "ambiguities",
+        "clarification",
+        "authority",
+      ],
+    });
+  });
+
+  it("rejects live output that invents page grounding", async () => {
+    const invented = {
+      ...liveInterpretation,
+      measurements: [{
+        ...liveInterpretation.measurements[0],
+        groundedTargetCandidateIds: ["invented_target"],
+      }],
+    };
+    const fetchImpl: IntakeProviderFetch = async () => new Response(JSON.stringify(liveResponseBody({
+      output: [{
+        type: "message",
+        status: "completed",
+        content: [{ type: "output_text", text: JSON.stringify(invented) }],
+      }],
+    })), { status: 200 });
+
+    await expect(provider(fetchImpl).interpretLive(liveInput, new AbortController().signal))
+      .rejects.toThrow("OpenAI intake provider request failed");
   });
 });

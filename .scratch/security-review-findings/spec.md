@@ -1,6 +1,6 @@
 # Security review findings (external pass, 2026-08-22)
 
-Status: resolved
+Status: in progress
 
 ## Problem
 
@@ -10,16 +10,22 @@ feature) found two concrete defects that fall under `docs/engineering/delivery-h
 Filed as independent tickets so either can be claimed and landed without waiting
 on the other.
 
+A follow-up external review pass on 2026-08-26 found one further concrete
+defect (issue 04, a duplicated-data drift risk rather than an exploitable
+bug) and filed it in this same directory rather than opening a new spec, since
+it is the same kind of independent, not-feature-tied finding.
+
 ## User outcome
 
-Both findings are fixed with permanent regression coverage under the ordinary
-`npm test` gate, per the existing delivery harness contract.
+Every finding below is fixed with permanent regression coverage under the
+ordinary `npm test` gate, per the existing delivery harness contract.
 
 ## Acceptance criteria
 
 - [x] `.scratch/security-review-findings/issues/01-api-cors-wildcard-default.md` resolved.
 - [x] `.scratch/security-review-findings/issues/02-content-script-innerhtml-xss.md` resolved.
 - [x] `.scratch/security-review-findings/issues/03-harness-missing-boundary-and-adversarial-tiers.md` resolved.
+- [ ] `.scratch/security-review-findings/issues/04-duplicated-gtm-rest-alias-tables.md` resolved.
 
 ## Out of scope
 

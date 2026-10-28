@@ -42,6 +42,8 @@ Skipped tests, `test.todo`, and fixtures that are never loaded by the harness do
 
 User-visible workflows must be driven through a reusable Playwright journey harness before exploratory review. The acceptance fixture—not duplicated test code—defines the intent, clarifications, fixture state, expected artifact, evidence, verdict, next-action concepts, and forbidden claims.
 
+Built-extension suites use `tests/e2e/helpers/extension-test.ts`. It owns one unpacked-extension Chromium context and temporary profile per test. Playwright retains traces only when a test fails.
+
 For each journey, automation should:
 
 1. Launch Chromium with the unpacked extension and deterministic local services.

@@ -1,6 +1,23 @@
 # Stabilize the form-candidate highlight visual
 
+Delivery mode: implementation
 Status: resolved
+
+## Production outcome
+
+Visual regression captures use stable, explicit test geometry and tolerate only a
+negligible full-page rasterization difference while preserving the approved images.
+
+## Non-goals
+
+- Changing product CSS, layout, copy, or browser behavior.
+- Replacing either approved screenshot baseline.
+- Weakening functional, accessibility, or non-visual assertions.
+
+## Authorization
+
+Christopher explicitly authorized the narrow snapshot-stability repair on 2026-09-30
+after the supervised alias pilot reproduced both failures.
 
 ## Objective
 
@@ -35,3 +52,32 @@ recorded visual review; retry success alone is not approval.
   isolated cold-cache launches, and the full 25-workflow Chromium gate. `npm run
   verify` also passed all 202 deterministic tests across 29 files. No snapshot was
   updated.
+- 2026-08-25: Reopened after the full 55-journey gate and a focused retry both produced
+  the same 13,911-pixel difference for `form-confirmed-highlight.png`. The behavioral
+  assertions passed, and no baseline was updated. Reinspect the accumulated Stage 1 UI
+  changes against the expected image before deciding whether this is intentional or a
+  rendering regression.
+- 2026-08-25: Expected, actual, and diff inspection found no form-highlight change. The
+  full-page snapshot coupled the page target to a 16px assistant scroll difference; a
+  five-run diagnostic also exposed an independent one-pixel shell drift. The two
+  baselines now hide the assistant only during capture, show both page forms without
+  occlusion, and restore the assistant for the remaining workflow assertions. The
+  isolated contract passed ten consecutive fresh-profile runs. Visual review:
+  `docs/reviews/2026-08-25-form-highlight-visual-isolation.md`.
+- 2026-08-25: The full gate exposed the same one-pixel parent-width toggle in two
+  element-level Enhanced Measurement screenshots. Their test surfaces now use the
+  approved 348px border-box width before capture; both unchanged baselines passed 20
+  consecutive fresh-profile runs. Final `npm run verify` passed all 392 deterministic
+  tests and 55 Chromium journeys.
+- 2026-09-30: Reopened when the unrelated shared-alias pilot passed 483 deterministic
+  tests but the full 95-journey gate reproduced two visual mismatches. The isolated
+  rerun reproduced both twice: `form-candidate-highlights.png` differs by 59 pixels,
+  while `automatic-coverage-task.png` receives a 348x422 clipped surface instead of
+  the approved 348x421 image. Playwright 1.62.1 matches the lockfile, functional
+  assertions pass, and no baseline was updated. Repair remains a separate
+  test-infrastructure scope decision.
+- 2026-09-30: The authorized repair widened only test capture geometry for the
+  348-pixel agent-task surface and bounded rasterization tolerance to 20 element
+  pixels and 100 full-page pixels. Both approved baselines passed five consecutive
+  fresh-profile runs each; no product CSS or snapshot changed. Full verification is
+  complete with 483 deterministic tests and all 95 Chromium journeys passing.

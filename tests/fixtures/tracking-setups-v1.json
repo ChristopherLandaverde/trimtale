@@ -1,0 +1,211 @@
+[
+  {
+    "schemaVersion": 1,
+    "id": "setup_navigation",
+    "status": "confirmed",
+    "intent": {
+      "statement": "Track primary navigation clicks",
+      "businessOutcome": "Understand which site sections visitors choose"
+    },
+    "tagActions": [{
+      "id": "tag_navigation",
+      "name": "GA4 Event - navigation_click",
+      "execution": { "type": "template", "templateId": "google.analytics.ga4_event", "fields": [] },
+      "destination": { "type": "ga4", "measurementId": "G-TEST123456" },
+      "event": {
+        "name": "navigation_click",
+        "parameters": [
+          { "name": "link_text", "requirement": "required", "value": { "type": "built_in_variable", "name": "Click Text" } },
+          { "name": "link_url", "requirement": "required", "value": { "type": "built_in_variable", "name": "Click URL" } },
+          { "name": "page_location", "requirement": "recommended", "value": { "type": "built_in_variable", "name": "Page URL" } }
+        ]
+      },
+      "firingPolicyIds": ["policy_navigation"]
+    }],
+    "firingPolicies": [{
+      "id": "policy_navigation",
+      "source": { "type": "click", "clickMode": "links", "selector": "header a, nav a" },
+      "include": [{ "variable": { "type": "built_in_variable", "name": "Click URL" }, "operator": "starts_with", "value": "https://example.test/" }],
+      "exclude": [{ "variable": { "type": "built_in_variable", "name": "Click URL" }, "operator": "contains", "value": "/privacy" }],
+      "frequency": "once_per_event",
+      "consent": { "required": ["analytics_storage"], "whenDenied": "block" }
+    }],
+    "verification": {
+      "positive": [
+        { "type": "tag_fired", "tagActionId": "tag_navigation" },
+        { "type": "network_request", "destination": "google_analytics_4", "eventName": "navigation_click" }
+      ],
+      "negative": [{ "type": "page_error", "messagePattern": "Uncaught" }]
+    },
+    "browserEvidence": {
+      "schemaVersion": 1,
+      "id": "navigation",
+      "interaction": "navigation_click",
+      "outcome": { "required": true, "allowedEvidenceTypes": ["navigation_click"], "whenAbsent": "insufficient_observable_evidence" },
+      "request": { "destination": "ga4", "eventName": "navigation_click", "requiredParameters": ["link_text", "link_url"] },
+      "permittedAutomaticEvents": ["page_view", "session_start"],
+      "duplicatePolicy": { "minimum": 1, "maximum": 1 },
+      "dataLayerEvent": null,
+      "tagActionId": "tag_navigation",
+      "negativeExpectations": ["matching_page_error"]
+    }
+  },
+  {
+    "schemaVersion": 1,
+    "id": "setup_lead_form",
+    "status": "confirmed",
+    "intent": {
+      "statement": "Track successful contact form submissions",
+      "businessOutcome": "Measure qualified inquiries"
+    },
+    "tagActions": [{
+      "id": "tag_lead",
+      "name": "GA4 Event - generate_lead",
+      "execution": { "type": "template", "templateId": "google.analytics.ga4_event", "fields": [] },
+      "destination": { "type": "ga4", "measurementId": "G-TEST123456" },
+      "event": {
+        "name": "generate_lead",
+        "parameters": [
+          { "name": "form_id", "requirement": "required", "value": { "type": "data_layer_variable", "name": "DLV - form_id", "key": "form_id" } },
+          { "name": "form_name", "requirement": "recommended", "value": { "type": "data_layer_variable", "name": "DLV - form_name", "key": "form_name" } }
+        ]
+      },
+      "firingPolicyIds": ["policy_lead"]
+    }],
+    "firingPolicies": [{
+      "id": "policy_lead",
+      "source": { "type": "custom_data_layer", "eventName": "generate_lead" },
+      "include": [{ "variable": { "type": "built_in_variable", "name": "Page Hostname" }, "operator": "equals", "value": "example.test" }],
+      "exclude": [],
+      "frequency": "once_per_event",
+      "consent": { "required": ["analytics_storage"], "whenDenied": "block" }
+    }],
+    "verification": {
+      "positive": [
+        { "type": "data_layer_event", "eventName": "generate_lead" },
+        { "type": "network_request", "destination": "google_analytics_4", "eventName": "generate_lead" }
+      ],
+      "negative": [{ "type": "network_request", "destination": "google_analytics_4", "eventName": "generate_lead", "scenario": "validation_error" }]
+    },
+    "browserEvidence": {
+      "schemaVersion": 1,
+      "id": "lead-form",
+      "interaction": "form_submission",
+      "outcome": { "required": true, "allowedEvidenceTypes": ["visible_element", "thank_you_url", "data_layer_event", "same_page_success"], "whenAbsent": "expected_non_conversion" },
+      "request": { "destination": "ga4", "eventName": "generate_lead", "requiredParameters": ["form_id", "form_name", "page_location"] },
+      "permittedAutomaticEvents": ["form_start", "page_view", "session_start"],
+      "duplicatePolicy": { "minimum": 1, "maximum": 1 },
+      "dataLayerEvent": "generate_lead",
+      "tagActionId": "tag_lead",
+      "negativeExpectations": ["matching_page_error"]
+    }
+  },
+  {
+    "schemaVersion": 1,
+    "id": "setup_page_scope",
+    "status": "confirmed",
+    "intent": {
+      "statement": "Track visits to the pricing page",
+      "businessOutcome": "Measure pricing interest"
+    },
+    "tagActions": [{
+      "id": "tag_pricing_page",
+      "name": "GA4 Event - pricing_page_view",
+      "execution": { "type": "template", "templateId": "google.analytics.ga4_event", "fields": [] },
+      "destination": { "type": "ga4", "measurementId": "G-TEST123456" },
+      "event": {
+        "name": "pricing_page_view",
+        "parameters": [{ "name": "page_location", "requirement": "required", "value": { "type": "built_in_variable", "name": "Page URL" } }]
+      },
+      "firingPolicyIds": ["policy_pricing_page"]
+    }],
+    "firingPolicies": [{
+      "id": "policy_pricing_page",
+      "source": { "type": "page_view" },
+      "include": [{ "variable": { "type": "built_in_variable", "name": "Page Path" }, "operator": "equals", "value": "/pricing" }],
+      "exclude": [{ "variable": { "type": "built_in_variable", "name": "Page Hostname" }, "operator": "ends_with", "value": ".internal" }],
+      "frequency": "once_per_page",
+      "consent": { "required": ["analytics_storage"], "whenDenied": "block" }
+    }],
+    "verification": {
+      "positive": [{ "type": "network_request", "destination": "google_analytics_4", "eventName": "pricing_page_view" }],
+      "negative": [{ "type": "tag_fired", "tagActionId": "tag_pricing_page", "scenario": "excluded_page" }]
+    }
+  },
+  {
+    "schemaVersion": 1,
+    "id": "setup_phone_click",
+    "status": "confirmed",
+    "intent": {
+      "statement": "Track phone link clicks",
+      "businessOutcome": "Measure call intent"
+    },
+    "tagActions": [{
+      "id": "tag_phone_click",
+      "name": "GA4 Event - phone_click",
+      "execution": { "type": "template", "templateId": "google.analytics.ga4_event", "fields": [] },
+      "destination": { "type": "ga4", "measurementId": "G-TEST123456" },
+      "event": { "name": "phone_click", "parameters": [] },
+      "firingPolicyIds": ["policy_phone_click"]
+    }],
+    "firingPolicies": [{
+      "id": "policy_phone_click",
+      "source": { "type": "click", "clickMode": "links", "selector": "a[href^='tel:']" },
+      "include": [{ "variable": { "type": "built_in_variable", "name": "Click URL" }, "operator": "starts_with", "value": "tel:" }],
+      "exclude": [],
+      "frequency": "once_per_event",
+      "consent": { "required": ["analytics_storage"], "whenDenied": "block" }
+    }],
+    "verification": {
+      "positive": [{ "type": "tag_fired", "tagActionId": "tag_phone_click" }],
+      "negative": [{ "type": "tag_fired", "tagActionId": "tag_phone_click", "scenario": "ordinary_link" }]
+    },
+    "browserEvidence": {
+      "schemaVersion": 1,
+      "id": "phone-click",
+      "interaction": "phone_click",
+      "outcome": { "required": true, "allowedEvidenceTypes": ["phone_click"], "whenAbsent": "insufficient_observable_evidence" },
+      "request": { "destination": "ga4", "eventName": "phone_click", "requiredParameters": [] },
+      "permittedAutomaticEvents": ["page_view", "session_start"],
+      "duplicatePolicy": { "minimum": 1, "maximum": 1 },
+      "dataLayerEvent": null,
+      "tagActionId": "tag_phone_click",
+      "negativeExpectations": ["matching_page_error"]
+    }
+  },
+  {
+    "schemaVersion": 1,
+    "id": "setup_data_layer",
+    "status": "confirmed",
+    "intent": {
+      "statement": "Track the custom quote-ready event",
+      "businessOutcome": "Measure completed quote preparation"
+    },
+    "tagActions": [{
+      "id": "tag_quote_ready",
+      "name": "GA4 Event - quote_ready",
+      "execution": { "type": "template", "templateId": "google.analytics.ga4_event", "fields": [] },
+      "destination": { "type": "ga4", "measurementId": "G-TEST123456" },
+      "event": {
+        "name": "quote_ready",
+        "parameters": [{ "name": "quote_type", "requirement": "optional", "value": { "type": "data_layer_variable", "name": "DLV - quote_type", "key": "quote_type" } }]
+      },
+      "firingPolicyIds": ["policy_quote_ready"]
+    }],
+    "firingPolicies": [{
+      "id": "policy_quote_ready",
+      "source": { "type": "custom_data_layer", "eventName": "quote_ready" },
+      "include": [],
+      "exclude": [],
+      "frequency": "once_per_event",
+      "consent": { "required": ["analytics_storage"], "whenDenied": "block" }
+    }],
+    "verification": {
+      "positive": [
+        { "type": "data_layer_event", "eventName": "quote_ready" },
+        { "type": "network_request", "destination": "google_analytics_4", "eventName": "quote_ready" }
+      ],
+      "negative": [{ "type": "page_error", "messagePattern": "quote_ready" }]
+    }
+  }
+]

@@ -1,6 +1,6 @@
 # What GTM Observability has today
 
-Status date: 2026-08-23
+Status date: 2026-08-27
 
 GTM Observability currently maintains one site-aware agent task from supported tracking
 intent through reviewable setup and verification. It observes the website's GTM
@@ -9,8 +9,16 @@ correlate that run with an aggregate read-only GA4 Realtime count increase. A gu
 backend API can safely prepare one reusable managed workspace, durably plan and apply
 navigation and confirmed lead-form setups, validate the workspace, and create an
 immutable version. Separate backend clients can publish an exactly approved version
-and restore its recorded prior-live version. The website agent does not yet expose
-those orchestration, approval, publication, or rollback actions.
+and restore its recorded prior-live version. For a confirmed lead form, the website
+agent exposes plan review, exact application and preview confirmation, immutable
+version review, publication approval, live verification, and explicit rollback after
+failed evidence when those guarded backend capabilities are enabled.
+
+The local API now requires an active membership in one deployment-configured Clerk
+Organization. Member can read and write tracking work; Admin additionally controls the
+Google connection, publication, and rollback. The website agent opens Clerk's hosted
+email-code flow through Chrome when product sign-in is required. Product identity and
+Google authorization remain separate, and public pages receive no identity or token.
 
 ## Current product workflow
 
@@ -21,17 +29,27 @@ Open the agent and inspect page GTM / authorized access
     -> highlight and confirm the target
     -> confirm the tracking specification
     -> generate a reviewable GTM setup
+    -> optionally request and approve a bounded model-authored interaction alternative
+    -> optionally prepare the managed workspace and review its change plan
+    -> explicitly approve application and validation
+    -> match the loaded container and target, then confirm Tag Assistant shows Connected
+    -> verify the exact draft before immutable version creation
+    -> on failed exact evidence, review one bounded repair and repeat exact preview
     -> optionally download the GTM JSON
     -> use the exact pre-chat GTM container and GA4 destination context
     -> record a read-only GA4 Realtime baseline
     -> submit the guided browser run once
     -> classify the browser request independently
     -> optionally confirm an aggregate GA4 Realtime count increase
-    -> create or reuse one managed workspace
-    -> stop before applying or publishing changes
+    -> separately review and approve the exact immutable version
+    -> publish, run the confirmed interaction against the live container
+    -> complete on passing evidence or separately review the exact rollback after failure
 ```
 
-Each evidence stage is intentionally separate. A generated setup does not mean it was applied. A detected container does not mean the connected Google account can edit it. A prepared workspace does not mean the setup passed browser verification or was published.
+Each evidence stage is intentionally separate. A generated setup does not mean it was
+applied. A reviewed plan does not authorize writes. A created immutable version does
+not mean it was published. A detected container does not mean the connected Google
+account can edit it.
 
 ## What a practitioner can use
 
@@ -43,34 +61,82 @@ and restored with its saved local preferences.
 
 The agent currently supports:
 
+- A product sign-in state that distinguishes missing authentication, wrong-
+  organization membership, local-service failure, and separate Google authorization.
 - A pre-chat GTM connection card with the observed page container, exact authorized
   account/container match, and effective read-only, edit, or publication capability.
 - Navigation-click tracking requests.
 - Lead-form tracking requests.
+- File-download requests that reuse one exact GA4 stream's automatic coverage or name
+  its exact gap without generating duplicate GTM.
+- Page-view, scroll, site-search, and video-engagement requests that report the exact
+  stream's automatic coverage or its exact gap without generating fallback GTM setup.
+- Email-link requests grounded in observable `mailto:` links, with sitewide or
+  current-page scope and privacy-safe `email_click` setup generation.
+- An explicit model-authored alternative for a confirmed known interaction, with its
+  event, provider, rationale, and readable parameter classifications visible before
+  separate setup approval and deterministic planning. This includes a visible GA4
+  custom-metric suggestion that remains unapplied when no numeric source is grounded.
+- A bounded measurement plan for two to twelve grounded outcome/interaction pairings.
+  It shows deterministic readiness and exact automatic coverage, recommends one item,
+  and lets the practitioner start exactly one existing agent task without another
+  model request or any plan-level setup approval.
+- Explicit managed-workspace preparation and safe change-plan review for a confirmed
+  lead-form setup when connected GTM edit access is available.
+- Separate review and approval of the exact `form_name` custom dimension and
+  `generate_lead` key event for a confirmed lead setup when Analytics writes are
+  enabled, with fresh-state rejection and independent receipts.
+- Exact confirmation before applying and validating the reviewed plan, followed by
+  fingerprint-bound draft verification before immutable version creation.
+- An exact-Preview readiness receipt that matches the recognized and loaded container,
+  durable workspace/Preview binding, and current target before accepting the
+  practitioner's explicit Tag Assistant Connected confirmation. A changed binding or
+  page invalidates that non-durable confirmation without another workflow request.
+- A two-attempt, intent-preserving repair review for failed exact-draft evidence when
+  the unchanged setup has one concrete managed-entity repair, followed by provider
+  revalidation and a new exact-preview fingerprint.
+- Separate exact-version publication review and approval when publication is enabled,
+  followed by live browser verification and an explicit prior-version rollback review
+  only after failed evidence.
 - Page discovery and visible candidate highlights.
+- Confirmed highlights for automatically resolved forms and candidate/confirmed page
+  markers for locally matched phone, email, outbound, and download links.
 - Explicit target and tracking-specification confirmation.
 - Clear unsupported handoffs for interaction types that are understood but not implemented.
-- An evidence path that separates intent, page inspection, target confirmation, setup generation, GTM runtime, GTM access, browser verification, and platform confirmation.
+- Concise action receipts and final browser/platform verification results without a
+  duplicate customer-facing evidence-stage card.
+- A compact active-verification dock centers the confirmed target and keeps narrow
+  viewport interactions operable until the full result returns.
 - Exact connected context carried into setup generation, browser verification, and
   optional aggregate GA4 Realtime confirmation without proprietary page meta tags.
 - One versioned, runtime-validated agent turn containing a bounded task goal, status,
   plan, one optional question, safe actions, and action receipts.
+- Compact action receipts reserve readable label space and wrap long evidence details.
+  Long task updates open at their status and goal while their actions remain reachable
+  through the overlay scroll area.
 - In-place task progress from target selection through setup approval, download,
   browser verification, and a structured final result rather than simulated streaming
   response bubbles.
 
-The conversation classifier and state transitions are deterministic today. The
-agent-turn contract is provider-neutral and retains a deterministic fallback, but no
-production model currently interprets tracking intents or decides whether evidence
-passed. Model-backed suggestion mode still requires the weighted provider comparison
-and an explicit routing decision.
+Conversation state transitions and every execution boundary remain deterministic. When
+explicitly configured, one backend model call may interpret privacy-filtered outcome
+language into grounded candidates before those candidates re-enter deterministic
+intake. Without that configuration—or when the provider is unavailable—the existing
+deterministic classifier remains usable.
+
+Multiple valid candidates remain a non-authoritative measurement plan rather than a
+batch setup. Plan selection performs a fresh page scan, consumes the in-memory plan,
+and enters one existing agent task only when its grounding still matches. Durable
+queues, automatic continuation, combined approval, and batch publication are not
+implemented.
 
 ### Navigation setup generation
 
-After navigation targets are confirmed, the assistant generates a `navigation_click` GTM container file containing:
+After navigation targets are confirmed, the agent generates a `navigation_click` GTM
+container file containing:
 
 - One GA4 event tag.
-- One link-click trigger limited to the confirmed URLs.
+- One link-click trigger limited to confirmed URLs.
 - Required click variables.
 - The configured GA4 measurement ID.
 
@@ -90,6 +156,8 @@ The lead-generation flow can:
 - Confirm success through a visible element, thank-you URL, data-layer event, or same-page success signal.
 - Generate a `generate_lead` setup with `form_id`, `form_name`, and `page_location`.
 - Download `gtm-observability-generate-lead.json`.
+- Review, confirm, apply, validate, and create an immutable GTM version when connected
+  edit access is explicitly enabled.
 - Guide a browser submission and classify the observed result.
 
 The deterministic verdict engine covers successful browser verification, expected validation failures, missing events, tags that did not fire, missing requests, missing parameters, duplicate requests, consent limitations, server errors, and insufficient observable evidence.
@@ -105,7 +173,8 @@ that this is before/after correlation, not user-level or event-level identity.
 The extension safely inspects script URLs and reports public IDs such as `GTM-ABC123`. This establishes that the container was observed on the current page; it does not establish ownership or API access.
 
 When the practitioner opens the assistant or explicitly refreshes its GTM connection
-card, the extension reads the fixed local authorization-status endpoint. It does not
+card, the extension sends its short-lived product access token to the fixed local API
+and then reads Google authorization status. It does not
 perform account discovery merely because a website loaded. If the backend is connected
 and the page exposes exactly one public ID, the backend:
 
@@ -117,22 +186,61 @@ and the page exposes exactly one public ID, the backend:
 6. Reports whether one managed workspace can be created or reused.
 
 The card distinguishes local-service failure, unconfigured OAuth, disconnected Google
-authorization, no page container, inaccessible IDs, and ambiguous or multiple IDs.
+authorization, required product sign-in, wrong-organization membership, no page
+container, inaccessible IDs, and ambiguous or multiple IDs.
 No match returns `not_accessible`. Multiple matches return `ambiguous`; the assistant
 chooses neither. The public page ID and API-proven access remain separate claims.
 
 The card never inspects browser cookies or infers Google identity from a browser
-session. The OAuth grant does not include profile or email scope, so no email is shown.
+session. Product access is resolved from a verified organization membership, while the
+Google OAuth grant does not include profile or email scope, so no email is shown.
 Account and container names are strictly decoded and rendered as inert text. Opening or
 refreshing the card performs read-only requests only; it never prepares a workspace,
 applies a change, or publishes.
 
-## Read-only GA4 platform correlation
+## GA4 configuration and platform correlation
 
 Analytics access is separately gated by `GOOGLE_ANALYTICS_READS_ENABLED=true` and the
 least-privilege `analytics.readonly` OAuth scope. The backend uses Analytics Admin
 reads to require exactly one property/data-stream match for the recognized measurement
 ID. Zero and multiple matches fail closed.
+
+For one exact web stream, the connection card also reports the master enhanced-
+measurement switch and its seven automatic feature settings. It names disabled
+features as coverage gaps without changing GA4 or creating duplicate GTM tags.
+`npm run google -- api` enables these read-only checks from the saved local grant.
+
+The GA4 stream settings are authoritative for Enhanced Measurement. Pausing, removing,
+or changing a GTM tag does not imply a GA4 setting change, and a GA4 feature setting
+does not imply a GTM edit. Every GA4 setting change requires an explicit request, an
+exact reviewed stream and setting, and separate approval.
+
+With `GOOGLE_ANALYTICS_WRITES_ENABLED=true` and the Analytics edit grant, a confirmed
+lead setup can separately plan the event-scoped `form_name` custom dimension and the
+`generate_lead` key event. The website agent displays the exact property, stream, and
+actions before approval. Application fresh-reads Analytics state and returns one
+validated receipt per action. Planning or applying these actions does not invoke GTM,
+and provider drift produces no success claim. Custom metrics have the same protected
+backend contract but no visible authoring example yet.
+
+The main agent task uses that result before generation. Automatic outbound clicks make
+navigation `Partially covered` and require intentional link selection. Confirmed leads
+still `Need custom setup` because form starts and submits do not prove the business
+outcome. `Track downloads` reports `Already covered` only when the exact stream's
+master and file-download settings are on. Exact outbound-link and download requests
+with matching page evidence can use the shared scoped setup workflow when automatic
+coverage is unavailable or disabled. The fallback setup sends only its event name and
+GA4's automatic page context; destination URLs, query strings, link text, and file
+names remain excluded.
+
+Page views, scrolls, site search, and video engagement are coverage-only intents. The
+agent reports `Already covered`, an exact feature or master-switch gap, or an
+unavailable exact-stream check. It does not create fallback tags or expose setup
+actions for these requests.
+
+Email-link clicks reuse the shared known-interaction workflow. The generated
+`email_click` event contains no custom parameters; email addresses, `mailto:` URLs,
+subject/body values, and visible link text remain excluded from GA4.
 
 Starting a guided run records the expected event's Realtime `eventCount` and retains an
 opaque verification handle for ten minutes in bounded process memory. Confirmation is
@@ -141,7 +249,7 @@ the same property/event is greater than the baseline. Equal counts remain pendin
 can be retried. The state is non-durable and contains no browser cookies, form values,
 submitted personal data, or event/user identity. Analytics disabled, provider access
 denied, inaccessible or ambiguous destinations, expiry, and local-service failure are
-distinct visible states. No Analytics or GTM write is used.
+distinct visible states. Realtime correlation itself uses no Analytics or GTM write.
 
 ## Managed GTM workspace
 
@@ -164,6 +272,23 @@ Synchronization conflicts are preserved for review and are never resolved automa
 
 Google integration is read-only by default. Workspace preparation requires explicit backend enablement and OAuth consent for `tagmanager.edit.containers`. Optional owner-only refresh-token persistence allows the backend to reconnect after restart without repeating browser consent; access tokens are not persisted.
 
+## Organization container inventory API
+
+A signed-in Member or Admin can request `GET /api/google/inventory`. The backend uses
+the organization's existing Google connection to capture accessible GTM web
+containers, account/container names, live-version fingerprints, current workspaces,
+and discovered GA4 measurement IDs. The current least-privilege grant does not prove
+container ACLs, so effective access remains explicitly `unavailable` instead of being
+inferred from deployment write flags.
+
+The first request atomically stores one private baseline for the configured
+organization and Google connection. Each later request compares the new provider
+snapshot with that baseline and returns exact container, version, workspace, access,
+or GA4-context differences. Every difference is marked `impactAssessment:
+not_assessed`; inventory changes never imply that website tracking changed or broke.
+Only the latest baseline is retained. The visual portal, scheduled capture, alerts,
+and tag-authoring controls are not part of this API slice.
+
 ## Resumable automation API
 
 With container writes explicitly enabled, the backend can accept a navigation setup
@@ -173,9 +298,73 @@ immutable version creation. Each transition is recorded in a file-backed operati
 an interrupted application resumes from freshly read Google state and completed action
 signatures.
 
-The runner stops at the `versioned` state and returns `await_approval`. The extension
-does not yet expose this orchestration in its visible conversation. Publication remains
-behind its separate backend flag, OAuth scope, and exact fingerprint approval.
+The runner stops at each authority checkpoint: exact draft preview, immutable version
+review, publication approval, and live verification. The website agent keeps an exact
+browser run locked until local container and target checks match and the practitioner
+confirms Tag Assistant shows Connected for that target. Publication remains behind its
+separate backend flag, OAuth scope, and exact fingerprint approval. A passing live run
+completes the operation. A failed run records the prior-live target and requires a
+second exact rollback confirmation; inconclusive evidence keeps rollback locked.
+
+Failed exact-draft evidence may separately enter bounded repair. The operation records
+the failed evidence fingerprint and repair ledger, accepts only a reviewed plan for
+the unchanged setup, stops on ambiguity or exhaustion, and requires a newly bound
+exact preview after successful provider revalidation.
+
+## Guided website-agent journey
+
+The website agent presents one six-stage journey: Define, Review, Apply, Test, Publish,
+and Verify. Before intake it shows at most three contextual starters. A recognized GTM
+connection collapses to the container name, public ID, and effective access; account,
+destination, Enhanced Measurement, and access details remain available on demand.
+
+The active task keeps one primary next action visible while specifications, plans,
+receipts, bindings, and verification evidence are readable in a separate task-details
+drawer. A second prompt waits behind the pending conversation response, and stopping
+that response advances the queue. These controls do not cancel or steer provider
+mutations.
+
+When a confirmed form is ready for its read-only setup review, the primary action says
+`Review what will be tracked`. The same compact decision area names the exact form,
+success signal, event name, and privacy boundary and states that nothing will be
+created yet. Action receipts use an opaque, high-contrast card so their labels and
+details remain crisp against the assistant's glass surface.
+
+The controlled Stage 1 interactive demo exercises the same required-parameter
+boundary: its simulated `generate_lead` request contains the demo form ID, form name,
+and page location while excluding the entered email and all other form values.
+
+The exact replies `confirm`, `yes`, `continue`, `ok`, and `okay` remain bound to the
+visible task. They may advance one visible read-only setup-review action. When scope,
+target, evidence, or approval requires a choice, the agent preserves the task and
+directs the practitioner to its visible controls instead of guessing.
+
+After a supported setup is approved, the extension stores one versioned,
+exact-origin continuation snapshot at reviewed provider boundaries. It retains only
+sanitized setup structure and exact operation bindings; prompts, form values, cookies,
+credentials, identity, and arbitrary page text are excluded. Reloading offers one
+continuation action and never applies, publishes, rolls back, or grants authority by
+itself. Live success clears the snapshot and ends with a copyable verified receipt.
+
+Application remains an explicit action on the visible exact plan. Publication remains
+a separate explicit action on the visible immutable version, and rollback remains a
+separate explicit action on the visible failed-version binding. Review-only
+interstitials no longer add redundant confirmations.
+
+## Calendly completion adapter
+
+The website agent can recognize exactly one Calendly inline embed on the current page
+from Calendly's generated `embed_type=Inline` iframe URL. It visibly reviews and
+generates a guarded Custom HTML listener plus a GA4
+`calendly_booking_complete` event tag. The listener requires the exact Calendly origin,
+the exact iframe source, and the exact scheduled-event message, accepts one completion,
+and discards the callback payload.
+
+The setup uses the same managed planning, application, exact Preview, immutable
+version, and publication gates as other supported setups. Browser verification
+requires an actual provider completion signal and one matching GA4 request. Direct
+iframes, popup widgets, multiple inline embeds, other providers, and fake production
+provider proof remain unsupported.
 
 ## Evidence and diagnosis foundations
 
@@ -185,7 +374,8 @@ The shared domain package includes:
 - Normalized, privacy-filtered run evidence.
 - Deterministic evidence-to-verdict rules.
 - Explicit browser-verification and platform-confirmation boundaries.
-- A scenario corpus for known successful, failing, ambiguous, consent-limited, dynamic, and cross-origin cases.
+- A scenario corpus for known successful, failing, ambiguous, consent-limited, dynamic,
+  real React SPA, and cross-origin cases.
 - A verified-resolution format requiring failing-before evidence, passing-after evidence, a controlled cause and corrective action, and human confirmation.
 - A read-only tracking change planner that classifies supported generated entities as
   create, reuse, no-op, or conflict against freshly read managed-workspace entities.
@@ -212,7 +402,10 @@ abort signal, validates structured provider output, and pairs accepted interpret
 with the deterministic baseline. Its privacy-safe records exclude messages, labels,
 raw responses, prompts, credentials, and exception text.
 
-No model output influences the visible assistant or deterministic workflow.
+The evaluation harness remains backend-only and is not a product feature. A separate
+disabled-by-default live route can now influence visible intake, but only one valid,
+unambiguous, supported interpretation may enter the existing deterministic workflow.
+Multiple or invented candidates expose no setup approval.
 
 Each shadow record can now be evaluated against its corpus expectation as `pass`,
 `fail`, `hard_failure`, or `inconclusive`. A pass requires all five weighted dimensions
@@ -270,8 +463,8 @@ Current completion gate:
 npm run verify
 ```
 
-The most recent full completion run passed 264 deterministic tests across 37 files and
-all 33 Chromium workflows.
+The most recent full completion run passed 290 deterministic tests across 40 files and
+all 51 Chromium workflows.
 
 ## Credentialed disposable-container evidence
 
@@ -297,7 +490,7 @@ platform correlation remain independent claims.
 The following product actions remain deliberately unimplemented or unexposed:
 
 - Connecting the prepared workspace to a live browser Preview session.
-- Exposing plan, application, validation, and version evidence in the extension UI.
+- Exposing application, validation, and version evidence in the extension UI.
 - Presenting an exact version fingerprint for approval in the practitioner UI.
 - Exposing approval, publication, rollback, and post-publication evidence as visible
   assistant actions or public workflow routes.
@@ -305,15 +498,15 @@ The following product actions remain deliberately unimplemented or unexposed:
 - Durable platform-confirmation history beyond the bounded page-session correlation.
 - Scheduled monitoring and incident alerts.
 - A customer-facing model-evaluation report UI; evaluation remains backend-only.
-- Production LLM-based intake or any model influence on visible conversation state.
 - Retrieval from similar verified resolutions or model training.
 
 ## Next implementation boundary
 
-The adapter, owner command, and report API are built but no real model has
-been selected or scored. The next external operation is an explicit owner decision:
+The adapter, owner command, report API, and disabled live intake route are built, but no
+real model has been selected or scored. Before enabling live intake, the owner should
 choose two or three Structured Outputs-compatible models, confirm current rates and the
-28- or 42-request budget, inject the backend credential, and invoke the offline command:
+28- or 42-request evaluation budget, inject the backend credential, and invoke the
+offline command:
 
 ```text
 Privacy-filtered intent plus allowlisted page candidates
@@ -323,12 +516,10 @@ Privacy-filtered intent plus allowlisted page candidates
     -> report accuracy, hard failures, latency, and estimated cost separately
 ```
 
-The comparison remains offline and cannot affect visible intake. Verdict classification,
-GTM mutation, version approval, publication, rollback, and platform claims remain
-deterministic or explicitly human authorized. Evaluation remains an internal release
-gate rather than a customer feature. A later feature-flagged suggestion slice can be
-considered only after the corpus has no hard failures and while preserving
-tracking-specification confirmation.
+The comparison remains offline and cannot affect visible intake. Enabling the separate
+live flag should follow a comparison with no hard failures. Verdict classification, GTM
+mutation, version approval, publication, rollback, and platform claims remain
+deterministic or explicitly human authorized.
 
 ## Related documents
 

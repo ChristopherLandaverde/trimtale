@@ -1,4 +1,9 @@
 import type { GtmContainerExport } from "./types.js";
+import {
+  GTM_REST_PARAMETER_KEY_ALIASES,
+  GTM_REST_PROPERTY_ALIASES,
+  GTM_REST_STRING_ALIASES,
+} from "./gtm-rest-aliases.js";
 
 export type GtmEntityKind = "tag" | "trigger" | "variable" | "builtInVariable";
 
@@ -11,6 +16,12 @@ export interface GtmEntitySet {
   builtInVariable?: unknown[];
 }
 
+export interface ManagedReplacementReviewV1 {
+  currentFingerprint: string;
+  currentSemantics: string;
+  proposedSemantics: string;
+}
+
 export type TrackingChangeAction = {
   kind: GtmEntityKind;
   generatedName: string;
@@ -18,8 +29,16 @@ export type TrackingChangeAction = {
   existingId?: string;
 } & (
   | { action: "create" | "reuse" | "no_op" }
-  | { action: "update"; existingId: string }
-  | { action: "conflict"; reason: "ambiguous_equivalent" | "name_collision" | "malformed_generated_entity" }
+  | { action: "update"; existingId: string; expectedFingerprint?: string }
+  | {
+    action: "conflict";
+    reason:
+      | "ambiguous_equivalent"
+      | "name_collision"
+      | "malformed_generated_entity"
+      | "managed_change_requires_approval";
+    replacement?: ManagedReplacementReviewV1;
+  }
 );
 
 export interface TrackingChangePlan {
@@ -46,34 +65,7 @@ const volatileKeys = new Set([
 ]);
 const identityKeys = new Set(["tagId", "triggerId", "variableId"]);
 const emptyDefaultParameterKeys = new Set(["uniqueTriggerId", "waitForTagsTimeout"]);
-const propertyAliases = new Map([
-  ["autoEventFilter", "filter"],
-]);
-const parameterKeyAliases = new Map([
-  ["measurementId", "measurementIdOverride"],
-  ["eventParameters", "eventSettingsTable"],
-  ["name", "parameter"],
-  ["value", "parameterValue"],
-]);
-const gtmValueAliases = new Map([
-  ["BOOLEAN", "boolean"],
-  ["CLICK_TEXT", "clickText"],
-  ["CLICK_URL", "clickUrl"],
-  ["CSS_SELECTOR", "cssSelector"],
-  ["CUSTOM_EVENT", "customEvent"],
-  ["ELEMENT_VISIBILITY", "elementVisibility"],
-  ["EQUALS", "equals"],
-  ["JUST_LINKS", "linkClick"],
-  ["LIST", "list"],
-  ["MAP", "map"],
-  ["MATCH_REGEX", "matchRegex"],
-  ["NOT_SET", "notSet"],
-  ["ONCE_PER_EVENT", "oncePerEvent"],
-  ["ONCE_PER_PAGE", "oncePerPage"],
-  ["PAGE_URL", "pageUrl"],
-  ["PAGEVIEW", "pageview"],
-  ["TEMPLATE", "template"],
-]);
+const emptyDefaultArrayKeys = new Set(["blockingTriggerId"]);
 
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -106,7 +98,7 @@ function canonicalize(
   key?: string,
 ): unknown {
   if (Array.isArray(value)) {
-    const items = key === "firingTriggerId" && mode === "semantic"
+    const items = (key === "firingTriggerId" || key === "blockingTriggerId") && mode === "semantic"
       ? value.map((item) => {
           const id = String(item);
           return triggerSignatures.get(id) ?? `unresolved-trigger:${id}`;
@@ -116,19 +108,22 @@ function canonicalize(
   }
   if (!isRecord(value)) {
     if (typeof value !== "string") return value;
-    if (key === "key") return parameterKeyAliases.get(value) ?? value;
-    return gtmValueAliases.get(value) ?? value;
+    if (key === "key") return GTM_REST_PARAMETER_KEY_ALIASES.get(value) ?? value;
+    return GTM_REST_STRING_ALIASES.get(value) ?? value;
   }
 
   const result: JsonRecord = {};
   for (const [childKey, childValue] of Object.entries(value).sort(([left], [right]) =>
-    (propertyAliases.get(left) ?? left).localeCompare(propertyAliases.get(right) ?? right))) {
+    (GTM_REST_PROPERTY_ALIASES.get(left) ?? left)
+      .localeCompare(GTM_REST_PROPERTY_ALIASES.get(right) ?? right))) {
     if (volatileKeys.has(childKey)) continue;
     if (emptyDefaultParameterKeys.has(childKey) && emptyTemplateParameter(childValue)) continue;
+    if (emptyDefaultArrayKeys.has(childKey)
+      && Array.isArray(childValue) && childValue.length === 0) continue;
     if ((childKey === "map" || childKey === "list")
       && Array.isArray(childValue) && childValue.length === 0) continue;
     if (mode === "semantic" && (childKey === "name" || identityKeys.has(childKey))) continue;
-    const canonicalKey = propertyAliases.get(childKey) ?? childKey;
+    const canonicalKey = GTM_REST_PROPERTY_ALIASES.get(childKey) ?? childKey;
     result[canonicalKey] = canonicalize(childValue, mode, triggerSignatures, childKey);
   }
   return result;
@@ -211,7 +206,20 @@ function actionForEntity(
   if (sameName.length === 1 && kind !== "builtInVariable"
     && sameName[0]?.notes === GTM_MANAGED_ENTITY_NOTE) {
     const existingId = entityId(kind, sameName[0]);
-    if (existingId) return { ...common, action: "update", existingId };
+    const currentFingerprint = sameName[0]?.fingerprint;
+    if (existingId && typeof currentFingerprint === "string" && currentFingerprint) {
+      return {
+        ...common,
+        action: "conflict",
+        reason: "managed_change_requires_approval",
+        existingId,
+        replacement: {
+          currentFingerprint,
+          currentSemantics: signature(sameName[0], "semantic", currentTriggers),
+          proposedSemantics: semantic,
+        },
+      };
+    }
   }
   if (sameName.length > 0) {
     return { ...common, action: "conflict", reason: "name_collision" };

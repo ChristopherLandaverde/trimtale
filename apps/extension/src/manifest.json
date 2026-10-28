@@ -4,10 +4,11 @@
   "description": "Generate and verify evidence-backed GTM navigation tracking.",
   "version": "0.1.0",
   "minimum_chrome_version": "120",
-  "permissions": ["activeTab", "scripting", "storage", "webRequest"],
+  "permissions": ["activeTab", "identity", "scripting", "storage", "webRequest"],
   "host_permissions": [
     "http://127.0.0.1:8787/*",
     "http://127.0.0.1:4173/*",
+    "https://*.clerk.accounts.dev/*",
     "*://*.google-analytics.com/*",
     "*://analytics.google.com/*"
   ],

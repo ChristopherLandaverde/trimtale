@@ -1,7 +1,34 @@
 import { createServer } from "node:http";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { getFormFixtureScenario, type FormFixtureScenario } from "./form-scenarios.js";
 
 const port = Number.parseInt(process.env.FIXTURE_PORT ?? "4173", 10);
+const reactBundlePath = fileURLToPath(new URL("../dist/react-page.js", import.meta.url));
+
+function reactPage(): string {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="gtm-observability-measurement-id" content="G-TEST123456" />
+    <meta name="gtm-observability-container-id" content="GTM-TEST123" />
+    <title>React lead fixture</title>
+    <style>
+      body { margin: 0; font-family: system-ui, sans-serif; color: #17212b; }
+      main { max-width: 620px; margin: 70px auto; padding: 0 24px; }
+      form { display: grid; gap: 12px; padding: 20px; border: 1px solid #ddd; border-radius: 12px; }
+      label { display: grid; gap: 6px; }
+      input, button { padding: 10px; }
+    </style>
+    <script src="/react-page.js" defer></script>
+  </head>
+  <body>
+    <div id="react-app"></div>
+  </body>
+</html>`;
+}
 
 function page(pathname: string, fixture: FormFixtureScenario, gtmContainerId?: string): string {
   return `<!doctype html>
@@ -147,7 +174,16 @@ const server = createServer((request, response) => {
     response.end("// Deterministic local GTM runtime marker.");
     return;
   }
+  if (url.pathname === "/react-page.js") {
+    response.writeHead(200, { "Content-Type": "application/javascript", "Cache-Control": "no-store" });
+    response.end(readFileSync(reactBundlePath));
+    return;
+  }
   response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+  if (url.pathname === "/react" || url.pathname === "/react/complete") {
+    response.end(reactPage());
+    return;
+  }
   response.end(page(
     url.pathname,
     getFormFixtureScenario(url.searchParams.get("formScenario")),

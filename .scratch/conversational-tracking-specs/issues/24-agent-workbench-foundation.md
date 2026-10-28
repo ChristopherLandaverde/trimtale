@@ -41,7 +41,8 @@ the corresponding Playwright snapshot directories.
   conversation or appending another scripted exchange.
 - Existing connected GTM context is used as an action receipt; the person is not asked
   to restate account/container details already known.
-- Evidence paths remain inspectable receipts and never expose chain of thought.
+- Action receipts and final verification results remain inspectable and never expose
+  chain of thought.
 
 ### Authority and fallback
 

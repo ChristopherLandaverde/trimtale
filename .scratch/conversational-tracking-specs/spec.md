@@ -69,6 +69,22 @@ Zero or multiple destinations remain unresolved. The card shows whether the sepa
 gated Analytics read capability is enabled; GTM access and Analytics access remain
 different claims.
 
+For one exact GA4 web stream, the workbench reads and reports enhanced-measurement
+readiness before proposing custom tracking. It covers the master switch, history-based
+page views, scrolls, outbound clicks, site search, video engagement, file downloads,
+and form interactions. Disabled settings are gaps, not instructions to create duplicate
+GTM tags. Automatic form interactions remain distinct from a confirmed
+`generate_lead` outcome. With separately authorized Analytics edit access, the
+practitioner may review and enable only the enhanced-measurement master switch for one
+exact stream. Individual feature toggles and GTM remain unchanged.
+
+The same readiness result must affect the main tracking task. Navigation is
+`Partially covered` when automatic outbound clicks are active. Confirmed lead tracking
+still `Needs custom setup` because automatic form interactions measure starts and
+submits, not the confirmed business outcome. Missing or disabled automatic coverage is
+stated before generation. The agent does not guess cross-domain configuration or
+silently remove an explicitly chosen custom event.
+
 ## Supported first slice
 
 ### Interaction and event
@@ -183,6 +199,30 @@ candidate labels, raw provider output, prompts, credentials, or exception text.
 Accepted shadow interpretations remain non-authoritative and do not alter conversation
 state. Provider SDKs, backend credentials, persistence, model comparison, routing, and
 visible suggestions remain separate decisions.
+
+## Live outcome-language intake
+
+An explicitly enabled live interpreter may convert privacy-filtered outcome language
+into one or more candidate pairings of conversion outcomes and observed interactions.
+It may reference only supplied page and success-evidence candidate IDs. Exactly one
+unambiguous supported pairing may enter the existing deterministic conversation intake;
+multiple pairings require focus and invented grounding fails closed. The interpreter
+cannot confirm a tracking specification, create setup, write GTM, classify evidence,
+or claim platform confirmation.
+
+## Multi-activity measurement planning
+
+Two or more valid pairings from one intake interpretation produce one measurement plan
+before any agent task begins. The plan names every conversion outcome, observed
+interaction, privacy-filtered grounding, deterministic readiness or automatic-coverage
+status, and the shortest safe next step. It recommends one startable item without
+silently selecting it.
+
+Selecting a startable item uses the already validated interpretation and creates one
+existing agent task without another language-model request. The other items remain
+visible only as plan context. The measurement plan cannot confirm a tracking
+specification, compose setup, apply a change, publish, verify evidence, or authorize a
+second item. Durable queues and automatic continuation remain separate slices.
 
 ## Weighted intake evaluation
 
@@ -422,9 +462,21 @@ A verified resolution records normalized symptoms, relevant environment attribut
 - [x] All sixteen initial scenarios produce their expected deterministic verdicts.
 - [x] Every run produces versioned, redacted run evidence.
 - [x] Browser verification remains distinct from platform confirmation.
+- [x] The customer surface shows concise action receipts and final verification results
+  without exposing an internal multi-stage evidence path.
 - [x] One exactly connected GTM/GA4 page can carry authenticated context through setup
   generation, browser verification, and optional aggregate Realtime confirmation.
+- [x] A confirmed connected lead-form setup can explicitly prepare its managed
+  workspace and show a bounded durable plan without applying or publishing it.
+- [x] A same-name managed semantic change blocks before application and requires a
+  separate explicit replacement workflow.
+- [x] The unchanged extension completes the supported form path on a real
+  React-rendered SPA form.
 - [x] Unsupported or unobservable forms produce a diagnostic handoff.
+- [x] Compact action receipts keep labels readable while long evidence details wrap.
+- [x] Long in-place review tasks open with their heading and context visible.
+- [x] A download-tracking request reports exact automatic GA4 coverage and never
+  generates duplicate GTM setup.
 - [x] The intake acceptance corpus runs through a provider-neutral shadow harness.
 - [x] Shadow records discard invalid output, raw responses, exception text, and private
   model-facing values while preserving the deterministic baseline.
@@ -438,6 +490,10 @@ A verified resolution records normalized symptoms, relevant environment attribut
   OpenAI models without exposing credentials or paid execution through HTTP.
 - [x] The loopback backend exposes extension-origin-protected, read-only aggregate and
   detail views of validated intake evaluation reports.
+- [x] An explicitly configured model can ground ordinary outcome language in one
+  reviewable supported intake without receiving setup or evidence authority.
+- [x] One multi-activity interpretation produces a bounded measurement plan and lets
+  the practitioner start exactly one grounded item without another model request.
 - [x] `npm run verify` passes without real Google credentials or external services.
 
 ## Success measures

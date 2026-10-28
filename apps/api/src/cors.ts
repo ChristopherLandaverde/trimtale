@@ -3,13 +3,8 @@ export type CorsDecision = {
   allowOrigin?: string;
 };
 
-function isGoogleRoute(pathname: string): boolean {
-  return pathname === "/api/google" || pathname.startsWith("/api/google/");
-}
-
-function isIntakeEvaluationRoute(pathname: string): boolean {
-  return pathname === "/api/intake-evaluations"
-    || pathname.startsWith("/api/intake-evaluations/");
+function isApiRoute(pathname: string): boolean {
+  return pathname === "/api" || pathname.startsWith("/api/");
 }
 
 export function corsDecision(
@@ -17,7 +12,7 @@ export function corsDecision(
   requestOrigin: string | undefined,
   configuredExtensionOrigin: string | undefined,
 ): CorsDecision {
-  if (!isGoogleRoute(pathname) && !isIntakeEvaluationRoute(pathname)) {
+  if (!isApiRoute(pathname)) {
     return { allowed: true, allowOrigin: "*" };
   }
 

@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "issue": ".scratch/gtm-setup-engine/issues/27-provider-operation-progress.md",
+  "feature": "provider-operation-progress",
+  "behavioralTests": [
+    "packages/core/src/provider-progress.test.ts",
+    "apps/api/src/workflow-runner.test.ts",
+    "tests/e2e/conversational-form.spec.ts"
+  ],
+  "stages": ["planning", "application", "validation", "versioning", "publication", "rollback"],
+  "states": ["in_flight", "reconciling", "failed", "awaiting_user", "completed"],
+  "cases": [
+    {
+      "id": "planning-request-active",
+      "input": { "stage": "planning", "attemptStatus": "started", "liveRequest": true, "displayTimedOut": false, "browserReloaded": false, "action": "read_progress" },
+      "expected": { "accepted": true, "state": "in_flight", "retry": "locked", "additionalProviderCalls": 0, "messageConcepts": ["planning", "still running"] }
+    },
+    {
+      "id": "duplicate-application-action",
+      "input": { "stage": "application", "attemptStatus": "started", "liveRequest": true, "displayTimedOut": false, "browserReloaded": false, "action": "repeat_mutation" },
+      "expected": { "accepted": true, "state": "in_flight", "retry": "locked", "additionalProviderCalls": 0, "messageConcepts": ["application", "already active"] }
+    },
+    {
+      "id": "validation-display-timeout",
+      "input": { "stage": "validation", "attemptStatus": "started", "liveRequest": true, "displayTimedOut": true, "browserReloaded": false, "action": "read_progress" },
+      "expected": { "accepted": true, "state": "in_flight", "retry": "locked", "additionalProviderCalls": 0, "messageConcepts": ["validation", "longer than expected", "still running"] }
+    },
+    {
+      "id": "versioning-browser-reload",
+      "input": { "stage": "versioning", "attemptStatus": "started", "liveRequest": true, "displayTimedOut": false, "browserReloaded": true, "action": "read_progress" },
+      "expected": { "accepted": true, "state": "in_flight", "retry": "locked", "additionalProviderCalls": 0, "messageConcepts": ["versioning", "restored"] }
+    },
+    {
+      "id": "publication-provider-failure",
+      "input": { "stage": "publication", "attemptStatus": "failed", "liveRequest": false, "displayTimedOut": false, "browserReloaded": false, "failureCode": "provider_forbidden", "action": "read_progress" },
+      "expected": { "accepted": true, "state": "failed", "retry": "conditional", "additionalProviderCalls": 0, "messageConcepts": ["publication", "provider error"] }
+    },
+    {
+      "id": "rollback-backend-restart",
+      "input": { "stage": "rollback", "attemptStatus": "started", "liveRequest": false, "displayTimedOut": false, "browserReloaded": true, "action": "read_progress" },
+      "expected": { "accepted": true, "state": "reconciling", "retry": "locked", "additionalProviderCalls": 0, "messageConcepts": ["rollback", "checking current state"] }
+    },
+    {
+      "id": "version-awaits-publication-approval",
+      "input": { "stage": null, "attemptStatus": null, "liveRequest": false, "displayTimedOut": false, "browserReloaded": true, "operationCheckpoint": "await_approval", "action": "read_progress" },
+      "expected": { "accepted": true, "state": "awaiting_user", "retry": "locked", "additionalProviderCalls": 0, "messageConcepts": ["approval", "no request active"] }
+    },
+    {
+      "id": "versioning-stage-completed",
+      "input": { "stage": "versioning", "attemptStatus": "completed", "liveRequest": false, "displayTimedOut": false, "browserReloaded": false, "operationCheckpoint": "await_approval", "action": "read_progress" },
+      "expected": { "accepted": true, "state": "completed", "retry": "locked", "additionalProviderCalls": 0, "messageConcepts": ["versioning", "completed"] }
+    },
+    {
+      "id": "unknown-provider-stage-rejected",
+      "input": { "stage": "deploying", "attemptStatus": "started", "liveRequest": true, "displayTimedOut": false, "browserReloaded": false, "action": "read_progress" },
+      "expected": { "accepted": false, "error": "stage is unsupported", "additionalProviderCalls": 0 }
+    },
+    {
+      "id": "raw-provider-error-rejected",
+      "input": { "stage": "publication", "attemptStatus": "failed", "liveRequest": false, "displayTimedOut": false, "browserReloaded": false, "failureCode": "Error: token=PRIVATE_TOKEN_SENTINEL", "action": "read_progress" },
+      "expected": { "accepted": false, "error": "failure code is unsafe", "additionalProviderCalls": 0, "forbiddenPersisted": ["PRIVATE_TOKEN_SENTINEL"] }
+    }
+  ]
+}

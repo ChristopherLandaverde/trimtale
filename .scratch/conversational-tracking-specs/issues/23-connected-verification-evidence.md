@@ -22,10 +22,12 @@ leaving three independent pending stages.
 
 ### Browser verification
 
-- The evidence path retains named stage handles for the confirmed specification.
-- Starting verification changes the browser stage to waiting.
-- A passed verdict marks Browser verification passed in the same evidence path.
-- Failed or inconclusive evidence marks the stage failed/inconclusive with the safe next
+- The confirmed task retains its structured run evidence without rendering a separate
+  customer-facing stage card.
+- Starting verification changes the task to a bounded waiting state.
+- A passed verdict marks Browser verification passed in the concise verification
+  result.
+- Failed or inconclusive evidence marks the task failed/inconclusive with the safe next
   action; it never remains falsely pending.
 - An already published setup can be verified without generating or installing another
   copy.
@@ -61,8 +63,9 @@ leaving three independent pending stages.
 - Add safe measurement-destination extraction to GTM inspection.
 - Add a read-only Analytics client and fixed start/confirm endpoints.
 - Extend the service-worker bridge and strict content-side decoders.
-- Persist recognized context and evidence-stage handles inside the page session.
-- Use connected context for both generators and update browser/platform rows in place.
+- Persist recognized context and bounded verification state inside the page session.
+- Use connected context for both generators and update the task's browser/platform
+  result in place.
 - Add backend, Chromium, privacy, visual, and live disposable-property review evidence.
 
 ## Done when
@@ -92,3 +95,6 @@ leaving three independent pending stages.
   `generate_lead` filter. Browser collection returned HTTP 204 with the expected
   destination and parameters. No additional submission should be used merely to outrun
   ingestion latency.
+- 2026-08-25: Removed the duplicate customer-facing Evidence path card. Browser and
+  platform states now remain in the in-place task and concise verification result;
+  structured run evidence and the provider contract are unchanged.

@@ -10,6 +10,36 @@ Describe what should count as a conversion. The system discovers the relevant we
 
 Lead-generation websites are the initial market: qualified form submissions, appointment requests, phone intent, email intent, and primary lead actions. The underlying product model is broader conversion measurement, so purchases, registrations, trials, and subscriptions can be supported later without redefining the product.
 
+## Product thesis
+
+The current product direction already implements the measurement-observability thesis;
+it is not a separate pivot toward a linter or MCP wrapper. The launch outcome is a
+shorter, safer path from tracking intent to verified version:
+
+```text
+Tracking intent
+    -> confirmed tracking specification
+    -> tracking setup
+    -> tracking change plan
+    -> managed-workspace draft
+    -> exact draft preview
+    -> deterministic verdict
+    -> verified version
+    -> human publication approval
+```
+
+The defining invariant is that browser evidence must belong to the exact unpublished
+draft under review. Testing the current live container cannot qualify a different
+workspace draft for version creation or publication. The agent may interpret the
+request and explain the result, but deterministic contracts, tool results, evidence,
+and approval checkpoints remain authoritative.
+
+Setup, diagnosis, and continuous observation are stages of one measurement lifecycle,
+not separate products. A confirmed tracking specification establishes the expected
+behavior, a tracking check records observed behavior, and the same evidence chain can
+later support monitoring, diagnostic handoffs, and verified resolutions. GTM is the
+first implementation target; APIs, MCP, and future agent interfaces remain adapters.
+
 ## Core workflow
 
 ```text
@@ -45,11 +75,14 @@ Connect GTM
 
 ## Initial MVP
 
-1. Browser-based Tracking Check without requiring GTM access.
-2. Read-only GTM connection and container audit.
-3. Scheduled Playwright journey monitoring.
-4. Evidence-backed incident diagnosis.
-5. Verified GTM workspace creation without automatic production publishing.
+1. One website workbench for lead-form and navigation tracking intent.
+2. Exact GTM container and GA4 destination recognition.
+3. Confirmed specifications compiled into reviewable managed-workspace changes.
+4. Browser verification with optional aggregate GA4 Realtime correlation.
+5. Human-controlled GTM publication outside the initial automated workflow.
+
+Scheduled monitoring, key events, custom definitions, weekly reports, broad diagnosis,
+and model training are later work.
 
 ## Mockups
 
@@ -57,9 +90,11 @@ The `mockups/` directory contains the observability overview, container audit, l
 
 ## Product plan
 
-The `docs/product-plan/` directory describes the staged path from the navigation-tracking MVP to a full GTM and GA4 observability product, including architecture, agent design, weekly scans, and go-to-market timing.
+The `docs/product-plan/` directory describes the current event-setup MVP and the later
+path to a full GTM and GA4 observability product. Start with the
+[MVP build handoff](docs/product-plan/2026-08-23-mvp-handoff.md).
 
-## Navigation tracking MVP
+## Implemented tracking foundation
 
 The first implemented vertical slice is a Chrome extension plus a small local backend:
 
@@ -159,6 +194,26 @@ presence and shape of its configuration without printing values:
 ```bash
 npm run preflight:google
 ```
+
+For repeat local sessions, store `google-client.json`, the bound
+`google-token.json`, and `extension-origin` under
+`~/.config/gtm-observability/`, each with mode `0600`. Then use:
+
+```bash
+npm run google -- preflight
+npm run google -- api
+```
+
+The launcher validates the client/token binding, supplies the fixed callback and
+extension origin, enables read-only Analytics checks and guarded container writes, and
+forces publication off. It never prints credentials. Set
+`GTM_OBSERVABILITY_CONFIG_DIR` only when an alternate owner-only config directory is
+required.
+
+Analytics edits remain off. For a separately approved enhanced-measurement change, run
+`GOOGLE_ANALYTICS_WRITES_ENABLED=true npm run google -- api` and reconnect through
+`/api/google/oauth/start`. This reuses the saved OAuth client and can change only the
+reviewed stream master switch; it does not change feature toggles or GTM.
 
 This Google preflight remains outside `npm run agent` and ordinary verification. It
 checks the OAuth client variables, exact local callback, exact extension origin, and

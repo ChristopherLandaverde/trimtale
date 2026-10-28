@@ -96,6 +96,24 @@ describe("deterministic form verdict engine", () => {
     });
   });
 
+  it("counts only generate_lead requests during a form run", () => {
+    const pageView = {
+      url: "https://www.google-analytics.com/g/collect?en=form_start&ep.form_id=workflow-smoke-form&ep.form_name=Disposable_workflow_smoke_form&dl=https%3A%2F%2Fconsentflow-psi.vercel.app%2F",
+      observedAt: "2026-08-23T18:00:00.000Z",
+    };
+    const lead = {
+      url: "https://www.google-analytics.com/g/collect?en=generate_lead&ep.form_id=workflow-smoke-form&ep.form_name=Disposable_workflow_smoke_form&dl=https%3A%2F%2Fconsentflow-psi.vercel.app%2F",
+      observedAt: "2026-08-23T18:00:01.000Z",
+    };
+
+    expect(determineFormVerdict(observations({
+      network: { ga4Requests: [pageView, lead] },
+    })).code).toBe("browser_verified");
+    expect(determineFormVerdict(observations({
+      network: { ga4Requests: [pageView] },
+    })).browserVerification).not.toBe("passed");
+  });
+
   it("still requires page location in either supported wire representation", () => {
     const noPageLocation = observations({
       network: { ga4Requests: [{

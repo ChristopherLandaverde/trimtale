@@ -1,10 +1,26 @@
+import {
+  knownInteractionDefinition,
+  type InteractionScopeV1,
+  type KnownInteractionTypeV1,
+} from "./interaction-authoring.js";
+
 export type ConversationInteraction =
   | "navigation_click"
   | "form_submission"
+  | AutomaticCoverageInteraction
+  | "file_download"
+  | "outbound_click"
   | "cta_click"
   | "phone_click"
   | "email_click"
+  | "calendly_booking"
   | "unknown";
+
+export type AutomaticCoverageInteraction =
+  | "page_view"
+  | "scroll"
+  | "site_search"
+  | "video_engagement";
 
 export type ConversationState =
   | "awaiting_interaction"
@@ -12,6 +28,7 @@ export type ConversationState =
   | "awaiting_target"
   | "awaiting_success_evidence"
   | "draft_ready"
+  | "coverage_check"
   | "unsupported"
   | "insufficient_evidence";
 
@@ -33,16 +50,53 @@ export interface FormCandidate {
 export interface ConversationPageContext {
   navigationCount: number;
   forms: FormCandidate[];
+  interactionCounts?: Partial<Record<KnownInteractionTypeV1, number>>;
+  calendlyEmbedCount?: number;
 }
 
 export interface ConversationIntakeResult {
   interaction: ConversationInteraction;
   state: ConversationState;
   canConfirm: boolean;
-  eventName?: "navigation_click" | "generate_lead";
+  eventName?: "navigation_click" | "generate_lead" | KnownInteractionTypeV1 | "calendly_booking_complete";
+  scope?: InteractionScopeV1;
   target?: FormCandidate | undefined;
   successSignal?: FormSuccessSignal | undefined;
   options: Array<{ id: string; label: string }>;
+}
+
+function boundedInteractionCount(page: ConversationPageContext, interaction: KnownInteractionTypeV1): number {
+  const value = page.interactionCounts?.[interaction] ?? 0;
+  return Number.isSafeInteger(value) && value > 0 ? Math.min(value, 999) : 0;
+}
+
+function knownInteractionResult(
+  interaction: ConversationInteraction,
+  page: ConversationPageContext,
+): ConversationIntakeResult | undefined {
+  const definition = knownInteractionDefinition(interaction);
+  if (!definition) return undefined;
+  const count = boundedInteractionCount(page, definition.interaction);
+  if (count === 0) {
+    return {
+      interaction,
+      state: "insufficient_evidence",
+      eventName: definition.eventName,
+      canConfirm: false,
+      options: [],
+    };
+  }
+  return {
+    interaction,
+    state: "awaiting_scope",
+    eventName: definition.eventName,
+    canConfirm: false,
+    options: [
+      { id: "scope:sitewide", label: `All ${definition.plural} sitewide` },
+      { id: "scope:current_page", label: "Only on this page" },
+      { id: "cancel", label: "Cancel" },
+    ],
+  };
 }
 
 function normalized(value: string): string {
@@ -51,7 +105,15 @@ function normalized(value: string): string {
 
 export function classifyConversationInteraction(message: string): ConversationInteraction {
   const value = normalized(message);
+  if (/\bcalendly\b/.test(value)) return "calendly_booking";
   if (/\b(form|forms|submit|submission|lead|leads|inquiry|inquiries)\b/.test(value)) return "form_submission";
+  if (/\b(page view|page views|pageview|pageviews)\b/.test(value)) return "page_view";
+  if (/\b(scroll|scrolls|scrolling)\b/.test(value)) return "scroll";
+  if (/\b(site search|internal search|search result|search results)\b/.test(value)) return "site_search";
+  if (/\b(video|videos)\b/.test(value)) return "video_engagement";
+  if (/\b(download|downloads)\b/.test(value)) return "file_download";
+  if (/\b(outbound|external|offsite|off site)\b/.test(value)
+    && /\b(link|links|click|clicks)\b/.test(value)) return "outbound_click";
   if (/\b(phone|call|telephone|tel)\b/.test(value)) return "phone_click";
   if (/\b(email|mailto)\b/.test(value)) return "email_click";
   if (/\b(cta|call to action|button)\b/.test(value)) return "cta_click";
@@ -126,7 +188,7 @@ function formResult(message: string, page: ConversationPageContext): Conversatio
     canConfirm: true,
     target,
     successSignal,
-    options: [{ id: "confirm-specification", label: "Review setup" }],
+    options: [{ id: "confirm-specification", label: "Review what will be tracked" }],
   };
 }
 
@@ -135,6 +197,28 @@ export function interpretConversationIntent(
   page: ConversationPageContext,
 ): ConversationIntakeResult {
   const interaction = classifyConversationInteraction(message);
+  if (interaction === "calendly_booking") {
+    const count = Number.isSafeInteger(page.calendlyEmbedCount) && Number(page.calendlyEmbedCount) > 0
+      ? Math.min(Number(page.calendlyEmbedCount), 999)
+      : 0;
+    if (count !== 1) {
+      return {
+        interaction,
+        state: "insufficient_evidence",
+        eventName: "calendly_booking_complete",
+        canConfirm: false,
+        options: [],
+      };
+    }
+    return {
+      interaction,
+      state: "draft_ready",
+      eventName: "calendly_booking_complete",
+      scope: "current_page",
+      canConfirm: true,
+      options: [{ id: "confirm-calendly-specification", label: "Review setup" }],
+    };
+  }
   if (interaction === "form_submission") return formResult(message, page);
   if (interaction === "navigation_click") {
     return {
@@ -151,6 +235,19 @@ export function interpretConversationIntent(
         : [],
     };
   }
+  if (interaction === "page_view"
+    || interaction === "scroll"
+    || interaction === "site_search"
+    || interaction === "video_engagement") {
+    return {
+      interaction,
+      state: "coverage_check",
+      canConfirm: false,
+      options: [],
+    };
+  }
+  const known = knownInteractionResult(interaction, page);
+  if (known) return known;
   if (interaction !== "unknown") {
     return { interaction, state: "unsupported", canConfirm: false, options: [] };
   }
@@ -162,8 +259,26 @@ export function interpretConversationIntent(
       { id: "prompt:navigation", label: "Navigation" },
       { id: "prompt:form", label: "Form" },
       { id: "prompt:phone", label: "Phone" },
+      { id: "prompt:outbound_links", label: "Outbound links" },
+      { id: "prompt:downloads", label: "Downloads" },
       { id: "prompt:email", label: "Email" },
     ],
+  };
+}
+
+export function selectConversationScope(
+  current: ConversationIntakeResult,
+  scope: InteractionScopeV1,
+): ConversationIntakeResult {
+  const definition = knownInteractionDefinition(current.interaction);
+  if (!definition) throw new Error("Scope can only resolve a supported interaction intake.");
+  return {
+    ...current,
+    state: "draft_ready",
+    eventName: definition.eventName,
+    scope,
+    canConfirm: true,
+    options: [{ id: "confirm-interaction-specification", label: "Review setup" }],
   };
 }
 
@@ -203,6 +318,6 @@ export function selectConversationSuccess(
     canConfirm: true,
     target,
     successSignal,
-    options: [{ id: "confirm-specification", label: "Review setup" }],
+    options: [{ id: "confirm-specification", label: "Review what will be tracked" }],
   };
 }

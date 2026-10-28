@@ -4,7 +4,9 @@
   "feature": "conversation_intake",
   "behavioralTests": [
     "packages/core/src/conversation.test.ts",
-    "tests/e2e/conversation-intake.spec.ts"
+    "tests/e2e/conversation-intake.spec.ts",
+    "tests/e2e/automatic-coverage-intents.spec.ts",
+    "tests/e2e/email-link-interactions.spec.ts"
   ],
   "cases": [
     {
@@ -48,10 +50,64 @@
       "expected": { "interaction": "form_submission", "state": "draft_ready", "eventName": "generate_lead", "canConfirm": true }
     },
     {
-      "id": "phone-is-recognized-but-unsupported",
+      "id": "phone-evidence-requires-scope",
+      "message": "Track phone calls",
+      "page": { "navigationCount": 5, "forms": [], "interactionCounts": { "phone_click": 2 } },
+      "expected": { "interaction": "phone_click", "state": "awaiting_scope", "eventName": "phone_click", "canConfirm": false }
+    },
+    {
+      "id": "phone-without-page-evidence-is-blocked",
       "message": "Track phone calls",
       "page": { "navigationCount": 5, "forms": [] },
-      "expected": { "interaction": "phone_click", "state": "unsupported", "canConfirm": false }
+      "expected": { "interaction": "phone_click", "state": "insufficient_evidence", "eventName": "phone_click", "canConfirm": false }
+    },
+    {
+      "id": "email-evidence-requires-scope",
+      "message": "Track email links",
+      "page": { "navigationCount": 5, "forms": [], "interactionCounts": { "email_click": 2 } },
+      "expected": { "interaction": "email_click", "state": "awaiting_scope", "eventName": "email_click", "canConfirm": false }
+    },
+    {
+      "id": "email-without-page-evidence-is-blocked",
+      "message": "Track email links",
+      "page": { "navigationCount": 5, "forms": [] },
+      "expected": { "interaction": "email_click", "state": "insufficient_evidence", "eventName": "email_click", "canConfirm": false }
+    },
+    {
+      "id": "outbound-evidence-requires-scope",
+      "message": "Track outbound links",
+      "page": { "navigationCount": 5, "forms": [], "interactionCounts": { "outbound_click": 2 } },
+      "expected": { "interaction": "outbound_click", "state": "awaiting_scope", "eventName": "outbound_click", "canConfirm": false }
+    },
+    {
+      "id": "download-without-page-evidence-is-blocked",
+      "message": "Track downloads",
+      "page": { "navigationCount": 5, "forms": [] },
+      "expected": { "interaction": "file_download", "state": "insufficient_evidence", "eventName": "file_download", "canConfirm": false }
+    },
+    {
+      "id": "page-views-request-coverage-check",
+      "message": "Track page views",
+      "page": { "navigationCount": 5, "forms": [] },
+      "expected": { "interaction": "page_view", "state": "coverage_check", "canConfirm": false }
+    },
+    {
+      "id": "scroll-request-coverage-check",
+      "message": "Measure scroll depth",
+      "page": { "navigationCount": 5, "forms": [] },
+      "expected": { "interaction": "scroll", "state": "coverage_check", "canConfirm": false }
+    },
+    {
+      "id": "site-search-request-coverage-check",
+      "message": "Track internal site search",
+      "page": { "navigationCount": 5, "forms": [] },
+      "expected": { "interaction": "site_search", "state": "coverage_check", "canConfirm": false }
+    },
+    {
+      "id": "video-request-coverage-check",
+      "message": "Track video engagement",
+      "page": { "navigationCount": 5, "forms": [] },
+      "expected": { "interaction": "video_engagement", "state": "coverage_check", "canConfirm": false }
     },
     {
       "id": "unknown-intent-requests-interaction",

@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "issue": ".scratch/gtm-setup-engine/issues/26-cross-origin-callback-proof.md",
+  "provider": "calendly",
+  "authoritativeSource": {
+    "title": "Advanced Calendly embed for developers",
+    "url": "https://calendly.com/help/advanced-calendly-embed-for-developers",
+    "accessedAt": "2026-08-27"
+  },
+  "trustedOrigin": "https://calendly.com",
+  "messageTransport": "window.postMessage",
+  "completionEvent": "calendly.event_scheduled",
+  "providerDuplicateGuarantee": "not_documented",
+  "consumerDuplicatePolicy": "accept_first_completion_per_page_lifecycle",
+  "allowlistedPayloadFields": [],
+  "normalizedEvent": {
+    "event": "calendly_booking_complete"
+  },
+  "destinationRequest": {
+    "host": "www.google-analytics.com",
+    "eventName": "calendly_booking_complete",
+    "requiredParameters": ["page_location"]
+  },
+  "cases": [
+    {
+      "id": "wrong_origin",
+      "origin": "https://attacker.example",
+      "data": { "event": "calendly.event_scheduled" },
+      "expected": "rejected"
+    },
+    {
+      "id": "lookalike_origin",
+      "origin": "https://calendly.com.attacker.example",
+      "data": { "event": "calendly.event_scheduled" },
+      "expected": "rejected"
+    },
+    {
+      "id": "malformed_message",
+      "origin": "https://calendly.com",
+      "data": "calendly.event_scheduled",
+      "expected": "rejected"
+    },
+    {
+      "id": "non_completion_event",
+      "origin": "https://calendly.com",
+      "data": { "event": "calendly.date_and_time_selected" },
+      "expected": "rejected"
+    },
+    {
+      "id": "documented_completion",
+      "origin": "https://calendly.com",
+      "data": {
+        "event": "calendly.event_scheduled",
+        "payload": {
+          "invitee": { "uri": "PRIVATE_INVITEE_URI", "email": "PRIVATE_EMAIL" },
+          "event": { "uri": "PRIVATE_EVENT_URI" },
+          "start_time": "PRIVATE_START_TIME"
+        }
+      },
+      "expected": "accepted"
+    },
+    {
+      "id": "repeated_completion",
+      "origin": "https://calendly.com",
+      "data": {
+        "event": "calendly.event_scheduled",
+        "payload": { "invitee": { "uri": "PRIVATE_REPEAT_INVITEE_URI" } }
+      },
+      "expected": "rejected"
+    }
+  ],
+  "forbiddenSentinels": [
+    "PRIVATE_INVITEE_URI",
+    "PRIVATE_EMAIL",
+    "PRIVATE_EVENT_URI",
+    "PRIVATE_START_TIME",
+    "PRIVATE_REPEAT_INVITEE_URI"
+  ]
+}

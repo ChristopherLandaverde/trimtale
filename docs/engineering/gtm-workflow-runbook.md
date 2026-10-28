@@ -32,16 +32,40 @@ Use these controls deliberately:
 | Setting | Purpose |
 |---|---|
 | `GOOGLE_GTM_CONTAINER_WRITES_ENABLED=true` | Allows guarded container and workspace changes. |
+| `GOOGLE_GTM_WRITE_TARGET_PUBLIC_ID` | Rejects every GTM mutation outside one exact public container ID. |
 | `GOOGLE_OAUTH_TOKEN_STORE` | Enables owner-only refresh-token persistence across backend restarts. |
 | `TRACKING_OPERATION_STORE` | Selects the durable operation collection; defaults under `.data/`. |
 | `GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED=true` | Includes publish scope during one-time consent without enabling publication. |
 | `GOOGLE_GTM_PUBLICATION_ENABLED=true` | Makes guarded publish and rollback methods reachable for one approved session. |
 | `GOOGLE_ANALYTICS_READS_ENABLED=true` | Enables read-only Analytics Admin and Realtime verification; it does not enable GTM or GA4 writes. |
+| `GOOGLE_ANALYTICS_WRITES_ENABLED=true` | Requests Analytics edit consent and permits only the reviewed enhanced-measurement master switch. |
 
 Run `npm run preflight:google` before credentialed planning and
 `npm run preflight:publication` before an approved publication session. Keep
 publication disabled during ordinary planning, application, validation, and version
 review.
+
+For the disposable Stage 1 end-to-end lane, run:
+
+```bash
+npm run smoke:google:stage1
+```
+
+This explicit command builds the product, starts the saved authenticated backend,
+loads the production extension in a persistent headed Chromium profile, and opens the
+ConsentFlow target. It enables publication only for that process, locks all GTM
+mutations to `GTM-PCJ3Q5RK`, and stops unless the extension origin, exact website
+origin/path/query, sole observed GTM ID, fresh provider recognition, and exact
+`G-YV879ECLRV` destination match. The profile is retained under
+`.data/stage1-google-smoke-profile` so the supported human Google and Tag Assistant
+session can survive restarts. The launcher explicitly disables Analytics writes even
+if its parent shell enabled them for another session. Closing Chromium stops the
+backend.
+
+Keep Analytics writes off for ordinary sessions. For an approved session, start the
+saved launcher with `GOOGLE_ANALYTICS_WRITES_ENABLED=true npm run google -- api`, then
+open `/api/google/oauth/start` to grant the added scope. The launcher reuses the saved
+client configuration; the visible review remains required before any PATCH.
 
 The token store persists only the refresh token, binds it to the configured OAuth
 client, writes atomically with mode `0600`, and deletes itself if Google rejects the
@@ -54,12 +78,16 @@ The supported orchestration routes are:
 
 - `POST /api/google/workflows/plan`
 - `POST /api/google/workflows/{operationId}/resume`
+- `POST /api/google/workflows/{operationId}/repair-draft`
+- `POST /api/google/workflows/{operationId}/apply-repair`
 - `GET /api/google/workflows/{operationId}`
 
 The ordinary progression is:
 
 ```text
-planned -> applying -> applied -> validated -> versioned -> await approval
+planned -> applying -> applied -> validated -> exact draft preview
+  -> failed -> review bounded repair -> validated -> new exact draft preview
+  -> draft_verified -> versioned -> await publication approval
 ```
 
 Planning accepts navigation setup input or a confirmed lead-form specification. It
@@ -68,10 +96,20 @@ semantically, and records create, reuse, no-op, or conflict actions. Resume pers
 `applying` before writes and can reconcile an interrupted create from freshly read GTM
 state without duplicating the entity.
 
-The workflow routes deliberately stop at version review. The current server exposes
-no public approval, publication, rollback, or post-publication-evidence route; those
-backend domain/client methods require a separate product slice before the extension can
-operate them.
+The extension exposes plan review and resume only after an exact pre-write
+confirmation. An exact Tag Assistant browser run must bind the setup, workspace, and
+quick-preview fingerprints before version creation. Publication controls remain
+separate and require the exact immutable fingerprint. After publication, a second
+browser run binds evidence to that live fingerprint. Only failed evidence exposes the
+separate exact rollback review; inconclusive evidence keeps rollback locked.
+
+A failed exact-draft run may request repair only while all three preview bindings are
+current. Repair re-plans the unchanged generated setup against the same managed
+workspace. A create or product-owned update must receive separate review before
+application. Reuse/no-op-only, conflicting, ambiguous, stale, exhausted, and
+intent-changing paths stop. Successful application is provider-validated and yields a
+new workspace and quick-preview fingerprint; it never skips the next exact browser
+run or creates a version directly.
 
 ## Approval, publication, and rollback
 
@@ -109,9 +147,12 @@ GA4 commonly transports the standard `page_location` field as `dl`, not
 `ep.page_location`. Normalize both representations to the same semantic requirement
 and remove query parameters before persisting evidence.
 
-Only passing evidence completes the operation. A genuine non-passing run records the
-evidence and prepares the exact prior-live rollback target. An incomplete synthetic
-diagnostic should remain diagnostic rather than being persisted as a completed journey.
+Only passing evidence completes the operation. A failed run records the evidence and
+prepares the exact prior-live rollback target. The website agent then requires a
+separate review and confirmation before the backend rechecks fresh Google state and
+restores that fingerprint. Inconclusive evidence remains retryable and cannot unlock
+rollback. An incomplete synthetic diagnostic should remain diagnostic rather than
+being persisted as a completed journey.
 
 ### Optional read-only GA4 correlation
 
@@ -238,6 +279,41 @@ without invoking rollback.
 | Published signal fires but full journey cannot run | Fix or identify the real website target and success outcome; do not fabricate completion evidence. |
 | Browser request passes but GA4 count is unchanged | Keep platform confirmation pending, allow the explicit retry, and retain the independent browser pass. Do not submit repeatedly merely to outrun Realtime latency. |
 | Analytics Data API read is denied | Confirm the API is enabled for the OAuth project and the saved grant includes `analytics.readonly`; do not broaden to an edit scope. |
+
+## Second live unpublished version review
+
+On 2026-08-23, Playwright drove the visible ConsentFlow workbench through the current
+plan, exact application confirmation, resume, validation, and version result:
+
+- Operation: `operation_spec_form_workflow-smoke-form`.
+- Plan: create `Form success - visible_element`, update managed
+  `GA4 Event - generate_lead`, and retain `Page URL` unchanged.
+- Validation: passed with zero compiler errors; preview fingerprint
+  `1787537271064`.
+- Immutable version: version 4, fingerprint `1787537272032`.
+- Prior live: version 3, fingerprint `1787458659661`.
+- Publication: no approval, publish, or rollback request occurred. A fresh container
+  read confirmed version 3 remained live.
+
+The run proves the workbench's credentialed application boundary. It does not prove
+version 4's browser behavior because the version remains unpublished. Review its
+visible-success trigger before any separate publication decision.
+
+## Current credentialed workflow readiness
+
+On 2026-08-25, read-only recognition matched the exact disposable container,
+measurement destination, live version 3, and available managed-workspace capacity.
+The `smoke:google:stage1` launcher then matched the configured extension, ConsentFlow
+origin, and sole observed ID `GTM-PCJ3Q5RK`. No mutation occurred during that readiness
+review.
+
+Current launchers repeat this read-only recognition and require the exact GA4
+destination before announcing readiness. A saved-session run passed that gate against
+current Google state on 2026-08-26 without mutation.
+
+This proves the lane is correctly configured and contained. It does not yet prove the
+current website-agent-to-Tag-Assistant handoff, immutable version creation,
+publication, or live verification. Those steps remain the next acceptance run.
 
 ## Related documentation
 

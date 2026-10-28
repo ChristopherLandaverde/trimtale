@@ -1,10 +1,11 @@
 import { isNavigationIntent, normalizeNavigation } from "./navigation.js";
-import { assertTrackingSpecification, navigationSpecification, type SuccessEvidence } from "./contracts.js";
+import { assertTrackingSpecification, navigationSpecification } from "./contracts.js";
+import { formSetup, navigationSetup } from "./setup-adapters.js";
+import { compileTrackingSetup } from "./setup-compiler.js";
 import type {
   FormSetupProposal,
   FormSetupRequest,
   GtmContainerExport,
-  GtmParameter,
   SetupProposal,
   SetupRequest,
 } from "./types.js";
@@ -28,25 +29,6 @@ function randomSuffix(): string {
     return globalThis.crypto.randomUUID().slice(0, 8);
   }
   return Math.random().toString(36).slice(2, 10);
-}
-
-function template(key: string, value: string): GtmParameter {
-  return { type: "TEMPLATE", key, value };
-}
-
-function map(entries: Array<[string, string]>): GtmParameter {
-  return {
-    type: "MAP",
-    map: entries.map(([key, value]) => template(key, value)),
-  };
-}
-
-function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function scopedUrlPattern(hrefs: string[]): string {
-  return `^(?:${hrefs.map(escapeRegex).join("|")})$`;
 }
 
 function validateContainerAndMeasurement(request: Pick<SetupRequest, "measurementId" | "container">): string[] {
@@ -107,58 +89,12 @@ export function validateFormSetupRequest(request: FormSetupRequest): string[] {
   return [...new Set(errors)];
 }
 
-function formEvidenceTrigger(
-  evidence: SuccessEvidence,
-  accountId: string,
-  containerId: string,
-  triggerId: string,
-): Record<string, unknown> {
-  const common = { accountId, containerId, triggerId, name: `Form success - ${evidence.type}` };
-  if (evidence.type === "visible_element") {
-    return { ...common, type: "ELEMENT_VISIBILITY", parameter: [template("selector", evidence.selector), template("selectionMethod", "CSS_SELECTOR"), template("minimumPercentVisible", "1"), template("onScreenDuration", "0"), template("firingFrequency", "ONCE_PER_PAGE")] };
-  }
-  if (evidence.type === "thank_you_url") {
-    return { ...common, type: "PAGEVIEW", filter: [{ type: "MATCH_REGEX", parameter: [template("arg0", "{{Page URL}}"), template("arg1", evidence.urlPattern)] }] };
-  }
-  const eventName = evidence.type === "data_layer_event" ? evidence.eventName : evidence.signal;
-  return { ...common, type: "CUSTOM_EVENT", customEventFilter: [{ type: "EQUALS", parameter: [template("arg0", "{{_event}}"), template("arg1", eventName)] }] };
-}
-
 function createFormContainerFile(request: FormSetupRequest): GtmContainerExport {
-  const { specification } = request;
-  const accountId = request.container.accountId || "0";
-  const containerId = request.container.containerId || "0";
-  const base = `accounts/${accountId}/containers/${containerId}`;
-  const triggers = specification.successEvidence.map((item, index) => formEvidenceTrigger(item, accountId, containerId, String(910001 + index)));
-  const primaryTarget = specification.targets[0]!;
-  return {
-    exportFormatVersion: 2,
-    exportTime: new Date().toISOString(),
-    containerVersion: {
-      path: `${base}/versions/0`, accountId, containerId, containerVersionId: "0",
-      name: "GTM Observability - Confirmed form setup",
-      description: "Generated generate_lead tracking from practitioner-confirmed success evidence. Apply to the recognized managed workspace or import with Merge; never overwrite.",
-      container: { path: base, accountId, containerId, name: request.container.name || "GTM Observability import", publicId: request.container.publicId, usageContext: ["WEB"] },
-      trigger: triggers,
-      tag: [{
-        accountId, containerId, tagId: "919999", name: "GA4 Event - generate_lead", type: "gaawe",
-        parameter: [
-          template("eventName", "generate_lead"),
-          template("measurementId", request.measurementId.toUpperCase()),
-          { type: "LIST", key: "eventParameters", list: [
-            map([["name", "form_id"], ["value", primaryTarget.id]]),
-            map([["name", "form_name"], ["value", primaryTarget.label]]),
-            map([["name", "page_location"], ["value", "{{Page URL}}"]]),
-          ] },
-        ],
-        firingTriggerId: triggers.map((_, index) => String(910001 + index)),
-        tagFiringOption: "ONCE_PER_EVENT",
-        monitoringMetadata: { type: "MAP", map: [] },
-        consentSettings: { consentStatus: "NOT_SET" },
-      }],
-      builtInVariable: [{ accountId, containerId, type: "PAGE_URL", name: "Page URL" }],
-    },
-  };
+  const setup = formSetup(request, `setup_${request.specification.id}`);
+  const containerFile = compileTrackingSetup(setup, request.container).containerFile;
+  containerFile.containerVersion.name = "GTM Observability - Confirmed form setup";
+  containerFile.containerVersion.description = "Generated generate_lead tracking from practitioner-confirmed success evidence. Apply to the recognized managed workspace or import with Merge; never overwrite.";
+  return containerFile;
 }
 
 export function createFormSetupProposal(request: FormSetupRequest): FormSetupProposal {
@@ -186,90 +122,11 @@ export function createFormSetupProposal(request: FormSetupRequest): FormSetupPro
 }
 
 function createContainerFile(request: SetupRequest): GtmContainerExport {
-  const navigation = normalizeNavigation(request.navigation);
-  const accountId = request.container.accountId || "0";
-  const containerId = request.container.containerId || "0";
-  const base = `accounts/${accountId}/containers/${containerId}`;
-  const triggerId = "900001";
-  const tagId = "900002";
-  const pattern = scopedUrlPattern([...new Set(navigation.map((item) => item.href))]);
-
-  return {
-    exportFormatVersion: 2,
-    exportTime: new Date().toISOString(),
-    containerVersion: {
-      path: `${base}/versions/0`,
-      accountId,
-      containerId,
-      containerVersionId: "0",
-      name: "GTM Observability - Navigation click setup",
-      description: "Generated navigation_click tracking. Apply to the recognized managed workspace or import with Merge; never overwrite.",
-      container: {
-        path: base,
-        accountId,
-        containerId,
-        name: request.container.name || "GTM Observability import",
-        publicId: request.container.publicId,
-        usageContext: ["WEB"],
-      },
-      trigger: [
-        {
-          accountId,
-          containerId,
-          triggerId,
-          name: "CE - Navigation Links - Confirmed Scope",
-          type: "JUST_LINKS",
-          autoEventFilter: [
-            {
-              type: "MATCH_REGEX",
-              parameter: [
-                template("arg0", "{{Click URL}}"),
-                template("arg1", pattern),
-                { type: "BOOLEAN", key: "ignore_case", value: "false" },
-              ],
-            },
-          ],
-          waitForTags: { type: "BOOLEAN", value: "false" },
-          checkValidation: { type: "BOOLEAN", value: "true" },
-        },
-      ],
-      tag: [
-        {
-          accountId,
-          containerId,
-          tagId,
-          name: "GA4 Event - navigation_click",
-          type: "gaawe",
-          parameter: [
-            template("eventName", "navigation_click"),
-            template("measurementId", request.measurementId.toUpperCase()),
-            {
-              type: "LIST",
-              key: "eventParameters",
-              list: [
-                map([
-                  ["name", "link_text"],
-                  ["value", "{{Click Text}}"],
-                ]),
-                map([
-                  ["name", "link_url"],
-                  ["value", "{{Click URL}}"],
-                ]),
-              ],
-            },
-          ],
-          firingTriggerId: [triggerId],
-          tagFiringOption: "ONCE_PER_EVENT",
-          monitoringMetadata: { type: "MAP", map: [] },
-          consentSettings: { consentStatus: "NOT_SET" },
-        },
-      ],
-      builtInVariable: [
-        { accountId, containerId, type: "CLICK_TEXT", name: "Click Text" },
-        { accountId, containerId, type: "CLICK_URL", name: "Click URL" },
-      ],
-    },
-  };
+  const setup = navigationSetup(request, "setup_navigation_click");
+  const containerFile = compileTrackingSetup(setup, request.container).containerFile;
+  containerFile.containerVersion.name = "GTM Observability - Navigation click setup";
+  containerFile.containerVersion.description = "Generated navigation_click tracking. Apply to the recognized managed workspace or import with Merge; never overwrite.";
+  return containerFile;
 }
 
 export function createSetupProposal(request: SetupRequest): SetupProposal {

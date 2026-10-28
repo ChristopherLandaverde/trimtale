@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "issue": ".scratch/gtm-setup-engine/issues/29-calendly-completion-adapter.md",
+  "feature": "calendly_completion_adapter",
+  "trustedOrigin": "https://calendly.com",
+  "providerEvent": "calendly.event_scheduled",
+  "normalizedEvent": "calendly_booking_complete",
+  "recognizedEmbedType": "Inline",
+  "recognitionCases": [
+    {
+      "id": "standard_or_advanced_inline",
+      "url": "https://calendly.com/acme/demo?embed_domain=example.test&embed_type=Inline",
+      "recognized": true
+    },
+    {
+      "id": "direct_iframe",
+      "url": "https://calendly.com/acme/demo",
+      "recognized": false
+    },
+    {
+      "id": "popup_widget",
+      "url": "https://calendly.com/acme/demo?embed_type=PopupWidget",
+      "recognized": false
+    },
+    {
+      "id": "lookalike_origin",
+      "url": "https://calendly.com.attacker.example/acme/demo?embed_type=Inline",
+      "recognized": false
+    },
+    {
+      "id": "insecure_origin",
+      "url": "http://calendly.com/acme/demo?embed_type=Inline",
+      "recognized": false
+    },
+    {
+      "id": "malformed_url",
+      "url": "not a URL",
+      "recognized": false
+    }
+  ],
+  "messageCases": [
+    { "id": "wrong_origin", "result": "rejected" },
+    { "id": "wrong_source", "result": "rejected" },
+    { "id": "malformed_data", "result": "rejected" },
+    { "id": "non_completion", "result": "rejected" },
+    { "id": "documented_completion", "result": "accepted" },
+    { "id": "repeated_completion", "result": "rejected" }
+  ],
+  "forbiddenSentinels": [
+    "PRIVATE_INVITEE_EMAIL",
+    "PRIVATE_EVENT_URI",
+    "PRIVATE_START_TIME"
+  ]
+}

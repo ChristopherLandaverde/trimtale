@@ -1,22 +1,48 @@
 import {
   agentTurnForIntake,
+  CALENDLY_DATA_LAYER_EVENT,
+  CALENDLY_ORIGIN,
+  CALENDLY_PROVIDER_EVENT,
+  countKnownLinkInteractions,
+  createCalendlySetupProposal,
   createFormSetupProposal,
+  createKnownInteractionSetupProposal,
   createSetupProposal,
+  browserObservationsFromRunEvidence,
   determineFormVerdict,
+  evaluateBrowserEvidence,
   isAgentTurnV1,
+  isMeasurementPlanV1,
+  isCalendlyInlineUrl,
+  knownInteractionDefinition,
   normalizeFormRunEvidence,
   observeGtmRuntime,
   selectConversationSuccess,
+  selectConversationScope,
   selectConversationTarget,
   type BrowserEvidence,
+  type CalendlySetupProposalV1,
+  type AgentTurnContext,
   type AgentTaskStatus,
   type AgentTurnV1,
   type ConversationIntakeResult,
+  type ExactDraftBrowserRunV1,
   type FormCandidate,
+  type Ga4ActionReceiptV1,
+  type Ga4ConfigurationActionV1,
+  type Ga4ConfigurationPlanV1,
+  type KnownInteractionSetupProposalV1,
+  type KnownInteractionTypeV1,
+  type MeasurementPlanItemV1,
+  type MeasurementPlanV1,
   type NavigationArea,
   type NavigationElement,
+  type ProviderProgressProjectionV1,
   type SuccessEvidence,
   type SetupProposal,
+  type SetupAuthoringGroundingV1,
+  type SetupAuthoringInputV1,
+  type TrackingSetupV1,
   type TrackingRunEvidenceV1,
   type TrackingSpecificationV1,
 } from "@gtm-observability/core";
@@ -33,15 +59,28 @@ interface OverlayPreferences {
   collapsed: boolean;
 }
 
-interface ScanResponse { pageUrl: string; title: string; navigation: NavigationElement[]; }
+type JourneyStage = "define" | "review" | "apply" | "test" | "publish" | "verify";
+type ResumeCheckpoint = "approved_setup" | "planned" | "awaiting_preview" | "versioned" | "published";
 
-interface EvidencePathContext {
-  intentDetail: string;
-  inspectedDetail: string;
-  confirmedDetail: string;
-  setupGenerated: boolean;
-  setupDetail: string;
+interface ActiveJourneySnapshotV1 {
+  schemaVersion: 1;
+  origin: string;
+  requestId: string;
+  checkpoint: ResumeCheckpoint;
+  updatedAt: string;
+  intake: ConversationIntakeResult;
+  plan?: WorkflowPlanSummary;
+  preview?: {
+    operationId: string;
+    setupFingerprint: string;
+    workspaceFingerprint: string;
+    previewVersionFingerprint: string;
+  };
+  version?: { operationId: string; versionFingerprint: string };
+  publication?: { operationId: string; versionFingerprint: string; publishedAt: string };
 }
+
+interface ScanResponse { pageUrl: string; title: string; navigation: NavigationElement[]; }
 
 interface GtmWorkspaceResult {
   status: "available" | "capacity_blocked" | "ownership_conflict" | "created" | "reused" | "sync_conflict";
@@ -70,6 +109,146 @@ interface GtmBridgeResponse {
   containerWritesEnabled?: boolean;
 }
 
+interface PlanActionSummary {
+  kind: "tag" | "trigger" | "variable" | "builtInVariable";
+  action: "create" | "reuse" | "no_op" | "update" | "conflict";
+  generatedName: string;
+  reason?: "managed_change_requires_approval";
+  entitySignature?: string;
+  existingId?: string;
+  replacement?: {
+    currentFingerprint: string;
+    currentSemantics: string;
+    proposedSemantics: string;
+  };
+}
+
+interface WorkflowPlanSummary {
+  operationId: string;
+  status: "planned";
+  planStatus: "ready" | "conflict";
+  fingerprint: string;
+  actions: PlanActionSummary[];
+  replacementApproved?: boolean;
+}
+
+interface WorkflowPlanResponse {
+  ok: boolean;
+  error?: "invalid_request" | "planning_blocked" | "planning_unavailable" | "invalid_response" | "service_offline";
+  result?: WorkflowPlanSummary;
+  resumeOperationId?: string;
+}
+
+interface WorkflowResumeSummary {
+  operationId: string;
+  status: "awaiting_preview" | "versioned" | "published" | "blocked" | "paused" | "provider_progress";
+  stage?: "planning" | "application" | "validation" | "version";
+  validationStatus?: "passed";
+  versionFingerprint?: string;
+  nextStep?: "run_tag_assistant_preview" | "await_approval" | "verify_publication";
+  setupFingerprint?: string;
+  workspaceFingerprint?: string;
+  previewVersionFingerprint?: string;
+  publishedAt?: string;
+  providerProgress?: ProviderProgressProjectionV1;
+}
+
+interface WorkflowProgressResponse {
+  ok: boolean;
+  error?: "invalid_request" | "progress_unavailable" | "invalid_response" | "service_offline";
+  result?: ProviderProgressProjectionV1;
+}
+
+interface WorkflowResumeResponse {
+  ok: boolean;
+  error?: "invalid_request" | "workflow_unavailable" | "invalid_response" | "service_offline";
+  result?: WorkflowResumeSummary;
+}
+
+interface WorkflowRepairSummary {
+  operationId: string;
+  status: "repair_ready";
+  planFingerprint: string;
+  reasonCode: "workspace_entity_drift";
+  attempt: number;
+  maximumAttempts: number;
+  actions: PlanActionSummary[];
+}
+
+interface WorkflowRepairResponse {
+  ok: boolean;
+  error?: "invalid_request" | "repair_unavailable" | "repair_rejected" | "invalid_response" | "service_offline";
+  result?: WorkflowRepairSummary;
+}
+
+interface WorkflowPublicationSummary {
+  operationId: string;
+  status: "approved" | "published" | "provider_progress";
+  versionFingerprint?: string;
+  approvedAt?: string;
+  publishedAt?: string;
+  providerProgress?: ProviderProgressProjectionV1;
+}
+
+interface WorkflowPublicationResponse {
+  ok: boolean;
+  error?: "invalid_request" | "publication_disabled" | "publication_stale" | "publication_unavailable" | "invalid_response" | "service_offline";
+  result?: WorkflowPublicationSummary;
+}
+
+interface WorkflowLiveVerificationSummary {
+  operationId: string;
+  status: "published" | "completed" | "rollback_required";
+  nextStep: "verify_publication" | "complete" | "rollback";
+  versionFingerprint: string;
+  evidenceRunId: string;
+  targetVersionFingerprint?: string;
+}
+
+interface WorkflowLiveVerificationResponse {
+  ok: boolean;
+  error?: "invalid_request" | "verification_rejected" | "invalid_response" | "service_offline";
+  result?: WorkflowLiveVerificationSummary;
+}
+
+interface WorkflowRollbackSummary {
+  operationId: string;
+  status: "rolled_back" | "provider_progress";
+  nextStep?: "complete";
+  versionFingerprint?: string;
+  targetVersionFingerprint?: string;
+  completedAt?: string;
+  providerProgress?: ProviderProgressProjectionV1;
+}
+
+interface WorkflowRollbackResponse {
+  ok: boolean;
+  error?: "invalid_request" | "rollback_rejected" | "invalid_response" | "service_offline";
+  result?: WorkflowRollbackSummary;
+}
+
+interface SetupAuthoringResponse {
+  ok: boolean;
+  error?: "invalid_request" | "authoring_unavailable" | "authoring_rejected" | "invalid_response" | "service_offline";
+  result?: {
+    providerId: string;
+    eventName: string;
+    rationale: string;
+    suggestions: Array<{ name: string; classification: string; rationale: string }>;
+    setup: TrackingSetupV1;
+  };
+}
+
+interface Ga4ConfigurationResponse {
+  ok: boolean;
+  error?: "invalid_request" | "configuration_stale" | "writes_disabled" | "configuration_unavailable" | "invalid_response" | "service_offline";
+  result?: Ga4ConfigurationPlanV1 | {
+    status: "applied";
+    receipts: Ga4ActionReceiptV1[];
+    providerStateFingerprint: string;
+  };
+}
+
 interface GtmConnectionStatus {
   configured: boolean;
   connected: boolean;
@@ -81,17 +260,41 @@ interface GtmConnectionStatus {
   analyticsReadEnabled: boolean;
 }
 
+interface EnhancedMeasurementSettings {
+  stream: boolean;
+  pageViews: boolean;
+  scrolls: boolean;
+  outboundClicks: boolean;
+  siteSearch: boolean;
+  videoEngagement: boolean;
+  fileDownloads: boolean;
+  formInteractions: boolean;
+}
+
+interface EnhancedMeasurementAudit {
+  measurementId: string;
+  property: { propertyId: string; name: string };
+  stream: { streamId: string; name: string };
+  settings: EnhancedMeasurementSettings;
+  canEnable: boolean;
+}
+
 interface GtmConnectionContext {
   status: GtmConnectionStatus;
   containerIds: string[];
   recognitionError?: "recognition_unavailable";
   result?: GtmContainerResult;
+  enhancedMeasurement?: EnhancedMeasurementAudit;
+  enhancedMeasurementError?: "unavailable";
 }
 
 type GtmConnectionView =
   | { kind: "loading" }
   | { kind: "offline" }
   | { kind: "check_failed" }
+  | { kind: "product_sign_in" }
+  | { kind: "product_unconfigured" }
+  | { kind: "product_forbidden" }
   | { kind: "unconfigured"; containerIds: string[] }
   | { kind: "disconnected"; containerIds: string[] }
   | { kind: "no_container"; status: GtmConnectionStatus }
@@ -106,12 +309,9 @@ type GtmConnectionView =
     account: { accountId: string; name: string };
     container: { accountId: string; containerId: string; name: string; publicId: string };
     measurementIds: string[];
+    enhancedMeasurement?: EnhancedMeasurementAudit;
+    enhancedMeasurementError?: "unavailable";
   };
-
-interface EvidencePathHandle {
-  browserRow: HTMLElement;
-  platformRow: HTMLElement;
-}
 
 interface Ga4VerificationStarted {
   status: "started";
@@ -144,31 +344,108 @@ const analyticsPattern = /(?:google-analytics\.com|analytics\.google\.com)\/g\/c
 const evidence = new Map<string, BrowserEvidence>();
 let verificationScope = new Map<string, NavigationElement>();
 let preferences: OverlayPreferences = { width: 380, height: 260, collapsed: true };
+let verificationPresentationActive = false;
 let host: HTMLDivElement | undefined;
 let frame: HTMLElement | undefined;
 let responseList: HTMLElement | undefined;
 let composer: HTMLTextAreaElement | undefined;
 let gtmConnectionCard: HTMLElement | undefined;
+let journeyRail: HTMLElement | undefined;
+let journeyResumeCard: HTMLElement | undefined;
+let welcomeCard: HTMLElement | undefined;
+let artifactPanel: HTMLElement | undefined;
+let artifactBody: HTMLElement | undefined;
+let artifactToggle: HTMLButtonElement | undefined;
+let stopResponseButton: HTMLButtonElement | undefined;
 let port: chrome.runtime.Port | undefined;
 let targetHost: HTMLDivElement | undefined;
-interface PageTarget { id: string; label: string; selector: string; }
+interface PageTarget {
+  id: string;
+  label: string;
+  selector: string;
+  element?: Element;
+}
 let highlightedTargets: PageTarget[] = [];
 let highlightTone: "candidate" | "confirmed" = "candidate";
 const responseNodes = new Map<string, HTMLElement>();
 const agentTaskNodes = new Map<string, HTMLElement>();
+const approvedSetupRequests = new Set<string>();
+const completedJourneyRequests = new Set<string>();
+const completionSummaryByRequest = new Map<string, string>();
 const navigationByRequest = new Map<string, NavigationElement[]>();
 const requestTimeouts = new Map<string, number>();
 const intakeByRequest = new Map<string, ConversationIntakeResult>();
 const formsByRequest = new Map<string, FormCandidate[]>();
+const interactionCountsByRequest = new Map<
+  string,
+  Partial<Record<KnownInteractionTypeV1, number>>
+>();
+const interactionTargetsByRequest = new Map<
+  string,
+  Partial<Record<KnownInteractionTypeV1, PageTarget[]>>
+>();
+const calendlyEmbedCountByRequest = new Map<string, number>();
+const calendlyTargetsByRequest = new Map<string, PageTarget[]>();
 const recentFormRequests: Array<{ url: string; observedAt: string }> = [];
 let activeFormVerification: { requestId: string; intake: ConversationIntakeResult } | undefined;
-const evidencePaths = new Map<string, EvidencePathHandle>();
 const ga4VerificationByRequest = new Map<string, Ga4VerificationStarted>();
 const ga4ConfirmationAttempts = new Map<string, number>();
-const formVerdictMessages = new Map<string, HTMLElement>();
+const ga4FailuresByRequest = new Map<string, string>();
+const ga4PlansByRequest = new Map<string, Ga4ConfigurationPlanV1>();
+const workflowPlansByRequest = new Map<string, WorkflowPlanSummary>();
+const workflowRepairsByRequest = new Map<string, WorkflowRepairSummary>();
+const workflowPreviewByRequest = new Map<string, {
+  operationId: string;
+  setupFingerprint: string;
+  workspaceFingerprint: string;
+  previewVersionFingerprint: string;
+}>();
+const previewReadinessByRequest = new Map<string, {
+  operationId: string;
+  workspaceFingerprint: string;
+  previewVersionFingerprint: string;
+  publicId: string;
+  targetUrl: string;
+}>();
+const previewTargetByRequest = new Map<string, string>();
+const workflowVersionByRequest = new Map<string, {
+  operationId: string;
+  versionFingerprint: string;
+}>();
+const workflowPublicationByRequest = new Map<string, {
+  operationId: string;
+  versionFingerprint: string;
+  publishedAt: string;
+  evidenceRunId?: string;
+  targetVersionFingerprint?: string;
+}>();
+const authoredSetupByRequest = new Map<string, {
+  providerId: string;
+  eventName: string;
+  rationale: string;
+  suggestions: Array<{ name: string; classification: string; rationale: string }>;
+  setup: TrackingSetupV1;
+}>();
+let activeInteractionVerification: {
+  requestId: string;
+  intake: ConversationIntakeResult;
+  startedAt: string;
+  startedAtPerformance: number;
+} | undefined;
+let activeCalendlyVerification: {
+  requestId: string;
+  intake: ConversationIntakeResult;
+  startedAt: string;
+  startedAtPerformance: number;
+  completionObserved: boolean;
+} | undefined;
 let recognizedGtmContext: Extract<GtmConnectionView, { kind: "recognized" }> | undefined;
 let gtmConnectionLoaded = false;
 let gtmConnectionRequestSequence = 0;
+let connectionExpanded = false;
+let currentTaskRequestId: string | undefined;
+let pendingAssistantRequestId: string | undefined;
+const queuedPrompts: Array<{ prompt: string; node: HTMLElement }> = [];
 
 function successEvidenceFor(result: ConversationIntakeResult): SuccessEvidence | undefined {
   const signal = result.successSignal;
@@ -237,6 +514,151 @@ function formSetupProposal(result: ConversationIntakeResult) {
   });
 }
 
+function formWorkflowRequest(requestId: string, result: ConversationIntakeResult) {
+  const connected = connectedSetupContext();
+  if (!connected) {
+    return undefined;
+  }
+  const authored = authoredSetupByRequest.get(requestId);
+  if (authored?.setup.status === "confirmed") {
+    return { setup: authored.setup, container: connected.container };
+  }
+  const interactionProposal = interactionSetupProposal(result);
+  if (interactionProposal) return { setup: interactionProposal.setup, container: connected.container };
+  const calendlyProposal = calendlySetupProposal(result);
+  if (calendlyProposal) return { setup: calendlyProposal.setup, container: connected.container };
+  const specification = confirmedFormSpecification(result);
+  return specification ? { specification, ...connected } : undefined;
+}
+
+async function requestWorkflowPlan(
+  requestId: string,
+  result: ConversationIntakeResult,
+): Promise<WorkflowPlanResponse> {
+  const request = formWorkflowRequest(requestId, result);
+  if (!request) {
+    return { ok: false, error: "invalid_request" };
+  }
+  return chrome.runtime.sendMessage({
+    type: "GTM_WORKFLOW_PLAN_REQUEST",
+    request,
+  }) as Promise<WorkflowPlanResponse>;
+}
+
+async function requestWorkflowResume(
+  operationId: string,
+): Promise<WorkflowResumeResponse> {
+  return chrome.runtime.sendMessage({
+    type: "GTM_WORKFLOW_RESUME_REQUEST",
+    operationId,
+  }) as Promise<WorkflowResumeResponse>;
+}
+
+async function requestWorkflowProgress(
+  operationId: string,
+  presentation: { displayTimedOut?: boolean; browserReloaded?: boolean } = {},
+): Promise<WorkflowProgressResponse> {
+  return chrome.runtime.sendMessage({
+    type: "GTM_WORKFLOW_PROGRESS_REQUEST",
+    operationId,
+    ...presentation,
+  }) as Promise<WorkflowProgressResponse>;
+}
+
+async function requestReplacementApproval(
+  plan: WorkflowPlanSummary,
+): Promise<WorkflowPlanResponse> {
+  const entities = plan.actions.flatMap((action) => action.action === "conflict"
+    && action.reason === "managed_change_requires_approval"
+    && action.entitySignature
+    && action.existingId
+    && action.replacement
+    ? [{
+      kind: action.kind,
+      entitySignature: action.entitySignature,
+      existingId: action.existingId,
+      currentFingerprint: action.replacement.currentFingerprint,
+    }]
+    : []);
+  return chrome.runtime.sendMessage({
+    type: "GTM_WORKFLOW_APPROVE_REPLACEMENT_REQUEST",
+    operationId: plan.operationId,
+    planFingerprint: plan.fingerprint,
+    entities,
+  }) as Promise<WorkflowPlanResponse>;
+}
+
+async function requestWorkflowDraftVerification(
+  operationId: string,
+  run: ExactDraftBrowserRunV1,
+): Promise<{ ok: boolean; error?: string }> {
+  return chrome.runtime.sendMessage({
+    type: "GTM_WORKFLOW_VERIFY_DRAFT_REQUEST",
+    operationId,
+    run,
+  }) as Promise<{ ok: boolean; error?: string }>;
+}
+
+async function requestWorkflowRepair(
+  operationId: string,
+  run: ExactDraftBrowserRunV1,
+): Promise<WorkflowRepairResponse> {
+  return chrome.runtime.sendMessage({
+    type: "GTM_WORKFLOW_REPAIR_DRAFT_REQUEST",
+    operationId,
+    run,
+  }) as Promise<WorkflowRepairResponse>;
+}
+
+async function requestApplyWorkflowRepair(
+  operationId: string,
+  planFingerprint: string,
+): Promise<WorkflowResumeResponse> {
+  return chrome.runtime.sendMessage({
+    type: "GTM_WORKFLOW_APPLY_REPAIR_REQUEST",
+    operationId,
+    planFingerprint,
+  }) as Promise<WorkflowResumeResponse>;
+}
+
+async function requestWorkflowPublicationAction(
+  type: "GTM_WORKFLOW_APPROVE_PUBLICATION_REQUEST" | "GTM_WORKFLOW_PUBLISH_REQUEST",
+  operationId: string,
+  versionFingerprint: string,
+): Promise<WorkflowPublicationResponse> {
+  return chrome.runtime.sendMessage({
+    type,
+    operationId,
+    versionFingerprint,
+  }) as Promise<WorkflowPublicationResponse>;
+}
+
+async function requestLiveVerification(
+  operationId: string,
+  versionFingerprint: string,
+  evidence: TrackingRunEvidenceV1,
+): Promise<WorkflowLiveVerificationResponse> {
+  return chrome.runtime.sendMessage({
+    type: "GTM_WORKFLOW_VERIFY_PUBLICATION_REQUEST",
+    operationId,
+    versionFingerprint,
+    evidence,
+  }) as Promise<WorkflowLiveVerificationResponse>;
+}
+
+async function requestWorkflowRollback(
+  operationId: string,
+  versionFingerprint: string,
+  targetVersionFingerprint: string,
+): Promise<WorkflowRollbackResponse> {
+  return chrome.runtime.sendMessage({
+    type: "GTM_WORKFLOW_ROLLBACK_REQUEST",
+    operationId,
+    versionFingerprint,
+    targetVersionFingerprint,
+  }) as Promise<WorkflowRollbackResponse>;
+}
+
 function navigationSetupProposal(navigation: NavigationElement[]): SetupProposal | undefined {
   const connected = connectedSetupContext();
   const measurementId = connected?.measurementId ?? fixtureMeta("gtm-observability-measurement-id");
@@ -266,6 +688,147 @@ function formSetupDownloadHref(result: ConversationIntakeResult): string | undef
   return containerFileDownloadHref(proposal.containerFile);
 }
 
+function interactionSetupProposal(
+  result: ConversationIntakeResult,
+): KnownInteractionSetupProposalV1 | undefined {
+  const definition = knownInteractionDefinition(result.interaction);
+  if (!definition || !result.scope || !result.canConfirm) return undefined;
+  const connected = connectedSetupContext();
+  const measurementId = connected?.measurementId ?? fixtureMeta("gtm-observability-measurement-id");
+  const publicId = connected?.container.publicId ?? fixtureMeta("gtm-observability-container-id");
+  if (!measurementId || !publicId) return undefined;
+  return createKnownInteractionSetupProposal({
+    interaction: definition.interaction,
+    scope: result.scope,
+    pageUrl: location.href,
+    measurementId,
+    container: connected?.container
+      ?? { accountId: "0", containerId: "0", publicId, name: "GTM Observability import" },
+  });
+}
+
+function calendlySetupProposal(
+  result: ConversationIntakeResult,
+): CalendlySetupProposalV1 | undefined {
+  if (result.interaction !== "calendly_booking"
+    || result.scope !== "current_page"
+    || !result.canConfirm
+    || scanCalendlyInlineEmbeds().length !== 1) {
+    return undefined;
+  }
+  const connected = connectedSetupContext();
+  const measurementId = connected?.measurementId ?? fixtureMeta("gtm-observability-measurement-id");
+  const publicId = connected?.container.publicId ?? fixtureMeta("gtm-observability-container-id");
+  if (!measurementId || !publicId) {
+    return undefined;
+  }
+
+  return createCalendlySetupProposal({
+    scope: "current_page",
+    pageUrl: location.href,
+    measurementId,
+    container: connected?.container
+      ?? { accountId: "0", containerId: "0", publicId, name: "GTM Observability import" },
+  });
+}
+
+function generatedInteractionProposal(
+  result: ConversationIntakeResult,
+): KnownInteractionSetupProposalV1 | CalendlySetupProposalV1 | undefined {
+  return interactionSetupProposal(result) ?? calendlySetupProposal(result);
+}
+
+function setupAuthoringRequest(
+  requestId: string,
+  result: ConversationIntakeResult,
+): { input: SetupAuthoringInputV1; grounding: SetupAuthoringGroundingV1 } | undefined {
+  const proposal = interactionSetupProposal(result);
+  const definition = knownInteractionDefinition(result.interaction);
+  if (!proposal || !definition) return undefined;
+  return {
+    input: {
+      schemaVersion: 1,
+      requestId: `author_${requestId}`.slice(0, 128),
+      intent: proposal.setup.intent.statement,
+      businessOutcome: proposal.setup.intent.businessOutcome,
+      existingEventNames: [proposal.eventName],
+      firingPolicyCandidates: proposal.setup.firingPolicies.map((policy) => ({
+        id: policy.id,
+        label: `${definition.interactionLabel} — ${result.scope === "current_page" ? "current page" : "sitewide"}`,
+        sourceType: policy.source.type,
+      })),
+      valueCandidates: [],
+      privacy: { redactedValueCount: 1, truncatedLabelIds: [] },
+    },
+    grounding: {
+      setupId: `setup_authored_${definition.interaction}_${result.scope ?? "sitewide"}`,
+      measurementId: proposal.setup.tagActions[0]?.destination.type === "ga4"
+        ? proposal.setup.tagActions[0].destination.measurementId
+        : "",
+      firingPolicies: proposal.setup.firingPolicies.map((policy) => ({
+        candidateId: policy.id,
+        policy,
+      })),
+      values: [],
+      verification: proposal.setup.verification,
+      prohibitedOutputValues: [],
+    },
+  };
+}
+
+async function requestSetupAuthoring(
+  requestId: string,
+  result: ConversationIntakeResult,
+): Promise<SetupAuthoringResponse> {
+  const request = setupAuthoringRequest(requestId, result);
+  if (!request) return { ok: false, error: "invalid_request" };
+  return chrome.runtime.sendMessage({
+    type: "SETUP_AUTHORING_REQUEST",
+    ...request,
+  }) as Promise<SetupAuthoringResponse>;
+}
+
+function leadGa4Actions(): Ga4ConfigurationActionV1[] {
+  return [
+    {
+      id: "dimension_form_name",
+      type: "custom_dimension",
+      parameterName: "form_name",
+      displayName: "Form name",
+      description: "Name of the submitted lead form",
+      scope: "EVENT",
+    },
+    {
+      id: "key_event_generate_lead",
+      type: "key_event",
+      eventName: "generate_lead",
+      countingMethod: "ONCE_PER_EVENT",
+    },
+  ];
+}
+
+async function requestGa4Configuration(
+  operation: "plan" | "apply",
+  input: { measurementId: string } | { plan: Ga4ConfigurationPlanV1 },
+): Promise<Ga4ConfigurationResponse> {
+  return chrome.runtime.sendMessage({
+    type: "GA4_CONFIGURATION_REQUEST",
+    operation,
+    ...(operation === "plan"
+      ? {
+          id: "ga4_generate_lead_configuration",
+          measurementId: "measurementId" in input ? input.measurementId : "",
+          actions: leadGa4Actions(),
+        }
+      : { plan: "plan" in input ? input.plan : undefined }),
+  }) as Promise<Ga4ConfigurationResponse>;
+}
+
+function interactionSetupDownloadHref(result: ConversationIntakeResult): string | undefined {
+  const proposal = generatedInteractionProposal(result);
+  return proposal ? containerFileDownloadHref(proposal.compiled.containerFile) : undefined;
+}
+
 function formExplanation(
   verdict: TrackingRunEvidenceV1["verdict"],
   platformCheckStarted = false,
@@ -291,72 +854,102 @@ function analyticsFailureDetail(error: string | undefined): string {
   return "GA4 Realtime evidence is currently unavailable";
 }
 
+function renderPlatformState(
+  requestId: string,
+  state: {
+    status: "working" | "completed";
+    summary: string;
+    confirmation: "checking" | "passed" | "pending" | "unavailable";
+    nextAction: string;
+    explanation: string;
+    actions?: Array<{ id: string; label: string }>;
+  },
+): void {
+  const intake = intakeByRequest.get(requestId);
+  if (!intake) {
+    return;
+  }
+
+  renderFormTaskState(requestId, intake, {
+    status: state.status,
+    summary: state.summary,
+    verifyStatus: state.status === "working" ? "active" : "completed",
+    ...(state.actions ? { actions: state.actions } : {}),
+    result: {
+      verdict: "browser_verified",
+      browserVerification: "passed",
+      platformConfirmation: state.confirmation,
+      nextAction: state.nextAction,
+      explanation: state.explanation,
+    },
+  });
+}
+
 async function confirmGa4Platform(requestId: string): Promise<void> {
   const started = ga4VerificationByRequest.get(requestId);
-  const row = evidencePaths.get(requestId)?.platformRow;
-  if (!started || !row) return;
+  if (!started || !intakeByRequest.has(requestId)) {
+    return;
+  }
+
   const attempt = (ga4ConfirmationAttempts.get(requestId) ?? 0) + 1;
   ga4ConfirmationAttempts.set(requestId, attempt);
-  updateEvidenceStage(row, "pending", "Checking GA4 Realtime against the pre-run baseline…");
   const response = await requestGa4Verification({ operation: "confirm", verificationId: started.verificationId });
   const result = response.ok ? parseGa4Confirmation(response.result) : undefined;
   if (!result) {
     ga4ConfirmationAttempts.delete(requestId);
-    updateEvidenceStage(row, "failed", analyticsFailureDetail(response.error));
+    const detail = analyticsFailureDetail(response.error);
+    renderPlatformState(requestId, {
+      status: "completed",
+      summary: `Browser verification passed. ${detail}.`,
+      confirmation: "unavailable",
+      nextAction: "Check GA4 again when the read is available.",
+      explanation: `One generate_lead request was observed in the browser. ${detail}; no platform confirmation is claimed.`,
+      actions: [{ id: "retry-ga4-confirmation", label: "Check GA4 again" }],
+    });
     return;
   }
   if (result.status === "confirmed") {
     ga4VerificationByRequest.delete(requestId);
     ga4ConfirmationAttempts.delete(requestId);
-    updateEvidenceStage(
-      row,
-      "passed",
-      `GA4 Realtime count increased from ${result.baselineEventCount} to ${result.currentEventCount}. Aggregate correlation; no user or event-level identity.`,
-    );
-    const verdict = formVerdictMessages.get(requestId);
-    const intake = intakeByRequest.get(requestId);
-    if (verdict && intake) renderFormTaskState(requestId, intake, {
+    renderPlatformState(requestId, {
       status: "completed",
       summary: `Setup verified in the browser and confirmed in GA4 Realtime on ${result.property.name}.`,
-      verifyStatus: "completed",
-      result: {
-        verdict: "browser_verified",
-        browserVerification: "passed",
-        platformConfirmation: "passed",
-        nextAction: "No further verification action is required.",
-        explanation: "Browser verification passed because one generate_lead request was observed. GA4 Realtime then showed an aggregate count increase against the pre-run baseline.",
-      },
+      confirmation: "passed",
+      nextAction: "No further verification action is required.",
+      explanation: "Browser verification passed because one generate_lead request was observed. GA4 Realtime then showed an aggregate count increase against the pre-run baseline; no user or event-level identity is claimed.",
     });
     return;
   }
-  updateEvidenceStage(
-    row,
-    "pending",
-    `GA4 Realtime has not increased yet (${result.baselineEventCount} → ${result.currentEventCount}). ${attempt < 12 ? "Checking again automatically…" : "Check again when reporting catches up."}`,
-  );
+
+  const countDetail = `${result.baselineEventCount} → ${result.currentEventCount}`;
   if (attempt < 12) {
+    renderPlatformState(requestId, {
+      status: "working",
+      summary: `Browser verification passed. GA4 Realtime has not increased yet (${countDetail}); checking again automatically.`,
+      confirmation: "checking",
+      nextAction: "Wait for the next bounded GA4 Realtime check.",
+      explanation: "The browser request passed. Platform confirmation remains pending until the aggregate Realtime count increases.",
+    });
     window.setTimeout(() => void confirmGa4Platform(requestId), 5_000);
     return;
   }
-  const path = row.closest<HTMLElement>(".evidence-path");
-  path?.querySelector(".platform-action")?.remove();
-  const retry = document.createElement("button");
-  retry.className = "quick platform-action";
-  retry.textContent = "Check GA4 again";
-  retry.addEventListener("click", () => {
-    retry.remove();
-    void confirmGa4Platform(requestId);
-  }, { once: true });
-  path?.append(retry);
+
+  renderPlatformState(requestId, {
+    status: "completed",
+    summary: `Browser verification passed. GA4 Realtime is still unchanged (${countDetail}).`,
+    confirmation: "pending",
+    nextAction: "Check GA4 again when reporting catches up.",
+    explanation: "The browser request passed, but the aggregate GA4 Realtime count has not increased, so no platform confirmation is claimed.",
+    actions: [{ id: "retry-ga4-confirmation", label: "Check GA4 again" }],
+  });
 }
 
 async function prepareFormVerification(requestId: string, intake: ConversationIntakeResult): Promise<void> {
   recentFormRequests.length = 0;
-  const rows = evidencePaths.get(requestId);
-  if (rows) updateEvidenceStage(rows.browserRow, "pending", "Preparing a guided browser run…");
+  ga4FailuresByRequest.delete(requestId);
   const context = recognizedGtmContext;
-  if (rows && context?.status.analyticsReadEnabled && context.measurementIds.length === 1) {
-    updateEvidenceStage(rows.platformRow, "pending", "Recording the pre-run GA4 Realtime baseline…");
+  const livePublication = workflowPublicationByRequest.has(requestId);
+  if (!livePublication && context?.status.analyticsReadEnabled && context.measurementIds.length === 1) {
     const response = await requestGa4Verification({
       operation: "start",
       measurementId: context.measurementIds[0],
@@ -366,22 +959,200 @@ async function prepareFormVerification(requestId: string, intake: ConversationIn
     if (started && started.measurementId === context.measurementIds[0] && started.eventName === "generate_lead") {
       ga4VerificationByRequest.set(requestId, started);
       ga4ConfirmationAttempts.set(requestId, 0);
-      updateEvidenceStage(
-        rows.platformRow,
-        "pending",
-        `Baseline ${started.baselineEventCount} on ${started.property.name}; waiting for browser verification`,
-      );
     } else {
-      updateEvidenceStage(rows.platformRow, "failed", analyticsFailureDetail(response.error));
+      ga4FailuresByRequest.set(requestId, analyticsFailureDetail(response.error));
     }
   }
   activeFormVerification = { requestId, intake };
-  if (rows) updateEvidenceStage(rows.browserRow, "pending", "Waiting for one successful browser run…");
   renderFormTaskState(requestId, intake, {
     status: "working",
-    summary: "Verification is ready and watching for one successful browser run.",
+    summary: livePublication
+      ? "Live verification is watching the published container for one browser run."
+      : "Verification is ready and watching for one successful browser run.",
     verifyStatus: "active",
     question: `Submit ${intake.target?.label ?? "the selected form"} once.`,
+  });
+  showVerificationPresentation(requestId, intake);
+}
+
+function prepareInteractionVerification(requestId: string, intake: ConversationIntakeResult): void {
+  recentFormRequests.length = 0;
+  activeInteractionVerification = {
+    requestId,
+    intake,
+    startedAt: new Date().toISOString(),
+    startedAtPerformance: performance.now(),
+  };
+  renderFormTaskState(requestId, intake, {
+    status: "working",
+    summary: workflowPublicationByRequest.has(requestId)
+      ? "Live verification is watching the published container for one matching browser interaction and GA4 request."
+      : "Exact preview verification is watching for one matching browser interaction and GA4 request.",
+    verifyStatus: "active",
+    question: `Click one matching ${knownInteractionDefinition(intake.interaction)?.singular ?? "link"} on this page.`,
+  });
+  showVerificationPresentation(requestId, intake);
+}
+
+function prepareCalendlyVerification(requestId: string, intake: ConversationIntakeResult): void {
+  recentFormRequests.length = 0;
+  activeCalendlyVerification = {
+    requestId,
+    intake,
+    startedAt: new Date().toISOString(),
+    startedAtPerformance: performance.now(),
+    completionObserved: false,
+  };
+  renderFormTaskState(requestId, intake, {
+    status: "working",
+    summary: workflowPublicationByRequest.has(requestId)
+      ? "Live verification is watching the published container for one trusted Calendly completion and GA4 request."
+      : "Exact preview verification is watching for one trusted Calendly completion and GA4 request.",
+    verifyStatus: "active",
+    question: "Complete one real test booking in the Calendly inline embed.",
+  });
+  showVerificationPresentation(requestId, intake);
+}
+
+function ga4EventName(requestUrl: string): string | undefined {
+  try {
+    return new URL(requestUrl).searchParams.get("en")?.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function finishInteractionVerification(
+  active: NonNullable<typeof activeInteractionVerification>,
+): void {
+  if (activeInteractionVerification !== active) return;
+  activeInteractionVerification = undefined;
+  restoreVerificationPresentation();
+  const proposal = interactionSetupProposal(active.intake);
+  if (!proposal) return;
+  const urls = analyticsUrlsSince(active.startedAt, active.startedAtPerformance);
+  const consent = classifyConsent(document.documentElement.dataset.consent);
+  const provisional: Omit<TrackingRunEvidenceV1, "verdict"> = {
+    schemaVersion: 1,
+    runId: `run_${proposal.eventName}_${Date.now()}`,
+    specificationId: proposal.setup.id,
+    startedAt: active.startedAt,
+    observations: {
+      interaction: {
+        type: proposal.interaction,
+        targetId: `matching_${proposal.interaction}`,
+        attempted: true,
+        submissionResult: "success",
+      },
+      outcome: { observed: true, observable: true, evidenceType: proposal.interaction },
+      dataLayer: { matchingEvents: [] },
+      tagFired: urls.length > 0,
+      network: {
+        ga4Requests: urls.map((url) => ({ url, observedAt: new Date().toISOString() })),
+      },
+      consent: { analyticsStorage: consent },
+    },
+  };
+  const contract = proposal.setup.browserEvidence;
+  if (!contract) return;
+  const verdict = evaluateBrowserEvidence(
+    contract,
+    browserObservationsFromRunEvidence(provisional.observations),
+  );
+  const evidence: TrackingRunEvidenceV1 = {
+    ...provisional,
+    observations: {
+      ...provisional.observations,
+      network: {
+        ga4Requests: provisional.observations.network.ga4Requests
+          .filter(({ url }) => ga4EventName(url) === contract.request.eventName),
+      },
+    },
+    verdict,
+  };
+  const passed = verdict.browserVerification === "passed";
+  if (workflowPublicationByRequest.has(active.requestId)) {
+    void completeLiveVerification(active.requestId, active.intake, evidence);
+    return;
+  }
+  if (passed) {
+    void completeExactDraftVerification(active.requestId, active.intake, evidence);
+    return;
+  }
+  if (workflowPreviewByRequest.has(active.requestId)) {
+    void beginDraftRepair(active.requestId, active.intake, evidence);
+    return;
+  }
+  renderFormTaskState(active.requestId, active.intake, {
+    status: "blocked",
+    summary: "The exact browser run did not produce one privacy-safe matching GA4 request. No version was created.",
+    verifyStatus: "blocked",
+    question: evidence.verdict.nextAction,
+    actions: [{ id: "start-exact-interaction-preview", label: "Retry exact browser run" }],
+  });
+}
+
+function finishCalendlyVerification(
+  active: NonNullable<typeof activeCalendlyVerification>,
+): void {
+  if (activeCalendlyVerification !== active || !active.completionObserved) {
+    return;
+  }
+  activeCalendlyVerification = undefined;
+  restoreVerificationPresentation();
+  const proposal = calendlySetupProposal(active.intake);
+  if (!proposal?.setup.browserEvidence) {
+    return;
+  }
+  const urls = analyticsUrlsSince(active.startedAt, active.startedAtPerformance)
+    .filter((url) => ga4EventName(url) === CALENDLY_DATA_LAYER_EVENT);
+  const observedAt = new Date().toISOString();
+  const provisional: Omit<TrackingRunEvidenceV1, "verdict"> = {
+    schemaVersion: 1,
+    runId: `run_calendly_${Date.now()}`,
+    specificationId: proposal.setup.id,
+    startedAt: active.startedAt,
+    observations: {
+      interaction: {
+        type: "form_submission",
+        targetId: "calendly_inline_embed",
+        attempted: true,
+        submissionResult: "success",
+      },
+      outcome: {
+        observed: true,
+        observable: true,
+        evidenceType: "provider_completion",
+      },
+      dataLayer: { matchingEvents: [] },
+      tagFired: urls.length > 0,
+      network: { ga4Requests: urls.map((url) => ({ url, observedAt })) },
+      consent: { analyticsStorage: classifyConsent(document.documentElement.dataset.consent) },
+    },
+  };
+  const verdict = evaluateBrowserEvidence(
+    proposal.setup.browserEvidence,
+    browserObservationsFromRunEvidence(provisional.observations),
+  );
+  const evidence: TrackingRunEvidenceV1 = { ...provisional, verdict };
+  if (workflowPublicationByRequest.has(active.requestId)) {
+    void completeLiveVerification(active.requestId, active.intake, evidence);
+    return;
+  }
+  if (verdict.browserVerification === "passed") {
+    void completeExactDraftVerification(active.requestId, active.intake, evidence);
+    return;
+  }
+  if (workflowPreviewByRequest.has(active.requestId)) {
+    void beginDraftRepair(active.requestId, active.intake, evidence);
+    return;
+  }
+  renderFormTaskState(active.requestId, active.intake, {
+    status: "blocked",
+    summary: "The trusted Calendly completion did not produce one matching GA4 request. No version was created.",
+    verifyStatus: "blocked",
+    question: evidence.verdict.nextAction,
+    actions: [{ id: "start-exact-calendly-preview", label: "Retry exact browser run" }],
   });
 }
 
@@ -446,6 +1217,7 @@ function finishFormVerification(
   startedAt: string,
   startedAtPerformance: number,
 ): void {
+  restoreVerificationPresentation();
   const specification = confirmedFormSpecification(result);
   const target = result.target;
   const success = result.successSignal;
@@ -486,44 +1258,71 @@ function finishFormVerification(
     consent: classifyConsent(pageState.consent),
   }, provisionalVerdict);
   const verdict = determineFormVerdict(provisional.observations);
-  const rows = evidencePaths.get(requestId);
-  if (rows) {
-    updateEvidenceStage(
-      rows.browserRow,
-      verdict.browserVerification === "passed" ? "passed" : "failed",
-      verdict.browserVerification === "passed"
-        ? "Browser request verified — one generate_lead request observed"
-        : `${verdict.browserVerification === "inconclusive" ? "Inconclusive" : "Failed"} — ${verdict.nextAction}`,
-    );
-  }
+  const finalEvidence: TrackingRunEvidenceV1 = { ...provisional, verdict };
+  const platformFailure = ga4FailuresByRequest.get(requestId);
   const platformCheckStarted = verdict.browserVerification === "passed"
     && ga4VerificationByRequest.has(requestId);
-  if (verdict.browserVerification !== "passed" && ga4VerificationByRequest.delete(requestId) && rows) {
+  if (verdict.browserVerification !== "passed") {
+    ga4VerificationByRequest.delete(requestId);
     ga4ConfirmationAttempts.delete(requestId);
-    updateEvidenceStage(rows.platformRow, "failed", "Not checked because browser verification did not pass");
+    ga4FailuresByRequest.delete(requestId);
   }
   const passed = verdict.browserVerification === "passed";
+  if (workflowPublicationByRequest.has(requestId)) {
+    activeFormVerification = undefined;
+    ga4VerificationByRequest.delete(requestId);
+    ga4ConfirmationAttempts.delete(requestId);
+    ga4FailuresByRequest.delete(requestId);
+    void completeLiveVerification(requestId, result, finalEvidence);
+    return;
+  }
+  if (passed && workflowPreviewByRequest.has(requestId)) {
+    activeFormVerification = undefined;
+    ga4VerificationByRequest.delete(requestId);
+    ga4ConfirmationAttempts.delete(requestId);
+    ga4FailuresByRequest.delete(requestId);
+    void completeExactDraftVerification(requestId, result, finalEvidence);
+    return;
+  }
+  if (verdict.browserVerification === "failed" && workflowPreviewByRequest.has(requestId)) {
+    activeFormVerification = undefined;
+    ga4VerificationByRequest.delete(requestId);
+    ga4ConfirmationAttempts.delete(requestId);
+    ga4FailuresByRequest.delete(requestId);
+    void beginDraftRepair(requestId, result, finalEvidence);
+    return;
+  }
   const verdictMessage = renderFormTaskState(requestId, result, {
     status: platformCheckStarted ? "working" : passed ? "completed" : "blocked",
     summary: platformCheckStarted
       ? "Browser verification passed. I am checking the pre-run GA4 Realtime baseline now."
       : passed
-        ? "Browser verification passed. Platform confirmation is not available for this run."
+        ? platformFailure
+          ? `Browser verification passed. ${platformFailure}.`
+          : "Browser verification passed. Platform confirmation is not available for this run."
         : "This run did not verify the requested conversion safely.",
     verifyStatus: platformCheckStarted ? "active" : passed ? "completed" : "blocked",
     ...(!passed ? {
       question: verdict.nextAction,
       actions: [{ id: "start-form-verification", label: "Try verification again" }],
+    } : platformFailure ? {
+      question: "Retry when the Analytics read is available.",
+      actions: [{ id: "start-form-verification", label: "Try verification again" }],
     } : {}),
     result: {
       verdict: verdict.code,
       browserVerification: verdict.browserVerification,
-      platformConfirmation: platformCheckStarted ? "checking" : verdict.platformConfirmation,
+      platformConfirmation: platformCheckStarted
+        ? "checking"
+        : platformFailure
+          ? "unavailable"
+          : verdict.platformConfirmation,
       nextAction: verdict.nextAction,
-      explanation: formExplanation(verdict, platformCheckStarted),
+      explanation: platformFailure
+        ? `${formExplanation(verdict, platformCheckStarted)} ${platformFailure}.`
+        : formExplanation(verdict, platformCheckStarted),
     },
   });
-  formVerdictMessages.set(requestId, verdictMessage);
   window.requestAnimationFrame(() => verdictMessage.scrollIntoView({ block: "start" }));
   if (platformCheckStarted) void confirmGa4Platform(requestId);
   activeFormVerification = undefined;
@@ -643,6 +1442,43 @@ function scanForms(): FormCandidate[] {
   });
 }
 
+function scanKnownInteractions(): {
+  counts: Partial<Record<KnownInteractionTypeV1, number>>;
+  targets: Partial<Record<KnownInteractionTypeV1, PageTarget[]>>;
+} {
+  const links = [...document.querySelectorAll<HTMLAnchorElement | HTMLAreaElement>(
+    "a[href], area[href]",
+  )].filter((link) => !link.hidden && link.getAttribute("aria-hidden") !== "true");
+  const hrefs = links
+    .map((link) => link.getAttribute("href"))
+    .filter((href): href is string => href !== null);
+  const targets: Partial<Record<KnownInteractionTypeV1, PageTarget[]>> = {};
+
+  for (const link of links) {
+    const href = link.getAttribute("href");
+    if (!href) {
+      continue;
+    }
+    const matches = countKnownLinkInteractions(location.href, [href]);
+    for (const interaction of Object.keys(matches) as KnownInteractionTypeV1[]) {
+      const definition = knownInteractionDefinition(interaction);
+      if (!definition) {
+        continue;
+      }
+      const items = targets[interaction] ?? [];
+      items.push({
+        id: `known_${interaction}_${items.length + 1}`,
+        label: definition.singular,
+        selector: "",
+        element: link,
+      });
+      targets[interaction] = items;
+    }
+  }
+
+  return { counts: countKnownLinkInteractions(location.href, hrefs), targets };
+}
+
 function inspectGtmRuntime() {
   try {
     return observeGtmRuntime({
@@ -671,6 +1507,253 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isBoundedText(value: unknown, maximum = 256): value is string {
   return typeof value === "string" && value.trim().length > 0 && value.length <= maximum;
+}
+
+const journeyStages: Array<{ id: JourneyStage; label: string }> = [
+  { id: "define", label: "Define" },
+  { id: "review", label: "Review" },
+  { id: "apply", label: "Apply" },
+  { id: "test", label: "Test" },
+  { id: "publish", label: "Publish" },
+  { id: "verify", label: "Verify" },
+];
+
+const resumableInteractions = new Set<ConversationIntakeResult["interaction"]>([
+  "form_submission",
+  "phone_click",
+  "email_click",
+  "outbound_click",
+  "file_download",
+  "calendly_booking",
+]);
+
+function journeyGoal(intake: ConversationIntakeResult): string {
+  const definition = knownInteractionDefinition(intake.interaction);
+  if (definition) {
+    return `${definition.interactionLabel} tracking`;
+  }
+  if (intake.interaction === "calendly_booking") {
+    return "Calendly completion tracking";
+  }
+  return "Form submission tracking";
+}
+
+function sanitizeResumeIntake(intake: ConversationIntakeResult): ConversationIntakeResult | undefined {
+  if (!intake.canConfirm || !resumableInteractions.has(intake.interaction)) {
+    return undefined;
+  }
+  const successSignals = intake.target?.successSignals.map((signal) => ({
+    ...signal,
+    label: "Confirmed success",
+  }));
+  const target = intake.target && successSignals
+    ? {
+        ...intake.target,
+        label: "Confirmed form",
+        successSignals,
+      }
+    : undefined;
+  const successSignal = intake.successSignal
+    ? { ...intake.successSignal, label: "Confirmed success" }
+    : undefined;
+  return {
+    interaction: intake.interaction,
+    state: "draft_ready",
+    canConfirm: true,
+    ...(intake.eventName ? { eventName: intake.eventName } : {}),
+    ...(intake.scope ? { scope: intake.scope } : {}),
+    ...(target ? { target } : {}),
+    ...(successSignal ? { successSignal } : {}),
+    options: [],
+  };
+}
+
+function parseResumeIntake(value: unknown): ConversationIntakeResult | undefined {
+  if (!isRecord(value)
+    || value.canConfirm !== true
+    || value.state !== "draft_ready"
+    || !resumableInteractions.has(value.interaction as ConversationIntakeResult["interaction"])
+    || !Array.isArray(value.options)
+    || value.options.length !== 0) {
+    return undefined;
+  }
+  if (value.scope !== undefined && value.scope !== "sitewide" && value.scope !== "current_page") {
+    return undefined;
+  }
+  const interaction = value.interaction as ConversationIntakeResult["interaction"];
+  const eventName = value.eventName;
+  if (eventName !== undefined && !isBoundedText(eventName, 64)) {
+    return undefined;
+  }
+  const parseSignal = (signal: unknown): FormCandidate["successSignals"][number] | undefined => {
+    if (!isRecord(signal)
+      || !isBoundedText(signal.id, 128)
+      || signal.label !== "Confirmed success"
+      || !["visible_element", "thank_you_url", "data_layer_event", "same_page_success"].includes(String(signal.type))
+      || !isBoundedText(signal.value, 2048)) {
+      return undefined;
+    }
+    return signal as unknown as FormCandidate["successSignals"][number];
+  };
+  let target: FormCandidate | undefined;
+  if (value.target !== undefined) {
+    if (!isRecord(value.target)
+      || !isBoundedText(value.target.id, 128)
+      || value.target.label !== "Confirmed form"
+      || !isBoundedText(value.target.selector, 2048)
+      || !isBoundedText(value.target.pageUrl, 2048)
+      || !Array.isArray(value.target.successSignals)
+      || value.target.successSignals.length > 20) {
+      return undefined;
+    }
+    const signals = value.target.successSignals.map(parseSignal);
+    if (signals.some((signal) => !signal)) {
+      return undefined;
+    }
+    target = {
+      id: value.target.id,
+      label: "Confirmed form",
+      selector: value.target.selector,
+      pageUrl: value.target.pageUrl,
+      successSignals: signals as FormCandidate["successSignals"],
+    };
+  }
+  const successSignal = value.successSignal === undefined ? undefined : parseSignal(value.successSignal);
+  if (value.successSignal !== undefined && !successSignal) {
+    return undefined;
+  }
+  return {
+    interaction,
+    state: "draft_ready",
+    canConfirm: true,
+    ...(eventName ? { eventName: eventName as NonNullable<ConversationIntakeResult["eventName"]> } : {}),
+    ...(value.scope ? { scope: value.scope as NonNullable<ConversationIntakeResult["scope"]> } : {}),
+    ...(target ? { target } : {}),
+    ...(successSignal ? { successSignal } : {}),
+    options: [],
+  };
+}
+
+function parsePlanAction(value: unknown): PlanActionSummary | undefined {
+  if (!isRecord(value)
+    || !["tag", "trigger", "variable", "builtInVariable"].includes(String(value.kind))
+    || !["create", "reuse", "no_op", "update", "conflict"].includes(String(value.action))
+    || !isBoundedText(value.generatedName, 512)) {
+    return undefined;
+  }
+  return value as unknown as PlanActionSummary;
+}
+
+function parseResumePlan(value: unknown): WorkflowPlanSummary | undefined {
+  if (!isRecord(value)
+    || !isBoundedText(value.operationId, 128)
+    || value.status !== "planned"
+    || value.planStatus !== "ready"
+    || !isBoundedText(value.fingerprint, 256)
+    || !Array.isArray(value.actions)
+    || value.actions.length > 100) {
+    return undefined;
+  }
+  const actions = value.actions.map(parsePlanAction);
+  if (actions.some((action) => !action)) {
+    return undefined;
+  }
+  return {
+    operationId: value.operationId,
+    status: "planned",
+    planStatus: "ready",
+    fingerprint: value.fingerprint,
+    actions: actions as PlanActionSummary[],
+    ...(value.replacementApproved === true ? { replacementApproved: true } : {}),
+  };
+}
+
+function parseJourneySnapshot(value: unknown): ActiveJourneySnapshotV1 | undefined {
+  if (!isRecord(value)
+    || value.schemaVersion !== 1
+    || !isBoundedText(value.origin, 2048)
+    || !isBoundedText(value.requestId, 128)
+    || !["approved_setup", "planned", "awaiting_preview", "versioned", "published"].includes(String(value.checkpoint))
+    || !isBoundedText(value.updatedAt, 64)) {
+    return undefined;
+  }
+  const intake = parseResumeIntake(value.intake);
+  if (!intake) {
+    return undefined;
+  }
+  const base = {
+    schemaVersion: 1 as const,
+    origin: value.origin,
+    requestId: value.requestId,
+    checkpoint: value.checkpoint as ResumeCheckpoint,
+    updatedAt: value.updatedAt,
+    intake,
+  };
+  if (base.checkpoint === "approved_setup") {
+    return base;
+  }
+  if (base.checkpoint === "planned") {
+    const plan = parseResumePlan(value.plan);
+    return plan ? { ...base, plan } : undefined;
+  }
+  const parseBinding = (binding: unknown, fields: string[]): Record<string, string> | undefined => {
+    if (!isRecord(binding)) {
+      return undefined;
+    }
+    const parsed: Record<string, string> = {};
+    for (const field of fields) {
+      if (!isBoundedText(binding[field], field === "publishedAt" ? 64 : 256)) {
+        return undefined;
+      }
+      parsed[field] = binding[field];
+    }
+    return parsed;
+  };
+  if (base.checkpoint === "awaiting_preview") {
+    const preview = parseBinding(value.preview, [
+      "operationId", "setupFingerprint", "workspaceFingerprint", "previewVersionFingerprint",
+    ]);
+    return preview
+      ? { ...base, preview: preview as NonNullable<ActiveJourneySnapshotV1["preview"]> }
+      : undefined;
+  }
+  if (base.checkpoint === "versioned") {
+    const version = parseBinding(value.version, ["operationId", "versionFingerprint"]);
+    return version
+      ? { ...base, version: version as NonNullable<ActiveJourneySnapshotV1["version"]> }
+      : undefined;
+  }
+  const publication = parseBinding(value.publication, ["operationId", "versionFingerprint", "publishedAt"]);
+  return publication
+    ? { ...base, publication: publication as NonNullable<ActiveJourneySnapshotV1["publication"]> }
+    : undefined;
+}
+
+function saveJourneySnapshot(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  checkpoint: ResumeCheckpoint,
+  detail: Pick<ActiveJourneySnapshotV1, "plan" | "preview" | "version" | "publication"> = {},
+): void {
+  const persistedIntake = sanitizeResumeIntake(intake);
+  if (!persistedIntake) {
+    return;
+  }
+  const snapshot: ActiveJourneySnapshotV1 = {
+    schemaVersion: 1,
+    origin: location.origin,
+    requestId,
+    checkpoint,
+    updatedAt: new Date().toISOString(),
+    intake: persistedIntake,
+    ...detail,
+  };
+  void chrome.storage.local.set({ activeJourney: snapshot });
+}
+
+function clearJourneySnapshot(): void {
+  void chrome.storage.local.remove("activeJourney");
+  journeyResumeCard?.setAttribute("hidden", "");
 }
 
 function parseConnectionStatus(value: unknown): GtmConnectionStatus | undefined {
@@ -750,7 +1833,35 @@ function parseConnectionContext(value: unknown, observedContainerIds: string[]):
   const result = parseConnectionResult(value.recognition.result, containerIds[0]!);
   if (!result || typeof value.recognition.containerWritesEnabled !== "boolean"
     || value.recognition.containerWritesEnabled !== status.containerWritesEnabled) return undefined;
-  return { status, containerIds, result };
+  if (value.enhancedMeasurementError !== undefined
+    && value.enhancedMeasurementError !== "unavailable") {
+    return undefined;
+  }
+  if (value.enhancedMeasurement !== undefined && value.enhancedMeasurementError !== undefined) {
+    return undefined;
+  }
+  const measurementId = result.status === "recognized" && result.measurementIds?.length === 1
+    ? result.measurementIds[0]
+    : undefined;
+  if ((value.enhancedMeasurement !== undefined || value.enhancedMeasurementError !== undefined)
+    && (!status.analyticsReadEnabled || !measurementId)) {
+    return undefined;
+  }
+  const enhancedMeasurement = value.enhancedMeasurement === undefined
+    ? undefined
+    : parseEnhancedMeasurement(value.enhancedMeasurement, measurementId!);
+  const enhancedMeasurementError = value.enhancedMeasurementError === "unavailable"
+    || (value.enhancedMeasurement !== undefined && !enhancedMeasurement)
+    ? "unavailable" as const
+    : undefined;
+
+  return {
+    status,
+    containerIds,
+    result,
+    ...(enhancedMeasurement ? { enhancedMeasurement } : {}),
+    ...(enhancedMeasurementError ? { enhancedMeasurementError } : {}),
+  };
 }
 
 function parseAnalyticsResource(
@@ -760,6 +1871,66 @@ function parseAnalyticsResource(
   if (!isRecord(value) || !isBoundedText(value[idKey], 64) || !/^\d+$/.test(value[idKey])
     || !isBoundedText(value.name)) return undefined;
   return { id: value[idKey], name: value.name };
+}
+
+function parseEnhancedSettings(value: unknown): EnhancedMeasurementSettings | undefined {
+  if (!isRecord(value)
+    || typeof value.stream !== "boolean"
+    || typeof value.pageViews !== "boolean"
+    || typeof value.scrolls !== "boolean"
+    || typeof value.outboundClicks !== "boolean"
+    || typeof value.siteSearch !== "boolean"
+    || typeof value.videoEngagement !== "boolean"
+    || typeof value.fileDownloads !== "boolean"
+    || typeof value.formInteractions !== "boolean") {
+    return undefined;
+  }
+
+  return {
+    stream: value.stream,
+    pageViews: value.pageViews,
+    scrolls: value.scrolls,
+    outboundClicks: value.outboundClicks,
+    siteSearch: value.siteSearch,
+    videoEngagement: value.videoEngagement,
+    fileDownloads: value.fileDownloads,
+    formInteractions: value.formInteractions,
+  };
+}
+
+function parseEnhancedMeasurement(
+  value: unknown,
+  measurementId: string,
+): EnhancedMeasurementAudit | undefined {
+  if (!isRecord(value) || value.measurementId !== measurementId) {
+    return undefined;
+  }
+  const property = parseAnalyticsResource(value.property, "propertyId");
+  const stream = parseAnalyticsResource(value.stream, "streamId");
+  const settings = parseEnhancedSettings(value.settings);
+  if (!property || !stream || !settings) {
+    return undefined;
+  }
+
+  return {
+    measurementId,
+    property: { propertyId: property.id, name: property.name },
+    stream: { streamId: stream.id, name: stream.name },
+    settings,
+    canEnable: value.canEnable === true,
+  };
+}
+
+function parseEnhancedEnable(value: unknown, measurementId: string): EnhancedMeasurementAudit | undefined {
+  if (!isRecord(value) || (value.status !== "enabled" && value.status !== "already_enabled")) {
+    return undefined;
+  }
+  const audit = parseEnhancedMeasurement(value.audit, measurementId);
+  if (!audit || !audit.settings.stream) {
+    return undefined;
+  }
+
+  return { ...audit, canEnable: false };
 }
 
 function parseGa4Started(value: unknown): Ga4VerificationStarted | undefined {
@@ -830,6 +2001,27 @@ async function requestGa4Verification(message: Record<string, unknown>): Promise
   }
 }
 
+async function requestEnhancedEnable(measurementId: string): Promise<{
+  ok: boolean;
+  error?: string;
+  result?: unknown;
+}> {
+  try {
+    const response: unknown = await chrome.runtime.sendMessage({
+      type: "GA4_ENHANCED_MEASUREMENT_REQUEST",
+      measurementId,
+    });
+    if (!isRecord(response) || typeof response.ok !== "boolean") {
+      return { ok: false, error: "invalid_response" };
+    }
+    return response.ok
+      ? { ok: true, result: response.result }
+      : { ok: false, error: "unavailable" };
+  } catch {
+    return { ok: false, error: "service_offline" };
+  }
+}
+
 function effectiveAccess(status: GtmConnectionStatus): string {
   if (status.publicationEnabled) return "Publish enabled";
   if (status.containerWritesEnabled) return "Edit access";
@@ -853,9 +2045,111 @@ function appendConnectionRow(parent: HTMLElement, label: string, value: string):
   parent.append(row);
 }
 
+const enhancedFeatures: Array<{
+  key: Exclude<keyof EnhancedMeasurementSettings, "stream">;
+  label: string;
+}> = [
+  { key: "pageViews", label: "SPA page views" },
+  { key: "scrolls", label: "Scrolls" },
+  { key: "outboundClicks", label: "Outbound clicks" },
+  { key: "siteSearch", label: "Site search" },
+  { key: "videoEngagement", label: "Video engagement" },
+  { key: "fileDownloads", label: "File downloads" },
+  { key: "formInteractions", label: "Form interactions" },
+];
+
+function appendEnhancedRows(
+  parent: HTMLElement,
+  audit?: EnhancedMeasurementAudit,
+  error?: "unavailable",
+): void {
+  if (error === "unavailable") {
+    appendConnectionRow(parent, "Enhanced measurement", "Enhanced measurement check unavailable");
+    return;
+  }
+  if (!audit) {
+    return;
+  }
+  const enabled = audit.settings.stream
+    ? enhancedFeatures.filter(({ key }) => audit.settings[key]).length
+    : 0;
+  const missing = enhancedFeatures
+    .filter(({ key }) => !audit.settings.stream || !audit.settings[key])
+    .map(({ label }) => label);
+  const summary = audit.settings.stream
+    ? `${enabled} of ${enhancedFeatures.length} automatic features on`
+    : `Master switch off · 0 of ${enhancedFeatures.length} active`;
+
+  appendConnectionRow(parent, "Enhanced measurement", summary);
+  appendConnectionRow(
+    parent,
+    "Coverage gaps",
+    missing.length === 0 ? "No automatic coverage gaps" : missing.join(" · "),
+  );
+}
+
+function renderEnhancedReview(parent: HTMLElement, audit: EnhancedMeasurementAudit): void {
+  parent.querySelector(".enhanced-review")?.remove();
+  const review = document.createElement("div");
+  review.className = "enhanced-review";
+  review.setAttribute("role", "region");
+  review.setAttribute("aria-label", "Enhanced measurement review");
+  const heading = document.createElement("strong");
+  heading.textContent = "Review enhanced measurement";
+  appendConnectionRow(review, "GA4", audit.measurementId);
+  appendConnectionRow(review, "Property", audit.property.name);
+  appendConnectionRow(review, "Stream", audit.stream.name);
+  const boundary = document.createElement("p");
+  boundary.textContent = "This enables only the master switch. Individual feature toggles stay unchanged. GTM will not change.";
+  const actions = document.createElement("div");
+  actions.className = "quick-actions";
+  const enable = document.createElement("button");
+  enable.className = "quick primary-quick";
+  enable.textContent = "Enable enhanced measurement";
+  const cancel = document.createElement("button");
+  cancel.className = "quick";
+  cancel.textContent = "Cancel";
+  cancel.addEventListener("click", () => {
+    if (recognizedGtmContext) {
+      renderGtmConnection(recognizedGtmContext);
+    }
+  });
+  enable.addEventListener("click", async () => {
+    enable.disabled = true;
+    enable.textContent = "Enabling…";
+    const response = await requestEnhancedEnable(audit.measurementId);
+    const result = response.ok ? parseEnhancedEnable(response.result, audit.measurementId) : undefined;
+    if (!result || !recognizedGtmContext) {
+      enable.disabled = false;
+      enable.textContent = "Retry enablement";
+      boundary.textContent = "The change could not be verified. The master switch remains off; no success was assumed.";
+      return;
+    }
+
+    recognizedGtmContext = { ...recognizedGtmContext, enhancedMeasurement: result };
+    renderGtmConnection(recognizedGtmContext);
+  });
+  actions.append(enable, cancel);
+  review.prepend(heading);
+  review.append(boundary, actions);
+  parent.replaceChildren(review);
+}
+
+function appendEnhancedAction(parent: HTMLElement, audit?: EnhancedMeasurementAudit): void {
+  if (!audit?.canEnable || audit.settings.stream) {
+    return;
+  }
+  const review = document.createElement("button");
+  review.className = "quick";
+  review.textContent = "Review enhanced measurement";
+  review.addEventListener("click", () => renderEnhancedReview(parent, audit));
+  parent.append(review);
+}
+
 function renderGtmConnection(view: GtmConnectionView): void {
   if (!gtmConnectionCard) return;
   gtmConnectionCard.replaceChildren();
+  gtmConnectionCard.classList.toggle("compact", view.kind === "recognized");
   const heading = document.createElement("div");
   heading.className = "gtm-context-heading";
   const title = document.createElement("strong");
@@ -880,6 +2174,41 @@ function renderGtmConnection(view: GtmConnectionView): void {
   if (view.kind === "loading") {
     badge.textContent = "Checking";
     summary.textContent = "Checking authorized GTM access…";
+  } else if (view.kind === "product_sign_in") {
+    badge.textContent = "Sign in";
+    badge.classList.add("warning");
+    summary.textContent = "GTM Observability sign-in required";
+    note.textContent = "Product sign-in and Google authorization are separate.";
+    const signIn = document.createElement("button");
+    signIn.className = "quick primary-quick";
+    signIn.textContent = "Sign in";
+    signIn.addEventListener("click", async () => {
+      signIn.disabled = true;
+      signIn.textContent = "Signing in…";
+      const response: unknown = await chrome.runtime.sendMessage({ type: "PRODUCT_AUTH_SIGN_IN_REQUEST" })
+        .catch(() => undefined);
+      if (isRecord(response) && response.ok === true) {
+        gtmConnectionLoaded = false;
+        await loadGtmConnectionContext(true);
+        return;
+      }
+      signIn.disabled = false;
+      signIn.textContent = "Retry sign-in";
+      note.textContent = isRecord(response) && response.error === "authentication_unconfigured"
+        ? "Product sign-in is not configured for this extension build."
+        : "Sign-in did not complete. No product access was assumed.";
+    });
+    body.append(signIn);
+  } else if (view.kind === "product_unconfigured") {
+    badge.textContent = "Not configured";
+    badge.classList.add("warning");
+    summary.textContent = "GTM Observability sign-in is not configured";
+    note.textContent = "An operator must configure the Clerk public OAuth client for this extension build.";
+  } else if (view.kind === "product_forbidden") {
+    badge.textContent = "Access denied";
+    badge.classList.add("warning");
+    summary.textContent = "Authorized organization membership required";
+    note.textContent = "This account is not an active member of the organization configured for this deployment.";
   } else if (view.kind === "offline") {
     badge.textContent = "Service offline";
     badge.classList.add("warning");
@@ -935,20 +2264,52 @@ function renderGtmConnection(view: GtmConnectionView): void {
     note.textContent = `${view.matchCount} accessible containers matched. None was selected.`;
   } else {
     badge.textContent = effectiveAccess(view.status);
-    summary.textContent = "GTM API authorization connected";
-    appendConnectionRow(body, "Page", view.publicId);
-    appendConnectionRow(body, "Account", view.account.name);
-    appendConnectionRow(body, "Container", view.container.name);
+    summary.textContent = `${view.container.name} · ${view.publicId}`;
+    const details = document.createElement("div");
+    details.className = "gtm-context-details";
+    details.hidden = !connectionExpanded;
+    appendConnectionRow(details, "Page", view.publicId);
+    appendConnectionRow(details, "Account", view.account.name);
+    appendConnectionRow(details, "Container", view.container.name);
     appendConnectionRow(
-      body,
+      details,
       "GA4",
       view.measurementIds.length > 0 ? view.measurementIds.join(" · ") : "No live destination found",
     );
-    note.textContent = `${accessExplanation(view.status)} Analytics reads are ${view.status.analyticsReadEnabled ? "enabled" : "off"}.`;
+    appendEnhancedRows(details, view.enhancedMeasurement, view.enhancedMeasurementError);
+    appendEnhancedAction(details, view.enhancedMeasurement);
+    const leadBoundary = view.enhancedMeasurement
+      ? " Confirmed lead outcomes remain separate."
+      : "";
+    const analyticsAccess = view.enhancedMeasurement?.canEnable
+      ? " Analytics edit is limited to the reviewed master switch."
+      : ` Analytics reads are ${view.status.analyticsReadEnabled ? "enabled" : "off"}.`;
+    note.textContent = `${accessExplanation(view.status)}${analyticsAccess}${leadBoundary}`;
+    details.append(note);
+    body.append(details);
+    const toggle = document.createElement("button");
+    toggle.className = "gtm-context-toggle";
+    toggle.textContent = connectionExpanded ? "Less" : "More";
+    toggle.setAttribute(
+      "aria-label",
+      connectionExpanded ? "Hide connection details" : "Show connection details",
+    );
+    toggle.setAttribute("aria-expanded", String(connectionExpanded));
+    toggle.addEventListener("click", () => {
+      connectionExpanded = !connectionExpanded;
+      details.hidden = !connectionExpanded;
+      toggle.textContent = connectionExpanded ? "Less" : "More";
+      toggle.setAttribute(
+        "aria-label",
+        connectionExpanded ? "Hide connection details" : "Show connection details",
+      );
+      toggle.setAttribute("aria-expanded", String(connectionExpanded));
+    });
+    controls.prepend(toggle);
   }
 
   body.prepend(summary);
-  if (note.textContent) body.append(note);
+  if (view.kind !== "recognized" && note.textContent) body.append(note);
   gtmConnectionCard.append(heading, body);
 }
 
@@ -972,6 +2333,18 @@ async function loadGtmConnectionContext(force = false): Promise<void> {
   gtmConnectionLoaded = true;
   if (isRecord(raw) && raw.ok === false && raw.error === "service_offline") {
     renderGtmConnection({ kind: "offline" });
+    return;
+  }
+  if (isRecord(raw) && raw.ok === false && raw.error === "authentication_required") {
+    renderGtmConnection({ kind: "product_sign_in" });
+    return;
+  }
+  if (isRecord(raw) && raw.ok === false && raw.error === "authentication_unconfigured") {
+    renderGtmConnection({ kind: "product_unconfigured" });
+    return;
+  }
+  if (isRecord(raw) && raw.ok === false && raw.error === "organization_forbidden") {
+    renderGtmConnection({ kind: "product_forbidden" });
     return;
   }
   const context = parseConnectionContext(raw, containerIds);
@@ -1020,6 +2393,10 @@ async function loadGtmConnectionContext(force = false): Promise<void> {
       account: context.result.account,
       container: context.result.container,
       measurementIds: context.result.measurementIds ?? [],
+      ...(context.enhancedMeasurement ? { enhancedMeasurement: context.enhancedMeasurement } : {}),
+      ...(context.enhancedMeasurementError
+        ? { enhancedMeasurementError: context.enhancedMeasurementError }
+        : {}),
     };
     recognizedGtmContext = view;
     renderGtmConnection(view);
@@ -1028,67 +2405,23 @@ async function loadGtmConnectionContext(force = false): Promise<void> {
   renderGtmConnection({ kind: "check_failed" });
 }
 
-function updateEvidenceStage(
-  row: HTMLElement,
-  state: "passed" | "pending" | "failed",
-  detail: string,
-): void {
-  row.classList.toggle("passed", state === "passed");
-  row.classList.toggle("pending", state === "pending");
-  row.classList.toggle("failed", state === "failed");
-  const icon = row.querySelector("i");
-  const copy = row.querySelector("small");
-  if (icon) icon.textContent = state === "passed" ? "✓" : state === "failed" ? "×" : "○";
-  if (copy) copy.textContent = detail;
-}
-
-function workspaceResultDetail(result: GtmContainerResult): string {
-  const workspace = result.workspace;
-  if (!workspace) return "Container matched; workspace state unavailable";
-  if (workspace.status === "available" && workspace.action === "reuse") {
-    return `${workspace.workspace?.name ?? "Managed workspace"} is ready to reuse (${workspace.workspaceCount}/3 slots occupied)`;
-  }
-  if (workspace.status === "available") {
-    return `Managed workspace can be prepared (${workspace.workspaceCount}/3 slots occupied)`;
-  }
-  if (workspace.status === "created") {
-    return `${workspace.workspace?.name ?? "Managed workspace"} prepared (${workspace.workspaceCount}/3 slots occupied)`;
-  }
-  if (workspace.status === "reused") {
-    return `${workspace.workspace?.name ?? "Managed workspace"} synchronized and reused`;
-  }
-  if (workspace.status === "capacity_blocked") {
-    return `All ${workspace.workspaceCount} workspace slots are occupied; planning remains available`;
-  }
-  if (workspace.status === "sync_conflict") {
-    return "Managed workspace has synchronization conflicts and was preserved for review";
-  }
-  return "Multiple managed ownership markers found; no workspace was changed";
-}
-
-function appendGtmAction(
-  parent: HTMLElement,
-  label: string,
-  action: () => void,
-): HTMLButtonElement {
-  parent.querySelector(".gtm-action")?.remove();
-  const button = document.createElement("button");
-  button.className = "quick gtm-action";
-  button.textContent = label;
-  button.addEventListener("click", () => {
-    button.remove();
-    action();
-  }, { once: true });
-  parent.append(button);
-  return button;
-}
-
 function navigationTargets(navigation: NavigationElement[]): PageTarget[] {
   return navigation.map((item) => ({ id: item.id, label: item.text, selector: item.selector }));
 }
 
 function formTargets(forms: FormCandidate[]): PageTarget[] {
   return forms.map((item) => ({ id: item.id, label: item.label, selector: item.selector }));
+}
+
+function scanCalendlyInlineEmbeds(): PageTarget[] {
+  return [...document.querySelectorAll<HTMLIFrameElement>("iframe")]
+    .filter((candidate) => isCalendlyInlineUrl(candidate.src))
+    .map((candidate, index) => ({
+      id: `calendly_inline_${index + 1}`,
+      label: "Calendly inline embed",
+      selector: "",
+      element: candidate,
+    }));
 }
 
 function recentAnalyticsRequests(since: number): BrowserEvidence["requests"] {
@@ -1105,15 +2438,59 @@ function applyPreferences(): void {
   if (!frame) return;
   frame.style.width = `${preferences.width}px`;
   frame.style.height = `${preferences.height}px`;
-  frame.style.left = preferences.x === undefined ? "auto" : `${preferences.x}px`;
-  frame.style.top = preferences.y === undefined ? "auto" : `${preferences.y}px`;
-  frame.style.right = preferences.x === undefined ? "22px" : "auto";
-  frame.style.bottom = preferences.y === undefined ? "22px" : "auto";
-  frame.classList.toggle("collapsed", preferences.collapsed);
+  frame.style.left = verificationPresentationActive || preferences.x === undefined
+    ? "auto"
+    : `${preferences.x}px`;
+  frame.style.top = verificationPresentationActive || preferences.y === undefined
+    ? "auto"
+    : `${preferences.y}px`;
+  frame.style.right = verificationPresentationActive || preferences.x === undefined ? "22px" : "auto";
+  frame.style.bottom = verificationPresentationActive || preferences.y === undefined ? "22px" : "auto";
+  frame.classList.toggle("collapsed", preferences.collapsed || verificationPresentationActive);
+  frame.classList.toggle("verification-active", verificationPresentationActive);
+  frame.querySelector(".orb")?.setAttribute(
+    "aria-label",
+    verificationPresentationActive ? "Verification active — open tracking agent" : "Open tracking agent",
+  );
+}
+
+function verificationTarget(
+  requestId: string,
+  intake: ConversationIntakeResult,
+): Element | undefined {
+  if (intake.target?.selector) {
+    try {
+      return document.querySelector(intake.target.selector) ?? undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  const interaction = knownInteractionDefinition(intake.interaction)?.interaction;
+  return interaction
+    ? interactionTargetsByRequest.get(requestId)?.[interaction]?.find(({ element }) => element)?.element
+    : undefined;
+}
+
+function showVerificationPresentation(
+  requestId: string,
+  intake: ConversationIntakeResult,
+): void {
+  verificationTarget(requestId, intake)?.scrollIntoView({ block: "center", inline: "nearest" });
+  verificationPresentationActive = true;
+  applyPreferences();
+}
+
+function restoreVerificationPresentation(): void {
+  if (!verificationPresentationActive) return;
+  verificationPresentationActive = false;
+  applyPreferences();
 }
 
 function setCollapsed(collapsed: boolean): void {
   preferences.collapsed = collapsed;
+  if (collapsed) {
+    closeArtifactPanel();
+  }
   if (!collapsed && !gtmConnectionLoaded) preferences.height = Math.max(preferences.height, 380);
   applyPreferences();
   persistPreferences();
@@ -1134,18 +2511,38 @@ function addMessage(copy: string, role: "assistant" | "user", id?: string): HTML
   return message;
 }
 
-function agentContextForRequest(requestId: string): {
-  formCount: number;
-  navigationCount: number;
-  connection?: { publicId: string; measurementId?: string };
-} {
+function automaticCoverage(): AgentTurnContext["automaticCoverage"] {
+  const settings = recognizedGtmContext?.enhancedMeasurement?.settings;
+  if (!settings) {
+    return undefined;
+  }
+
+  return {
+    enabled: settings.stream,
+    pageViews: settings.pageViews,
+    scrolls: settings.scrolls,
+    outboundClicks: settings.outboundClicks,
+    siteSearch: settings.siteSearch,
+    videoEngagement: settings.videoEngagement,
+    fileDownloads: settings.fileDownloads,
+    formInteractions: settings.formInteractions,
+  };
+}
+
+function agentContextForRequest(requestId: string): AgentTurnContext {
   const connected = recognizedGtmContext;
   const measurementId = connected?.measurementIds.length === 1
     ? connected.measurementIds[0]
     : undefined;
+  const coverage = automaticCoverage();
   return {
     formCount: formsByRequest.get(requestId)?.length ?? 0,
     navigationCount: navigationByRequest.get(requestId)?.length ?? 0,
+    ...(interactionCountsByRequest.has(requestId)
+      ? { interactionCounts: interactionCountsByRequest.get(requestId)! }
+      : {}),
+    calendlyEmbedCount: calendlyEmbedCountByRequest.get(requestId) ?? 0,
+    ...(coverage ? { automaticCoverage: coverage } : {}),
     ...(connected
       ? { connection: { publicId: connected.publicId, ...(measurementId ? { measurementId } : {}) } }
       : {}),
@@ -1160,8 +2557,203 @@ function appendAgentText(parent: HTMLElement, className: string, copy: string): 
   return node;
 }
 
+function stageForRequest(requestId?: string): JourneyStage {
+  if (!requestId) {
+    return "define";
+  }
+  if (completedJourneyRequests.has(requestId) || workflowPublicationByRequest.has(requestId)) {
+    return "verify";
+  }
+  if (workflowVersionByRequest.has(requestId)) {
+    return "publish";
+  }
+  if (workflowPreviewByRequest.has(requestId)) {
+    return "test";
+  }
+  if (workflowPlansByRequest.has(requestId) || approvedSetupRequests.has(requestId)) {
+    return "apply";
+  }
+  return intakeByRequest.get(requestId)?.canConfirm ? "review" : "define";
+}
+
+function renderJourney(stage: JourneyStage, blocked = false): void {
+  if (!journeyRail) {
+    return;
+  }
+  const activeIndex = journeyStages.findIndex(({ id }) => id === stage);
+  journeyRail.replaceChildren();
+  const list = document.createElement("ol");
+  for (const [index, item] of journeyStages.entries()) {
+    const row = document.createElement("li");
+    row.className = index < activeIndex
+      ? "completed"
+      : index === activeIndex
+        ? blocked ? "blocked" : "active"
+        : "pending";
+    const marker = document.createElement("i");
+    marker.setAttribute("aria-hidden", "true");
+    marker.textContent = index < activeIndex || completedJourneyRequests.has(currentTaskRequestId ?? "")
+      ? "✓"
+      : String(index + 1);
+    const label = document.createElement("span");
+    label.textContent = item.label;
+    if (index === activeIndex && !completedJourneyRequests.has(currentTaskRequestId ?? "")) {
+      label.setAttribute("aria-current", "step");
+    }
+    row.append(marker, label);
+    list.append(row);
+  }
+  journeyRail.append(list);
+}
+
+function closeArtifactPanel(): void {
+  if (!artifactPanel || !artifactToggle) {
+    return;
+  }
+  artifactPanel.setAttribute("hidden", "");
+  artifactToggle.setAttribute("aria-expanded", "false");
+}
+
+function taskArtifacts(task: HTMLElement): HTMLElement[] {
+  return [...task.querySelectorAll<HTMLElement>(
+    ".agent-receipts, .agent-specification, .agent-verification-result",
+  )];
+}
+
+function renderArtifactPanel(task: HTMLElement): void {
+  if (!artifactBody || !artifactPanel || !artifactToggle) {
+    return;
+  }
+  const artifacts = taskArtifacts(task);
+  artifactBody.replaceChildren(...artifacts.map((artifact) => {
+    const copy = artifact.cloneNode(true) as HTMLElement;
+    copy.classList.remove("artifact-source");
+    copy.querySelectorAll<HTMLElement>("[id]").forEach((node) => node.removeAttribute("id"));
+    return copy;
+  }));
+  artifactPanel.removeAttribute("hidden");
+  artifactToggle.setAttribute("aria-expanded", "true");
+  artifactPanel.querySelector<HTMLButtonElement>(".artifact-close")?.focus();
+}
+
+function syncTaskArtifacts(): void {
+  if (!artifactToggle || !currentTaskRequestId) {
+    return;
+  }
+  const task = agentTaskNodes.get(currentTaskRequestId);
+  const artifacts = task ? taskArtifacts(task) : [];
+  for (const artifact of artifacts) {
+    artifact.classList.add("artifact-source");
+  }
+  artifactToggle.hidden = artifacts.length === 0;
+  artifactToggle.textContent = `Details ${artifacts.length}`;
+  artifactToggle.setAttribute(
+    "aria-label",
+    artifacts.length === 1 ? "View task details (1 artifact)" : `View task details (${artifacts.length} artifacts)`,
+  );
+  if (artifacts.length === 0) {
+    closeArtifactPanel();
+    return;
+  }
+  if (artifactToggle.getAttribute("aria-expanded") === "true" && task) {
+    renderArtifactPanel(task);
+  }
+}
+
+function restoreJourney(snapshot: ActiveJourneySnapshotV1): void {
+  const { requestId, intake } = snapshot;
+  intakeByRequest.set(requestId, intake);
+  currentTaskRequestId = requestId;
+  approvedSetupRequests.add(requestId);
+  journeyResumeCard?.setAttribute("hidden", "");
+  welcomeCard?.setAttribute("hidden", "");
+  if (snapshot.checkpoint === "approved_setup") {
+    if (intake.interaction === "form_submission") {
+      renderApprovedFormSetup(requestId, intake);
+    } else if (intake.interaction === "calendly_booking") {
+      renderCalendlyApproved(requestId, intake);
+    } else {
+      renderInteractionApproved(requestId, intake);
+    }
+    return;
+  }
+  if (snapshot.checkpoint === "planned" && snapshot.plan) {
+    showWorkflowPlan(requestId, intake, snapshot.plan);
+    return;
+  }
+  if (snapshot.checkpoint === "awaiting_preview" && snapshot.preview) {
+    workflowPreviewByRequest.set(requestId, snapshot.preview);
+    renderPreviewHandoff(requestId, intake, snapshot.preview);
+    return;
+  }
+  if (snapshot.checkpoint === "versioned" && snapshot.version) {
+    renderCompletedVersion(requestId, intake, {
+      operationId: snapshot.version.operationId,
+      status: "versioned",
+      validationStatus: "passed",
+      nextStep: "await_approval",
+      versionFingerprint: snapshot.version.versionFingerprint,
+    });
+    return;
+  }
+  if (snapshot.checkpoint === "published" && snapshot.publication) {
+    renderPublishedVersion(requestId, intake, snapshot.publication);
+  }
+}
+
+function renderResumeCard(snapshot: ActiveJourneySnapshotV1): void {
+  if (!journeyResumeCard || snapshot.origin !== location.origin) {
+    return;
+  }
+  welcomeCard?.setAttribute("hidden", "");
+  const stage = snapshot.checkpoint === "approved_setup" || snapshot.checkpoint === "planned"
+    ? "Apply"
+    : snapshot.checkpoint === "awaiting_preview"
+      ? "Test"
+      : snapshot.checkpoint === "versioned"
+        ? "Publish"
+        : "Verify";
+  journeyResumeCard.replaceChildren();
+  const copy = document.createElement("div");
+  appendAgentText(copy, "resume-kicker", "Continue setup");
+  appendAgentText(copy, "resume-goal", journeyGoal(snapshot.intake));
+  appendAgentText(copy, "resume-stage", `Next · ${stage}`);
+  const control = document.createElement("button");
+  control.className = "quick primary-quick";
+  control.textContent = "Continue";
+  control.setAttribute("aria-label", "Continue setup");
+  control.addEventListener("click", () => restoreJourney(snapshot));
+  journeyResumeCard.append(copy, control);
+  journeyResumeCard.removeAttribute("hidden");
+  renderJourney(stage.toLowerCase() as JourneyStage);
+}
+
+function positionAgentTask(task: HTMLElement): void {
+  const messages = responseList;
+  if (!messages) {
+    return;
+  }
+
+  window.requestAnimationFrame(() => {
+    if (!task.isConnected) {
+      return;
+    }
+    const taskBounds = task.getBoundingClientRect();
+    if (taskBounds.height <= messages.clientHeight) {
+      messages.scrollTo({ top: messages.scrollHeight });
+      return;
+    }
+
+    const viewportBounds = messages.getBoundingClientRect();
+    const taskTop = messages.scrollTop + taskBounds.top - viewportBounds.top;
+    messages.scrollTo({ top: Math.max(0, taskTop) });
+  });
+}
+
 function renderAgentTurn(requestId: string, turn: AgentTurnV1, preferredNode?: HTMLElement): HTMLElement {
   const task = preferredNode ?? agentTaskNodes.get(requestId) ?? document.createElement("section");
+  currentTaskRequestId = requestId;
+  closeArtifactPanel();
   task.className = `agent-turn status-${turn.task.status}`;
   task.setAttribute("role", "region");
   task.setAttribute("aria-label", "Agent task");
@@ -1230,8 +2822,196 @@ function renderAgentTurn(requestId: string, turn: AgentTurnV1, preferredNode?: H
   preferences.height = Math.max(preferences.height, 520);
   applyPreferences();
   persistPreferences();
-  responseList?.scrollTo({ top: responseList.scrollHeight });
+  renderJourney(
+    stageForRequest(requestId),
+    turn.task.status === "blocked" || turn.task.status === "unsupported",
+  );
+  window.queueMicrotask(syncTaskArtifacts);
+  positionAgentTask(task);
   return task;
+}
+
+function measurementStatus(item: MeasurementPlanItemV1): string {
+  if (item.status === "already_covered") {
+    return "Already covered";
+  }
+  if (item.status === "needs_clarification") {
+    return "Needs clarification";
+  }
+  if (item.status === "unsupported") {
+    return "Not supported";
+  }
+  return "Ready";
+}
+
+function interactionLabel(interaction: MeasurementPlanItemV1["interaction"]): string {
+  const label = interaction.replaceAll("_", " ");
+  return `${label.charAt(0).toUpperCase()}${label.slice(1)}`;
+}
+
+function startMeasurementPlanItem(
+  planRequestId: string,
+  item: MeasurementPlanItemV1,
+  plan: HTMLElement,
+): void {
+  for (const control of plan.querySelectorAll<HTMLButtonElement>(".measurement-plan-start")) {
+    control.disabled = true;
+    if (control.dataset.itemId === item.id) {
+      control.textContent = "Starting…";
+    }
+  }
+  addMessage(`Start with ${item.conversionOutcome}.`, "user");
+  const requestId = crypto.randomUUID();
+  pendingAssistantRequestId = requestId;
+  updateResponseControls();
+  const pending = addAgentPending(requestId);
+  requestTimeouts.set(requestId, window.setTimeout(() => {
+    if (!responseNodes.has(requestId)) {
+      return;
+    }
+    pending.className = "agent-turn status-blocked";
+    pending.textContent = "The measurement-plan selection expired. Send the task again.";
+    responseNodes.delete(requestId);
+    requestTimeouts.delete(requestId);
+    pendingAssistantRequestId = undefined;
+    startNextQueuedPrompt();
+  }, 8_000));
+
+  const scan = scanNavigation();
+  const forms = scanForms();
+  const interactionScan = scanKnownInteractions();
+  const calendlyTargets = scanCalendlyInlineEmbeds();
+  navigationByRequest.set(requestId, scan.navigation);
+  formsByRequest.set(requestId, forms);
+  interactionCountsByRequest.set(requestId, interactionScan.counts);
+  calendlyEmbedCountByRequest.set(requestId, calendlyTargets.length);
+  interactionTargetsByRequest.set(requestId, interactionScan.targets);
+  calendlyTargetsByRequest.set(requestId, calendlyTargets);
+  const coverage = automaticCoverage();
+  // Selection reuses the validated local intake; it never submits another model prompt.
+  connectAssistant().postMessage({
+    type: "SELECT_MEASUREMENT_PLAN_ITEM",
+    requestId,
+    planRequestId,
+    itemId: item.id,
+    page: {
+      title: scan.title,
+      url: scan.pageUrl,
+      navigation: scan.navigation,
+      forms,
+      interactionCounts: interactionScan.counts,
+      calendlyEmbedCount: calendlyTargets.length,
+    },
+    ...(recognizedGtmContext
+      ? {
+          connection: {
+            publicId: recognizedGtmContext.publicId,
+            ...(recognizedGtmContext.measurementIds.length === 1
+              ? { measurementId: recognizedGtmContext.measurementIds[0] }
+              : {}),
+          },
+          ...(coverage ? { automaticCoverage: coverage } : {}),
+        }
+      : {}),
+  });
+}
+
+function renderMeasurementPlan(
+  requestId: string,
+  measurementPlan: MeasurementPlanV1,
+  preferredNode?: HTMLElement,
+): HTMLElement {
+  const plan = preferredNode ?? document.createElement("section");
+  plan.className = "measurement-plan";
+  plan.setAttribute("role", "region");
+  plan.setAttribute("aria-label", "Measurement plan");
+  plan.replaceChildren();
+
+  const heading = document.createElement("div");
+  heading.className = "measurement-plan-heading";
+  appendAgentText(heading, "measurement-plan-kicker", "Measurement plan");
+  appendAgentText(
+    heading,
+    "measurement-plan-count",
+    `${measurementPlan.items.length} activities`,
+  );
+  plan.append(heading);
+  appendAgentText(plan, "measurement-plan-title", "Review measurable activities");
+  appendAgentText(
+    plan,
+    "measurement-plan-summary",
+    "I grounded these activities in the current page and measurement context. Choose one to begin; nothing has been configured.",
+  );
+
+  const items = document.createElement("ul");
+  items.className = "measurement-plan-items";
+  items.setAttribute("aria-label", "Measurement activities");
+  for (const item of measurementPlan.items) {
+    const row = document.createElement("li");
+    row.className = "measurement-plan-item";
+    const recommended = measurementPlan.recommendedItemId === item.id;
+    if (recommended) {
+      row.classList.add("recommended");
+    }
+    const itemHeading = document.createElement("div");
+    itemHeading.className = "measurement-plan-item-heading";
+    appendAgentText(itemHeading, "measurement-plan-outcome", item.conversionOutcome);
+    const badges = document.createElement("div");
+    badges.className = "measurement-plan-badges";
+    if (recommended) {
+      appendAgentText(badges, "measurement-plan-badge covered", "Recommended");
+    }
+    const status = appendAgentText(
+      badges,
+      `measurement-plan-badge${item.status === "already_covered"
+        ? " covered"
+        : item.status === "needs_clarification" || item.status === "unsupported"
+          ? " warning"
+          : ""}`,
+      measurementStatus(item),
+    );
+    status.setAttribute("aria-label", `Activity status: ${status.textContent}`);
+    itemHeading.append(badges);
+    row.append(itemHeading);
+    appendAgentText(row, "measurement-plan-detail", `Interaction · ${interactionLabel(item.interaction)}`);
+    appendAgentText(
+      row,
+      "measurement-plan-detail",
+      `Page evidence · ${item.targetLabels.length > 0 ? item.targetLabels.join(" · ") : "No grounded target"}`,
+    );
+    if (item.successEvidenceLabels.length > 0) {
+      appendAgentText(
+        row,
+        "measurement-plan-detail",
+        `Success evidence · ${item.successEvidenceLabels.join(" · ")}`,
+      );
+    }
+    appendAgentText(row, "measurement-plan-item-summary", item.summary);
+    if (item.action === "start") {
+      const control = document.createElement("button");
+      control.className = "measurement-plan-start";
+      control.dataset.itemId = item.id;
+      control.textContent = `Start ${item.conversionOutcome}`;
+      control.addEventListener("click", () => startMeasurementPlanItem(requestId, item, plan));
+      row.append(control);
+    }
+    items.append(row);
+  }
+  plan.append(items);
+  appendAgentText(
+    plan,
+    "measurement-plan-note",
+    "Starting one activity does not approve setup, application, publication, or verification.",
+  );
+  if (!plan.isConnected) {
+    responseList?.append(plan);
+  }
+  preferences.height = Math.max(preferences.height, 600);
+  applyPreferences();
+  persistPreferences();
+  renderJourney("define");
+  positionAgentTask(plan);
+  return plan;
 }
 
 function addAgentPending(requestId: string): HTMLElement {
@@ -1252,7 +3032,9 @@ function updateTargetHighlights(): void {
   if (!shadow) return;
   shadow.querySelectorAll(".target").forEach((node) => node.remove());
   highlightedTargets.forEach((item, index) => {
-    const element = document.querySelector<HTMLElement>(item.selector);
+    const element = item.element?.isConnected
+      ? item.element
+      : document.querySelector<HTMLElement>(item.selector);
     if (!element || element.getBoundingClientRect().width === 0) return;
     const bounds = element.getBoundingClientRect();
     const marker = document.createElement("div");
@@ -1295,148 +3077,17 @@ function clearTargetHighlights(): void {
   targetHost?.shadowRoot?.querySelectorAll(".target").forEach((node) => node.remove());
 }
 
-function renderEvidencePath(context: EvidencePathContext, requestId?: string): void {
-  const path = document.createElement("section");
-  path.className = "evidence-path";
-  path.setAttribute("aria-label", "Tracking evidence path");
-  const runtime = inspectGtmRuntime();
-  const runtimeDetail = runtime.status === "detected"
-    ? `Detected ${runtime.containerIds.join(", ")}`
-    : runtime.status === "not_detected"
-      ? "No GTM container detected on this page"
-      : runtime.reason;
-  const stages = [
-    { state: "passed", label: "Intent understood", detail: context.intentDetail },
-    { state: "passed", label: "Page inspected", detail: context.inspectedDetail },
-    { state: "passed", label: "Targets confirmed", detail: context.confirmedDetail },
-    { state: context.setupGenerated ? "passed" : "pending", label: "Setup generation", detail: context.setupDetail },
-    { state: runtime.status === "detected" ? "passed" : "pending", label: "GTM runtime", detail: runtimeDetail },
-    { state: "pending", label: "GTM access", detail: runtime.status === "detected" ? "Observed container has not been matched to Google access" : "Requires an observed container" },
-    { state: "pending", label: "Browser verification", detail: "Ready for a guided browser run" },
-    {
-      state: "pending",
-      label: "Platform confirmation",
-      detail: recognizedGtmContext?.status.analyticsReadEnabled
-        ? "Starts with a pre-run GA4 Realtime baseline"
-        : "Analytics reads are not enabled on this backend",
-    },
-  ];
-  const heading = document.createElement("div");
-  heading.className = "evidence-heading";
-  heading.innerHTML = `<span>Evidence path</span><small>What the agent used</small>`;
-  path.append(heading);
-  let accessRow: HTMLElement | undefined;
-  let browserRow: HTMLElement | undefined;
-  let platformRow: HTMLElement | undefined;
-  for (const stage of stages) {
-    const row = document.createElement("div");
-    row.className = `evidence-stage ${stage.state}`;
-    const icon = document.createElement("i");
-    icon.setAttribute("aria-hidden", "true");
-    icon.textContent = stage.state === "passed" ? "✓" : "○";
-    const copy = document.createElement("span");
-    const label = document.createElement("strong");
-    label.textContent = stage.label;
-    const detail = document.createElement("small");
-    detail.textContent = stage.detail;
-    copy.append(label, detail);
-    row.append(icon, copy);
-    path.append(row);
-    if (stage.label === "GTM access") accessRow = row;
-    if (stage.label === "Browser verification") browserRow = row;
-    if (stage.label === "Platform confirmation") platformRow = row;
-  }
-  const connected = recognizedGtmContext;
-  if (runtime.status === "detected" && runtime.containerIds.length === 1 && accessRow
-    && connected && connected.publicId === runtime.containerIds[0]) {
-    const measurement = connected.measurementIds.length === 1
-      ? ` · ${connected.measurementIds[0]}`
-      : connected.measurementIds.length > 1
-        ? " · multiple GA4 destinations"
-        : " · no GA4 destination";
-    updateEvidenceStage(
-      accessRow,
-      "passed",
-      `${connected.account.name} → ${connected.container.name}${measurement}`,
-    );
-  } else if (runtime.status === "detected" && runtime.containerIds.length === 1 && accessRow) {
-    const publicId = runtime.containerIds[0]!;
-    const inspectAccess = (): void => {
-      const action = path.querySelector<HTMLButtonElement>(".gtm-action");
-      if (action) action.disabled = true;
-      updateEvidenceStage(accessRow!, "pending", `Matching ${publicId} to connected Google access…`);
-      void requestGtmContainer("inspect", publicId).then((response) => {
-        if (!response.ok || !response.result) {
-          updateEvidenceStage(accessRow!, "pending", response.error ?? "GTM access could not be checked");
-          appendGtmAction(path, "Try GTM access again", inspectAccess);
-          return;
-        }
-        const result = response.result;
-        if (result.status === "not_accessible") {
-          updateEvidenceStage(accessRow!, "pending", `${publicId} is not accessible through the connected Google account`);
-          return;
-        }
-        if (result.status === "ambiguous") {
-          updateEvidenceStage(accessRow!, "pending", `${publicId} matched ${result.matchCount ?? "multiple"} accessible containers; nothing was selected`);
-          return;
-        }
-        updateEvidenceStage(
-          accessRow!,
-          "passed",
-          `Recognized ${result.container?.name ?? result.publicId}. ${workspaceResultDetail(result)}`,
-        );
-        const canPrepare = result.workspace?.status === "available";
-        if (canPrepare && response.containerWritesEnabled) {
-          appendGtmAction(path, "Prepare managed workspace", () => {
-            updateEvidenceStage(accessRow!, "pending", `Rechecking ${publicId} capacity and ownership…`);
-            void requestGtmContainer("prepare", publicId).then((prepared) => {
-              if (!prepared.ok || !prepared.result) {
-                updateEvidenceStage(accessRow!, "pending", prepared.error ?? "Managed workspace could not be prepared");
-                return;
-              }
-              updateEvidenceStage(
-                accessRow!,
-                prepared.result.status === "recognized" ? "passed" : "pending",
-                prepared.result.status === "recognized"
-                  ? `Recognized ${prepared.result.container?.name ?? prepared.result.publicId}. ${workspaceResultDetail(prepared.result)}`
-                  : `${publicId} is no longer uniquely accessible; nothing was changed`,
-              );
-            });
-          });
-        } else if (canPrepare) {
-          const note = document.createElement("small");
-          note.className = "gtm-write-note";
-          note.textContent = "Workspace preparation is disabled; planning and downloads remain available.";
-          path.append(note);
-        }
-      });
-    };
-    appendGtmAction(path, "Check GTM access", inspectAccess);
-  } else if (runtime.status === "detected" && runtime.containerIds.length > 1 && accessRow) {
-    updateEvidenceStage(accessRow, "pending", "Multiple GTM containers were observed; choose one before checking Google access");
-  }
-  responseList?.append(path);
-  if (requestId && browserRow && platformRow) evidencePaths.set(requestId, { browserRow, platformRow });
-  preferences.height = Math.max(preferences.height, 520);
-  applyPreferences();
-  persistPreferences();
-  responseList?.scrollTo({ top: responseList.scrollHeight });
-}
-
 function confirmNavigation(navigation: NavigationElement[]): void {
   highlightTargets(navigationTargets(navigation), "confirmed");
   addMessage(`${navigation.length} navigation link${navigation.length === 1 ? "" : "s"} selected and highlighted on the page.`, "assistant");
   const proposal = navigationSetupProposal(navigation);
-  renderEvidencePath({
-    intentDetail: "Navigation clicks → navigation_click",
-    inspectedDetail: `${navigation.length} matching link${navigation.length === 1 ? "" : "s"} found`,
-    confirmedDetail: `${navigation.length} highlighted on this page`,
-    setupGenerated: proposal !== undefined,
-    setupDetail: proposal
-      ? "Reviewable navigation_click setup generated"
-      : "Connect a GTM container and GA4 measurement ID to generate setup",
-  });
-  if (proposal) renderNavigationSetupDownload(proposal);
+  if (!proposal) {
+    addMessage("Connect a GTM container and GA4 measurement ID to generate setup.", "assistant");
+    return;
+  }
+
+  addMessage("Reviewable navigation_click setup generated. Nothing was applied or published.", "assistant");
+  renderNavigationSetupDownload(proposal);
 }
 
 function renderNavigationSetupDownload(proposal: SetupProposal): void {
@@ -1458,7 +3109,9 @@ function renderNavigationSetupDownload(proposal: SetupProposal): void {
 }
 
 function renderNavigationPicker(navigation: NavigationElement[]): void {
-  highlightTargets(navigationTargets(navigation), "candidate");
+  const coverage = automaticCoverage();
+  const automaticOutbound = coverage?.enabled && coverage.outboundClicks;
+  highlightTargets(automaticOutbound ? [] : navigationTargets(navigation), "candidate");
   const picker = document.createElement("div");
   picker.className = "picker";
   for (const item of navigation) {
@@ -1466,7 +3119,7 @@ function renderNavigationPicker(navigation: NavigationElement[]): void {
     label.className = "pick";
     const input = document.createElement("input");
     input.type = "checkbox";
-    input.checked = true;
+    input.checked = !automaticOutbound;
     input.dataset.navigationId = item.id;
     input.addEventListener("change", () => {
       const selectedIds = new Set([...picker.querySelectorAll<HTMLInputElement>("input:checked")].map((node) => node.dataset.navigationId));
@@ -1528,6 +3181,240 @@ function renderFormDraft(requestId: string, result: ConversationIntakeResult): v
   responseList?.scrollTo({ top: responseList.scrollHeight });
 }
 
+function appendSpecificationRows(
+  parent: HTMLElement,
+  rows: Array<[string, string]>,
+): void {
+  for (const [label, value] of rows) {
+    const row = document.createElement("div");
+    row.className = "agent-specification-row";
+    appendAgentText(row, "agent-specification-label", label);
+    appendAgentText(row, "agent-specification-value", value);
+    parent.append(row);
+  }
+}
+
+const suggestionClassLabels: Record<string, string> = {
+  provider_required: "Provider required",
+  provider_recommended: "Provider recommended",
+  observed_available: "Observed and available",
+  model_suggested: "Model suggested",
+  unavailable: "Unavailable",
+  requires_clarification: "Needs clarification",
+  requires_custom_definition: "GA4 custom definition",
+  prohibited: "Prohibited",
+};
+
+function suggestionClassLabel(classification: string): string {
+  return suggestionClassLabels[classification] ?? "Suggestion";
+}
+
+function renderInteractionDraft(requestId: string, result: ConversationIntakeResult): void {
+  const proposal = interactionSetupProposal(result);
+  const definition = knownInteractionDefinition(result.interaction);
+  const task = agentTaskNodes.get(requestId);
+  if (!task || !definition) return;
+  task.querySelector(".agent-specification")?.remove();
+  task.querySelector(".quick-actions")?.remove();
+  const specification = document.createElement("div");
+  specification.className = "agent-specification";
+  appendAgentText(specification, "agent-receipt-heading", "Reviewable setup");
+  appendSpecificationRows(specification, [
+    ["Interaction", definition.interactionLabel],
+    ["Event", definition.eventName],
+    ["Firing scope", result.scope === "current_page" ? "Only this page" : `All matching ${definition.plural} sitewide`],
+    ["Consent", "Requires analytics_storage"],
+    ["Sent", proposal?.privacy.sent.join("; ") ?? "Event name"],
+    ["Excluded", proposal?.privacy.excluded.join("; ") ?? "Private interaction values"],
+  ]);
+  if (proposal) {
+    appendAgentText(specification, "agent-receipt-heading", "Parameter suggestions");
+    for (const suggestion of proposal.suggestions) {
+      appendAgentText(
+        specification,
+        "agent-specification-value",
+        `${suggestion.disposition === "automatic" ? "Automatic" : "Excluded"}: ${suggestion.name} — ${suggestion.rationale}`,
+      );
+    }
+  }
+  task.append(specification);
+  renderQuickActions(
+    requestId,
+    [
+      { id: "approve-interaction-setup", label: "Approve setup" },
+      { id: "author-interaction-alternative", label: "Ask model for alternative" },
+    ],
+    task,
+  );
+  responseList?.scrollTo({ top: responseList.scrollHeight });
+}
+
+function renderCalendlyDraft(requestId: string, result: ConversationIntakeResult): void {
+  const proposal = calendlySetupProposal(result);
+  const task = agentTaskNodes.get(requestId);
+  if (!task) {
+    return;
+  }
+  task.querySelector(".agent-specification")?.remove();
+  task.querySelector(".quick-actions")?.remove();
+  const specification = document.createElement("div");
+  specification.className = "agent-specification";
+  specification.setAttribute("role", "region");
+  specification.setAttribute("aria-label", "Calendly completion setup review");
+  appendAgentText(specification, "agent-receipt-heading", "Reviewable setup");
+  appendSpecificationRows(specification, [
+    ["Provider", "Calendly inline embed"],
+    ["Signal", "Exact calendly.event_scheduled message"],
+    ["Source", "Exact https://calendly.com iframe on this page"],
+    ["Event", "calendly_booking_complete"],
+    ["Firing scope", "Only this page"],
+    ["Consent", "Requires analytics_storage"],
+    ["Sent", proposal?.privacy.sent.join("; ") ?? "Event name only"],
+    ["Excluded", proposal?.privacy.excluded.join("; ") ?? "Callback payload"],
+    ["Preview proof", "One real Calendly test booking and one matching GA4 request"],
+  ]);
+  appendAgentText(
+    specification,
+    "agent-verification-explanation explanation",
+    "Wrong origins, a different iframe source, non-completion events, and repeated completions cannot emit another event.",
+  );
+  task.append(specification);
+  renderQuickActions(requestId, [{ id: "approve-calendly-setup", label: "Approve setup" }], task);
+  responseList?.scrollTo({ top: responseList.scrollHeight });
+}
+
+async function authorInteractionAlternative(
+  requestId: string,
+  intake: ConversationIntakeResult,
+): Promise<void> {
+  renderFormTaskState(requestId, intake, {
+    status: "working",
+    summary: "Requesting one bounded setup alternative from the configured authoring model.",
+    verifyStatus: "pending",
+  });
+  let response: SetupAuthoringResponse;
+  try {
+    response = await requestSetupAuthoring(requestId, intake);
+  } catch {
+    response = { ok: false, error: "service_offline" };
+  }
+  if (!response.ok || !response.result) {
+    renderFormTaskState(requestId, intake, {
+      status: "blocked",
+      summary: "Model-backed setup authoring is unavailable. The deterministic setup remains unchanged.",
+      verifyStatus: "pending",
+      actions: [{ id: "return-to-interaction-review", label: "Return to setup" }],
+    });
+    return;
+  }
+  authoredSetupByRequest.set(requestId, response.result);
+  const task = renderFormTaskState(requestId, intake, {
+    status: "ready_for_review",
+    summary: "The model proposed a schema-valid alternative using only deterministic page grounding.",
+    verifyStatus: "pending",
+    question: "Review the event and parameter classifications before approval.",
+  });
+  const review = document.createElement("div");
+  review.className = "agent-specification";
+  review.setAttribute("role", "region");
+  review.setAttribute("aria-label", "Model-authored setup review");
+  appendAgentText(review, "agent-receipt-heading", "Model-authored setup");
+  appendSpecificationRows(review, [
+    ["Event", response.result.eventName],
+    ["Author", response.result.providerId],
+    ["Rationale", response.result.rationale],
+  ]);
+  appendAgentText(review, "agent-receipt-heading", "Parameter suggestions");
+  for (const suggestion of response.result.suggestions) {
+    appendAgentText(
+      review,
+      "agent-specification-value",
+      `${suggestionClassLabel(suggestion.classification)}: ${suggestion.name} — ${suggestion.rationale}`,
+    );
+  }
+  task.append(review);
+  renderQuickActions(requestId, [
+    { id: "approve-model-authored-setup", label: "Approve model-authored setup" },
+    { id: "return-to-interaction-review", label: "Keep deterministic setup" },
+  ], task);
+  responseList?.scrollTo({ top: responseList.scrollHeight });
+}
+
+function renderModelAuthoredApproved(
+  requestId: string,
+  intake: ConversationIntakeResult,
+): void {
+  const authored = authoredSetupByRequest.get(requestId);
+  if (!authored) return;
+  authored.setup = { ...authored.setup, status: "confirmed" };
+  approvedSetupRequests.add(requestId);
+  saveJourneySnapshot(requestId, intake, "approved_setup");
+  renderFormTaskState(requestId, intake, {
+    status: "completed",
+    summary: `The model-authored ${authored.eventName} setup is approved for deterministic planning. Nothing was applied or published.`,
+    verifyStatus: "pending",
+    question: "Prepare the managed workspace and review the deterministic change plan.",
+    actions: recognizedGtmContext?.status.containerWritesEnabled
+      ? [{ id: "plan-form-workflow", label: "Prepare workspace & plan" }]
+      : [],
+  });
+}
+
+function renderInteractionApproved(requestId: string, result: ConversationIntakeResult): void {
+  const proposal = interactionSetupProposal(result);
+  const definition = knownInteractionDefinition(result.interaction);
+  const canPlan = recognizedGtmContext?.status.containerWritesEnabled === true;
+  approvedSetupRequests.add(requestId);
+  saveJourneySnapshot(requestId, result, "approved_setup");
+  const turn = agentTurnForIntake(result, agentContextForRequest(requestId));
+  turn.task.status = proposal ? "completed" : "blocked";
+  turn.task.summary = proposal && definition
+    ? `The privacy-safe ${definition.eventName} setup was generated for review. Nothing was applied or published.`
+    : "The setup needs one exact GTM container and GA4 destination before generation.";
+  turn.question = proposal
+    ? "Download the GTM setup for manual review while managed-workspace planning is being generalized."
+    : "Connect one exact GTM container and GA4 destination to continue.";
+  turn.plan = turn.plan.map((stage) => stage.id === "review"
+    ? { ...stage, status: proposal ? "completed" : "blocked" }
+    : stage.id === "verify"
+      ? { ...stage, status: proposal ? "pending" : "blocked" }
+      : stage);
+  turn.actions = proposal
+    ? [
+        ...(canPlan ? [{ id: "plan-form-workflow", label: "Prepare workspace & plan" }] : []),
+        { id: "download-interaction-setup", label: "Download GTM setup" },
+      ]
+    : [];
+  renderAgentTurn(requestId, turn);
+}
+
+function renderCalendlyApproved(requestId: string, result: ConversationIntakeResult): void {
+  const proposal = calendlySetupProposal(result);
+  const canPlan = recognizedGtmContext?.status.containerWritesEnabled === true;
+  approvedSetupRequests.add(requestId);
+  saveJourneySnapshot(requestId, result, "approved_setup");
+  const turn = agentTurnForIntake(result, agentContextForRequest(requestId));
+  turn.task.status = proposal ? "completed" : "blocked";
+  turn.task.summary = proposal
+    ? "The guarded Calendly listener and GA4 event setup were generated for review. Nothing was applied or published."
+    : "The setup requires one supported Calendly inline embed, one GTM container, and one GA4 destination.";
+  turn.question = proposal
+    ? "Prepare the managed workspace and review the deterministic change plan."
+    : "Restore one supported inline embed and connect one exact measurement destination.";
+  turn.plan = turn.plan.map((stage) => stage.id === "review"
+    ? { ...stage, status: proposal ? "completed" : "blocked" }
+    : stage.id === "verify"
+      ? { ...stage, status: proposal ? "pending" : "blocked" }
+      : stage);
+  turn.actions = proposal
+    ? [
+        ...(canPlan ? [{ id: "plan-form-workflow", label: "Prepare workspace & plan" }] : []),
+        { id: "download-interaction-setup", label: "Download GTM setup" },
+      ]
+    : [];
+  renderAgentTurn(requestId, turn);
+}
+
 interface AgentVerificationResult {
   verdict: string;
   browserVerification: string;
@@ -1585,9 +3472,1369 @@ function renderFormTaskState(
   return task;
 }
 
+function canConfigureLeadGa4(): boolean {
+  return recognizedGtmContext?.enhancedMeasurement?.canEnable === true;
+}
+
+function approvedFormActions(): Array<{ id: string; label: string }> {
+  const canPlan = recognizedGtmContext?.status.containerWritesEnabled === true;
+  return [
+    ...(canPlan ? [{ id: "plan-form-workflow", label: "Prepare workspace & plan" }] : []),
+    ...(canConfigureLeadGa4()
+      ? [{ id: "review-ga4-configuration", label: "Review GA4 configuration" }]
+      : []),
+    { id: "download-form-setup", label: "Download GTM setup" },
+    ...(!canPlan
+      ? [{ id: "start-form-verification", label: "Verify already-installed setup" }]
+      : []),
+  ];
+}
+
+function renderApprovedFormSetup(
+  requestId: string,
+  intake: ConversationIntakeResult,
+): void {
+  const proposal = formSetupProposal(intake);
+  approvedSetupRequests.add(requestId);
+  saveJourneySnapshot(requestId, intake, "approved_setup");
+  renderFormTaskState(requestId, intake, {
+    status: "working",
+    summary: proposal
+      ? "Setup approved and generated. The next step is one guided browser verification."
+      : "Setup approved, but generation still needs one exact GTM container and GA4 destination.",
+    question: proposal
+      ? "Review the separate GTM or GA4 change, download the setup, or continue verification."
+      : "Connect one exact GTM container and GA4 destination to continue.",
+    verifyStatus: proposal ? "active" : "pending",
+    actions: proposal ? approvedFormActions() : [],
+  });
+}
+
+function ga4PlanActionLabel(action: Ga4ConfigurationActionV1): string {
+  if (action.type === "custom_dimension") {
+    return `Create custom dimension ${action.displayName}`;
+  }
+  if (action.type === "custom_metric") {
+    return `Create custom metric ${action.displayName}`;
+  }
+  if (action.type === "key_event") {
+    return `Mark ${action.eventName} as a key event`;
+  }
+
+  return `${action.enabled ? "Enable" : "Disable"} ${action.feature.replaceAll("_", " ")}`;
+}
+
+function isGa4PlanResult(
+  value: Ga4ConfigurationResponse["result"],
+): value is Ga4ConfigurationPlanV1 {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const record = value as unknown as Record<string, unknown>;
+  return typeof record.planFingerprint === "string" && Array.isArray(record.actions);
+}
+
+function isGa4ApplyResult(
+  value: Ga4ConfigurationResponse["result"],
+): value is Exclude<Ga4ConfigurationResponse["result"], Ga4ConfigurationPlanV1 | undefined> {
+  return isRecord(value) && value.status === "applied" && Array.isArray(value.receipts);
+}
+
+async function planLeadGa4(
+  requestId: string,
+  intake: ConversationIntakeResult,
+): Promise<void> {
+  const measurementId = formSetupProposal(intake)?.measurementId;
+  if (!measurementId || !canConfigureLeadGa4()) {
+    renderFormTaskState(requestId, intake, {
+      status: "blocked",
+      summary: "GA4 configuration requires one exact writable property and web stream. No GA4 change was made.",
+      verifyStatus: "active",
+      actions: [{ id: "return-to-approved-setup", label: "Return to setup" }],
+    });
+    return;
+  }
+
+  renderFormTaskState(requestId, intake, {
+    status: "working",
+    summary: "Reading the exact GA4 property state and preparing a separate configuration plan.",
+    verifyStatus: "active",
+  });
+  let response: Ga4ConfigurationResponse;
+  try {
+    response = await requestGa4Configuration("plan", { measurementId });
+  } catch {
+    response = { ok: false, error: "service_offline" };
+  }
+  if (!response.ok || !isGa4PlanResult(response.result)) {
+    renderFormTaskState(requestId, intake, {
+      status: "blocked",
+      summary: "The GA4 configuration plan is unavailable. No GA4 or GTM change was made.",
+      verifyStatus: "active",
+      actions: [
+        { id: "review-ga4-configuration", label: "Retry GA4 review" },
+        { id: "return-to-approved-setup", label: "Return to setup" },
+      ],
+    });
+    return;
+  }
+
+  const plan = response.result;
+  ga4PlansByRequest.set(requestId, plan);
+  const task = renderFormTaskState(requestId, intake, {
+    status: "ready_for_review",
+    summary: "The GA4 plan is separate from the approved GTM setup and has not been applied.",
+    verifyStatus: "active",
+    question: "Approve these exact GA4 property changes after reviewing their target and effect.",
+  });
+  const review = document.createElement("div");
+  review.className = "agent-specification ga4-configuration-review";
+  review.setAttribute("role", "region");
+  review.setAttribute("aria-label", "GA4 configuration review");
+  appendAgentText(review, "agent-receipt-heading", "GA4 configuration review");
+  appendSpecificationRows(review, [
+    ["Property", plan.target.propertyName],
+    ["Stream", plan.target.streamName],
+    ["GA4", plan.target.measurementId],
+  ]);
+  for (const action of plan.actions) {
+    appendAgentText(review, "agent-specification-value", ga4PlanActionLabel(action));
+  }
+  appendAgentText(
+    review,
+    "agent-verification-explanation explanation",
+    "GTM will not change. Fresh GA4 state must still match this plan when approval is applied.",
+  );
+  task.append(review);
+  renderQuickActions(requestId, [
+    { id: "apply-ga4-configuration", label: "Approve & apply GA4 changes" },
+    { id: "return-to-approved-setup", label: "Return to setup" },
+  ], task);
+}
+
+function ga4ReceiptLabel(
+  receipt: Ga4ActionReceiptV1,
+  plan: Ga4ConfigurationPlanV1,
+): string {
+  const action = plan.actions.find(({ id }) => id === receipt.actionId);
+  const effect = action?.type === "custom_dimension"
+    ? `custom dimension ${action.displayName}`
+    : action?.type === "custom_metric"
+      ? `custom metric ${action.displayName}`
+      : action?.type === "key_event"
+        ? `key event ${action.eventName}`
+        : action?.type === "enhanced_measurement"
+          ? `${action.feature.replaceAll("_", " ")} setting`
+          : "GA4 resource";
+  const status = receipt.status === "created"
+    ? "Created"
+    : receipt.status === "updated" ? "Updated" : "Already current";
+  return `${status} ${effect}`;
+}
+
+async function applyLeadGa4(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  plan: Ga4ConfigurationPlanV1,
+): Promise<void> {
+  renderFormTaskState(requestId, intake, {
+    status: "working",
+    summary: "Applying approval only if the exact GA4 property state still matches the reviewed plan.",
+    verifyStatus: "active",
+  });
+  let response: Ga4ConfigurationResponse;
+  try {
+    response = await requestGa4Configuration("apply", { plan });
+  } catch {
+    response = { ok: false, error: "service_offline" };
+  }
+  if (!response.ok || !isGa4ApplyResult(response.result)) {
+    renderFormTaskState(requestId, intake, {
+      status: "blocked",
+      summary: response.error === "configuration_stale"
+        ? "GA4 configuration approval is stale or the provider state changed. No GA4 changes were claimed."
+        : "The GA4 configuration could not be verified as applied. No success was claimed.",
+      verifyStatus: "active",
+      actions: [
+        { id: "review-ga4-configuration", label: "Review fresh GA4 state" },
+        { id: "return-to-approved-setup", label: "Return to setup" },
+      ],
+    });
+    return;
+  }
+
+  ga4PlansByRequest.delete(requestId);
+  const task = renderFormTaskState(requestId, intake, {
+    status: "completed",
+    summary: "Google confirmed the separately approved GA4 configuration actions.",
+    verifyStatus: "active",
+    question: "GTM setup and publication remain unchanged. Continue the GTM workflow or download the setup.",
+    actions: approvedFormActions(),
+  });
+  const result = document.createElement("div");
+  result.className = "agent-specification ga4-configuration-result";
+  result.setAttribute("role", "region");
+  result.setAttribute("aria-label", "GA4 configuration result");
+  appendAgentText(result, "agent-receipt-heading", "GA4 configuration result");
+  for (const receipt of response.result.receipts) {
+    appendAgentText(result, "agent-specification-value", ga4ReceiptLabel(receipt, plan));
+  }
+  task.append(result);
+}
+
+const planActionLabels: Record<PlanActionSummary["action"], string> = {
+  create: "Create",
+  reuse: "Reuse",
+  no_op: "No change",
+  update: "Update",
+  conflict: "Conflict",
+};
+
+function renderWorkflowPlan(task: HTMLElement, plan: WorkflowPlanSummary): void {
+  const view = document.createElement("div");
+  view.className = "agent-specification operation-plan";
+  view.setAttribute("role", "region");
+  view.setAttribute("aria-label", "Tracking change plan");
+  appendAgentText(view, "agent-receipt-heading", "Tracking change plan");
+  const changeCount = plan.actions.filter(({ action }) => action === "create" || action === "update").length;
+  appendAgentText(
+    view,
+    "agent-specification-value",
+    changeCount === 0 ? "No changes" : `${changeCount} change${changeCount === 1 ? "" : "s"}`,
+  );
+  for (const action of plan.actions) {
+    appendAgentText(
+      view,
+      "agent-specification-value",
+      `${planActionLabels[action.action]} ${action.generatedName}`,
+    );
+  }
+  task.append(view);
+}
+
+function semanticText(value: string): string {
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2);
+  } catch {
+    return value;
+  }
+}
+
+function renderReplacementReview(task: HTMLElement, plan: WorkflowPlanSummary): void {
+  const view = document.createElement("div");
+  view.className = "agent-specification managed-replacement-review";
+  view.setAttribute("role", "region");
+  view.setAttribute("aria-label", "Managed replacement review");
+  appendAgentText(view, "agent-receipt-heading", "Managed replacement review");
+  appendAgentText(view, "agent-specification-value", `Plan ${plan.fingerprint}`);
+  for (const action of plan.actions) {
+    if (action.action !== "conflict" || !action.existingId || !action.replacement) continue;
+    appendAgentText(
+      view,
+      "agent-specification-value",
+      `${action.kind} ${action.existingId} · ${action.generatedName}`,
+    );
+    appendAgentText(
+      view,
+      "agent-specification-value",
+      `Current fingerprint ${action.replacement.currentFingerprint}`,
+    );
+    appendAgentText(view, "agent-specification-label", "Current semantics");
+    const current = document.createElement("pre");
+    current.className = "agent-semantics";
+    current.textContent = semanticText(action.replacement.currentSemantics);
+    view.append(current);
+    appendAgentText(view, "agent-specification-label", "Proposed semantics");
+    const proposed = document.createElement("pre");
+    proposed.className = "agent-semantics";
+    proposed.textContent = semanticText(action.replacement.proposedSemantics);
+    view.append(proposed);
+  }
+  const actions = task.querySelector(".quick-actions");
+  if (actions) {
+    actions.before(view);
+  } else {
+    task.append(view);
+  }
+}
+
+function renderWorkflowResult(task: HTMLElement, result: WorkflowResumeSummary): void {
+  const view = document.createElement("div");
+  view.className = "agent-specification operation-result";
+  view.setAttribute("role", "region");
+  view.setAttribute("aria-label", "GTM workflow result");
+  appendAgentText(view, "agent-receipt-heading", "GTM workflow result");
+  appendAgentText(view, "agent-specification-value", "Application completed");
+  appendAgentText(view, "agent-specification-value", "Validation passed");
+  appendAgentText(
+    view,
+    "agent-specification-value",
+    `Immutable version ${result.versionFingerprint} created`,
+  );
+  appendAgentText(view, "agent-specification-value", "Publication not started");
+  task.append(view);
+}
+
+function versionReviewActions(
+  requestId: string,
+  intake: ConversationIntakeResult,
+): Array<{ id: string; label: string }> {
+  const version = workflowVersionByRequest.get(requestId);
+  return [
+    ...(recognizedGtmContext?.status.publicationEnabled && version
+      ? [{
+          id: "confirm-exact-publication",
+          label: `Approve & publish ${version.versionFingerprint}`,
+        }]
+      : []),
+    ...workflowReviewActions(requestId, intake, false),
+  ];
+}
+
+function renderCompletedVersion(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  result: WorkflowResumeSummary,
+): void {
+  if (!result.versionFingerprint) return;
+  workflowVersionByRequest.set(requestId, {
+    operationId: result.operationId,
+    versionFingerprint: result.versionFingerprint,
+  });
+  saveJourneySnapshot(requestId, intake, "versioned", {
+    version: {
+      operationId: result.operationId,
+      versionFingerprint: result.versionFingerprint,
+    },
+  });
+  const publicationEnabled = recognizedGtmContext?.status.publicationEnabled === true;
+  const task = renderFormTaskState(requestId, intake, {
+    status: "completed",
+    summary: "The exact workspace draft passed browser verification and an immutable version was created.",
+    verifyStatus: "completed",
+    question: publicationEnabled
+      ? "Review this exact version before giving separate approval to make it live. Nothing was published."
+      : "Publication requires separate approval bound to this version. Publishing is not enabled on this backend, and nothing was published.",
+    actions: versionReviewActions(requestId, intake),
+  });
+  renderWorkflowResult(task, result);
+  const version = workflowVersionByRequest.get(requestId);
+  if (publicationEnabled && version) {
+    renderPublicationBinding(task, version);
+    const plan = workflowPlansByRequest.get(requestId);
+    if (plan) renderWorkflowPlan(task, plan);
+  }
+}
+
+function renderPublicationBinding(
+  task: HTMLElement,
+  version: NonNullable<ReturnType<typeof workflowVersionByRequest.get>>,
+): void {
+  const binding = document.createElement("div");
+  binding.className = "agent-specification operation-publication";
+  binding.setAttribute("role", "region");
+  binding.setAttribute("aria-label", "Publication approval binding");
+  appendAgentText(binding, "agent-receipt-heading", "Publication approval binding");
+  appendSpecificationRows(binding, [
+    ["Version", version.versionFingerprint],
+    ["Effect", "Make this immutable GTM version live"],
+    ["Post-publish", "Live verification still required"],
+  ]);
+  task.append(binding);
+}
+
+function renderPublicationReview(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  version: NonNullable<ReturnType<typeof workflowVersionByRequest.get>>,
+): void {
+  const task = renderFormTaskState(requestId, intake, {
+    status: "ready_for_review",
+    summary: "This publication approval is separate from setup approval and browser verification.",
+    verifyStatus: "completed",
+    question: `Publish immutable version ${version.versionFingerprint} to make these reviewed changes live?`,
+    actions: [
+      { id: "confirm-exact-publication", label: `Approve & publish ${version.versionFingerprint}` },
+      { id: "return-to-version-review", label: "Return to version" },
+    ],
+  });
+  renderPublicationBinding(task, version);
+  const plan = workflowPlansByRequest.get(requestId);
+  if (plan) renderWorkflowPlan(task, plan);
+}
+
+function renderPublishedVersion(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  publication: {
+    operationId: string;
+    versionFingerprint: string;
+    publishedAt: string;
+  },
+): void {
+  workflowPublicationByRequest.set(requestId, publication);
+  saveJourneySnapshot(requestId, intake, "published", { publication });
+  const task = renderFormTaskState(requestId, intake, {
+    status: "completed",
+    summary: `Google confirmed publication of immutable version ${publication.versionFingerprint}.`,
+    verifyStatus: "completed",
+    question: "Run live post-publication verification next. Rollback remains locked unless that evidence fails.",
+    actions: [{
+      id: intake.interaction === "form_submission"
+        ? "start-live-form-verification"
+        : "start-live-interaction-verification",
+      label: "Run live verification",
+    }],
+  });
+  const receipt = document.createElement("div");
+  receipt.className = "agent-specification operation-publication";
+  receipt.setAttribute("role", "region");
+  receipt.setAttribute("aria-label", "Publication result");
+  appendAgentText(receipt, "agent-receipt-heading", "Publication result");
+  appendSpecificationRows(receipt, [
+    ["Version", publication.versionFingerprint],
+    ["Provider", "Google Tag Manager confirmed"],
+    ["Published", publication.publishedAt],
+  ]);
+  task.append(receipt);
+}
+
+async function publishExactVersion(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  version: NonNullable<ReturnType<typeof workflowVersionByRequest.get>>,
+): Promise<void> {
+  renderFormTaskState(requestId, intake, {
+    status: "working",
+    summary: `Binding publication approval to ${version.versionFingerprint} and checking fresh Google state before publication.`,
+    verifyStatus: "completed",
+  });
+  let approval: WorkflowPublicationResponse;
+  try {
+    approval = await requestWorkflowPublicationAction(
+      "GTM_WORKFLOW_APPROVE_PUBLICATION_REQUEST",
+      version.operationId,
+      version.versionFingerprint,
+    );
+  } catch {
+    approval = { ok: false, error: "service_offline" };
+  }
+  if (!approval.ok
+    || approval.result?.status !== "approved"
+    || approval.result.versionFingerprint !== version.versionFingerprint) {
+    renderFormTaskState(requestId, intake, {
+      status: "blocked",
+      summary: "Publication approval was not accepted for the exact reviewed version. Nothing was published.",
+      verifyStatus: "completed",
+      question: "Return to the immutable version and review the current container state.",
+      actions: [{ id: "return-to-version-review", label: "Return to version" }],
+    });
+    return;
+  }
+  let publication: WorkflowPublicationResponse;
+  const stopProgress = monitorProviderProgress(requestId, intake, version.operationId);
+  try {
+    publication = await requestWorkflowPublicationAction(
+      "GTM_WORKFLOW_PUBLISH_REQUEST",
+      version.operationId,
+      version.versionFingerprint,
+    );
+  } catch {
+    publication = { ok: false, error: "service_offline" };
+  } finally {
+    stopProgress();
+  }
+  if (publication.ok
+    && publication.result?.status === "provider_progress"
+    && publication.result.providerProgress) {
+    renderProviderProgress(requestId, intake, publication.result.providerProgress);
+    return;
+  }
+  if (!publication.ok
+    || publication.result?.status !== "published"
+    || publication.result.versionFingerprint !== version.versionFingerprint
+    || !publication.result.publishedAt) {
+    renderFormTaskState(requestId, intake, {
+      status: "blocked",
+      summary: "The exact version was approved, but Google did not confirm publication. No publication success is claimed.",
+      verifyStatus: "completed",
+      question: "Check live-container state before retrying; approval may expire or fresh-state checks may block publication.",
+    });
+    return;
+  }
+  renderPublishedVersion(requestId, intake, {
+    operationId: version.operationId,
+    versionFingerprint: version.versionFingerprint,
+    publishedAt: publication.result.publishedAt,
+  });
+}
+
+async function completeLiveVerification(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  evidence: TrackingRunEvidenceV1,
+): Promise<void> {
+  const publication = workflowPublicationByRequest.get(requestId);
+  if (!publication) return;
+  renderFormTaskState(requestId, intake, {
+    status: "working",
+    summary: `Binding live browser evidence to published version ${publication.versionFingerprint}.`,
+    verifyStatus: "active",
+  });
+  let response: WorkflowLiveVerificationResponse;
+  try {
+    response = await requestLiveVerification(
+      publication.operationId,
+      publication.versionFingerprint,
+      evidence,
+    );
+  } catch {
+    response = { ok: false, error: "service_offline" };
+  }
+  if (!response.ok
+    || !response.result
+    || response.result.versionFingerprint !== publication.versionFingerprint) {
+    renderFormTaskState(requestId, intake, {
+      status: "blocked",
+      summary: "The live browser result could not be bound to the published version. Rollback remains locked.",
+      verifyStatus: "blocked",
+      question: "Retry the live browser run after checking the backend connection.",
+      actions: [{
+        id: intake.interaction === "form_submission"
+          ? "start-live-form-verification"
+          : "start-live-interaction-verification",
+        label: "Retry live verification",
+      }],
+    });
+    return;
+  }
+  publication.evidenceRunId = response.result.evidenceRunId;
+  if (response.result.status === "published"
+    && response.result.nextStep === "verify_publication") {
+    renderFormTaskState(requestId, intake, {
+      status: "blocked",
+      summary: `Live browser evidence for published version ${publication.versionFingerprint} was inconclusive. Rollback remains locked.`,
+      verifyStatus: "blocked",
+      question: "Retry the live browser run when the confirmed interaction and outcome are observable.",
+      actions: [{
+        id: intake.interaction === "form_submission"
+          ? "start-live-form-verification"
+          : "start-live-interaction-verification",
+        label: "Retry live verification",
+      }],
+    });
+    return;
+  }
+  if (response.result.status === "completed" && response.result.nextStep === "complete") {
+    completedJourneyRequests.add(requestId);
+    clearJourneySnapshot();
+    const summary = `Live and verified · ${journeyGoal(intake)} · GTM version ${publication.versionFingerprint}`;
+    completionSummaryByRequest.set(requestId, summary);
+    const task = renderFormTaskState(requestId, intake, {
+      status: "completed",
+      summary: `Live browser verification passed for published version ${publication.versionFingerprint}.`,
+      verifyStatus: "completed",
+      question: "This tracking setup is live and verified.",
+      actions: [
+        { id: "copy-completion-summary", label: "Copy summary" },
+        { id: "start-another-setup", label: "Start another setup" },
+      ],
+    });
+    task.querySelector(".agent-goal")!.textContent = "Live and verified";
+    const receipt = document.createElement("div");
+    receipt.className = "agent-specification completion-receipt";
+    receipt.setAttribute("role", "region");
+    receipt.setAttribute("aria-label", "Live and verified receipt");
+    appendSpecificationRows(receipt, [
+      ["Setup", journeyGoal(intake)],
+      ["Version", publication.versionFingerprint],
+      ["Evidence", response.result.evidenceRunId],
+      ["Status", "Live and verified"],
+    ]);
+    task.append(receipt);
+    return;
+  }
+  const target = response.result.targetVersionFingerprint;
+  if (response.result.status !== "rollback_required"
+    || response.result.nextStep !== "rollback"
+    || !target) {
+    renderFormTaskState(requestId, intake, {
+      status: "blocked",
+      summary: "The backend returned an invalid live-verification decision. Rollback remains locked.",
+      verifyStatus: "blocked",
+    });
+    return;
+  }
+  publication.targetVersionFingerprint = target;
+  renderRollbackReview(requestId, intake, publication);
+}
+
+function renderRollbackReview(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  publication: NonNullable<ReturnType<typeof workflowPublicationByRequest.get>>,
+): void {
+  const target = publication.targetVersionFingerprint;
+  if (!target) return;
+  const task = renderFormTaskState(requestId, intake, {
+    status: "ready_for_review",
+    summary: `Live browser verification failed for published version ${publication.versionFingerprint}. Rollback is a separate exact action.`,
+    verifyStatus: "blocked",
+    question: `Restore prior live version ${target}?`,
+    actions: [
+      { id: "confirm-publication-rollback", label: `Confirm rollback to ${target}` },
+      { id: "return-to-failed-publication", label: "Return to failed result" },
+    ],
+  });
+  const binding = document.createElement("div");
+  binding.className = "agent-specification operation-publication";
+  binding.setAttribute("role", "region");
+  binding.setAttribute("aria-label", "Rollback approval binding");
+  appendAgentText(binding, "agent-receipt-heading", "Rollback approval binding");
+  appendSpecificationRows(binding, [
+    ["Failed live version", publication.versionFingerprint],
+    ["Restore", target],
+    ["Evidence", publication.evidenceRunId ?? "Recorded live failure"],
+  ]);
+  task.append(binding);
+}
+
+async function rollbackPublication(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  publication: NonNullable<ReturnType<typeof workflowPublicationByRequest.get>>,
+): Promise<void> {
+  const target = publication.targetVersionFingerprint;
+  if (!target) return;
+  renderFormTaskState(requestId, intake, {
+    status: "working",
+    summary: `Checking fresh Google state before restoring ${target}.`,
+    verifyStatus: "blocked",
+  });
+  let response: WorkflowRollbackResponse;
+  const stopProgress = monitorProviderProgress(requestId, intake, publication.operationId);
+  try {
+    response = await requestWorkflowRollback(
+      publication.operationId,
+      publication.versionFingerprint,
+      target,
+    );
+  } catch {
+    response = { ok: false, error: "service_offline" };
+  } finally {
+    stopProgress();
+  }
+  if (response.ok
+    && response.result?.status === "provider_progress"
+    && response.result.providerProgress) {
+    renderProviderProgress(requestId, intake, response.result.providerProgress);
+    return;
+  }
+  if (!response.ok
+    || response.result?.status !== "rolled_back"
+    || response.result.versionFingerprint !== publication.versionFingerprint
+    || response.result.targetVersionFingerprint !== target) {
+    renderFormTaskState(requestId, intake, {
+      status: "blocked",
+      summary: "Google did not confirm the reviewed rollback. The current live state must be inspected before retrying.",
+      verifyStatus: "blocked",
+      actions: [{ id: "review-publication-rollback", label: "Review rollback" }],
+    });
+    return;
+  }
+  renderFormTaskState(requestId, intake, {
+    status: "completed",
+    summary: `Google restored prior live version ${target}.`,
+    verifyStatus: "blocked",
+    question: "The failed published version is no longer live; the operation retains both evidence receipts.",
+  });
+}
+
+function renderPreviewHandoff(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  preview: NonNullable<ReturnType<typeof workflowPreviewByRequest.get>>,
+): void {
+  saveJourneySnapshot(requestId, intake, "awaiting_preview", { preview });
+  const readiness = previewReadiness(requestId, intake, preview);
+  const task = renderFormTaskState(requestId, intake, {
+    status: "needs_input",
+    summary: "The reviewed changes are applied and the exact workspace draft passed provider validation. No immutable version exists yet.",
+    verifyStatus: readiness.confirmed ? "active" : "blocked",
+    question: readiness.question,
+  });
+  const binding = document.createElement("div");
+  binding.className = "agent-specification operation-preview";
+  binding.setAttribute("role", "region");
+  binding.setAttribute("aria-label", "Exact preview binding");
+  appendAgentText(binding, "agent-receipt-heading", "Exact draft binding");
+  appendSpecificationRows(binding, [
+    ["Setup", preview.setupFingerprint],
+    ["Workspace", preview.workspaceFingerprint],
+    ["GTM preview", preview.previewVersionFingerprint],
+  ]);
+  task.append(binding);
+  const receipt = document.createElement("div");
+  receipt.className = "agent-specification operation-preview-readiness";
+  receipt.setAttribute("role", "region");
+  receipt.setAttribute("aria-label", "Exact preview readiness");
+  appendAgentText(receipt, "agent-receipt-heading", "Preview readiness");
+  appendSpecificationRows(receipt, readiness.rows);
+  task.append(receipt);
+  renderQuickActions(requestId, [
+    { id: "open-tag-assistant", label: "Open Google Tag Manager" },
+    ...(readiness.eligible && !readiness.confirmed
+      ? [{ id: "confirm-preview-readiness", label: "Confirm Tag Assistant connected" }]
+      : []),
+    ...(!readiness.eligible
+      ? [{ id: "recheck-preview-readiness", label: "Recheck Preview readiness" }]
+      : []),
+    ...(readiness.confirmed ? [{
+      id: intake.interaction === "form_submission"
+        ? "start-exact-form-preview"
+        : intake.interaction === "calendly_booking"
+          ? "start-exact-calendly-preview"
+          : "start-exact-interaction-preview",
+      label: "Start exact browser run",
+    }, { id: "recheck-preview-readiness", label: "Recheck Preview readiness" }] : []),
+  ], task);
+  responseList?.scrollTo({ top: responseList.scrollHeight });
+}
+
+function normalizedPreviewUrl(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    url.searchParams.delete("_dbg");
+    url.searchParams.delete("gtm_debug");
+    url.searchParams.sort();
+    return url.href;
+  } catch {
+    return undefined;
+  }
+}
+
+function boundPreviewTargetUrl(
+  requestId: string,
+  intake: ConversationIntakeResult,
+): string | undefined {
+  const confirmedFormTarget = intake.target?.pageUrl
+    ? normalizedPreviewUrl(intake.target.pageUrl)
+    : undefined;
+  if (confirmedFormTarget) return confirmedFormTarget;
+  const existing = previewTargetByRequest.get(requestId);
+  if (existing) return existing;
+  const current = normalizedPreviewUrl(location.href);
+  if (current) previewTargetByRequest.set(requestId, current);
+  return current;
+}
+
+function previewReadiness(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  preview: NonNullable<ReturnType<typeof workflowPreviewByRequest.get>>,
+): {
+  eligible: boolean;
+  confirmed: boolean;
+  question: string;
+  rows: Array<[string, string]>;
+} {
+  const context = recognizedGtmContext;
+  const runtime = inspectGtmRuntime();
+  const loadedIds = runtime.status === "detected" ? runtime.containerIds : [];
+  const loadedContainer = loadedIds.length === 1 ? loadedIds[0] : undefined;
+  const targetUrl = boundPreviewTargetUrl(requestId, intake);
+  const currentUrl = normalizedPreviewUrl(location.href);
+  const targetMatches = Boolean(targetUrl && currentUrl && targetUrl === currentUrl);
+  const containerMatches = Boolean(
+    context && loadedContainer && loadedContainer === context.publicId,
+  );
+  const eligible = containerMatches && targetMatches;
+  const confirmation = previewReadinessByRequest.get(requestId);
+  const confirmed = Boolean(eligible
+    && confirmation
+    && confirmation.operationId === preview.operationId
+    && confirmation.workspaceFingerprint === preview.workspaceFingerprint
+    && confirmation.previewVersionFingerprint === preview.previewVersionFingerprint
+    && confirmation.publicId === context?.publicId
+    && confirmation.targetUrl === currentUrl);
+  const targetLabel = `${location.origin}${location.pathname}`;
+  const currentTarget = !targetMatches
+    ? "Current page does not match the confirmed target"
+    : targetLabel;
+  const tagAssistantState = confirmed
+    ? "Practitioner confirmed Connected"
+    : "Awaiting Tag Assistant confirmation";
+  const question = !containerMatches
+    ? "Reload the recognized GTM container on this page, then recheck Preview readiness."
+    : !targetMatches
+      ? "Return to the confirmed target page, then recheck Preview readiness."
+      : !confirmed
+        ? "In Tag Assistant, confirm this exact target shows Connected, then record that confirmation here."
+        : "The current target and loaded container match the confirmed Tag Assistant handoff. Start the exact browser run.";
+  return {
+    eligible,
+    confirmed,
+    question,
+    rows: [
+      ["Recognized container", context?.publicId ?? "Unavailable"],
+      ["Managed workspace", preview.workspaceFingerprint],
+      ["Bound preview", preview.previewVersionFingerprint],
+      ["Current target", currentTarget],
+      ["Tag Assistant", tagAssistantState],
+      ["Loaded container", loadedIds.length === 0 ? "Not detected" : loadedIds.join(", ")],
+    ],
+  };
+}
+
+function confirmPreviewReadiness(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  preview: NonNullable<ReturnType<typeof workflowPreviewByRequest.get>>,
+): void {
+  const readiness = previewReadiness(requestId, intake, preview);
+  const context = recognizedGtmContext;
+  const targetUrl = normalizedPreviewUrl(location.href);
+  if (!readiness.eligible || !context || !targetUrl) {
+    previewReadinessByRequest.delete(requestId);
+    renderPreviewHandoff(requestId, intake, preview);
+    return;
+  }
+  previewReadinessByRequest.set(requestId, {
+    operationId: preview.operationId,
+    workspaceFingerprint: preview.workspaceFingerprint,
+    previewVersionFingerprint: preview.previewVersionFingerprint,
+    publicId: context.publicId,
+    targetUrl,
+  });
+  renderPreviewHandoff(requestId, intake, preview);
+}
+
+function workflowReviewActions(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  includeApply: boolean,
+): Array<{ id: string; label: string }> {
+  if (authoredSetupByRequest.has(requestId)) {
+    return includeApply ? [{ id: "apply-form-workflow", label: "Apply & validate draft" }] : [];
+  }
+  return [
+    ...(includeApply ? [{ id: "apply-form-workflow", label: "Apply & validate draft" }] : []),
+    {
+      id: generatedInteractionProposal(intake) ? "download-interaction-setup" : "download-form-setup",
+      label: "Download GTM setup",
+    },
+  ];
+}
+
+function showWorkflowPlan(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  plan: WorkflowPlanSummary,
+): void {
+  workflowPlansByRequest.set(requestId, plan);
+  const ready = plan.planStatus === "ready";
+  if (ready) {
+    saveJourneySnapshot(requestId, intake, "planned", { plan });
+  }
+  const managedChange = plan.actions.some(
+    ({ action, reason }) => action === "conflict" && reason === "managed_change_requires_approval",
+  );
+  const reviewable = managedChange && plan.actions.filter(({ action }) => action === "conflict")
+    .every((action) => action.reason === "managed_change_requires_approval"
+      && Boolean(action.entitySignature && action.existingId && action.replacement));
+  const task = renderFormTaskState(requestId, intake, {
+    status: ready ? "ready_for_review" : "blocked",
+    summary: ready
+      ? plan.replacementApproved
+        ? "The exact managed replacement is approved. Nothing was applied or published."
+        : "The durable change plan is ready. Nothing was applied or published."
+      : managedChange
+        ? "Existing managed setup differs. Explicit replacement approval is required. Nothing was applied or published."
+        : "The plan contains a conflict. Nothing was applied or published.",
+    verifyStatus: "pending",
+    question: ready
+      ? "Apply these exact GTM changes and validate the draft? This does not publish."
+      : managedChange
+        ? "Existing managed setup differs. Keep it or begin an explicit replacement review."
+        : "Resolve the conflict before application.",
+    actions: ready
+      ? workflowReviewActions(requestId, intake, true)
+      : reviewable
+        ? [{ id: "review-managed-replacement", label: "Review managed replacement" }]
+        : [],
+  });
+  renderWorkflowPlan(task, plan);
+}
+
+function showReplacementReview(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  plan: WorkflowPlanSummary,
+): void {
+  const task = renderFormTaskState(requestId, intake, {
+    status: "ready_for_review",
+    summary: "Review the exact current and proposed managed GTM behavior. Nothing has been applied or published.",
+    verifyStatus: "pending",
+    question: "Approve replacement only if the entity ID, current fingerprint, and semantic change are expected.",
+    actions: [
+      { id: "approve-managed-replacement", label: "Approve managed replacement" },
+      { id: "return-to-form-plan", label: "Return to plan" },
+    ],
+  });
+  renderReplacementReview(task, plan);
+  responseList?.scrollTo({ top: responseList.scrollHeight });
+}
+
+async function approveManagedReplacement(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  plan: WorkflowPlanSummary,
+): Promise<void> {
+  renderFormTaskState(requestId, intake, {
+    status: "working",
+    summary: "Recording the exact managed replacement approval. No GTM write or publication is authorized yet.",
+    verifyStatus: "pending",
+  });
+  let response: WorkflowPlanResponse;
+  try {
+    response = await requestReplacementApproval(plan);
+  } catch {
+    response = { ok: false, error: "service_offline" };
+  }
+  if (!response.ok || !response.result) {
+    const task = renderFormTaskState(requestId, intake, {
+      status: "blocked",
+      summary: "The managed replacement approval was rejected or became stale. Nothing was applied or published.",
+      verifyStatus: "pending",
+      question: "Return to the exact review or create a fresh plan.",
+      actions: [{ id: "return-to-form-plan", label: "Return to plan" }],
+    });
+    renderReplacementReview(task, plan);
+    return;
+  }
+  showWorkflowPlan(requestId, intake, response.result);
+}
+
+function confirmWorkflowApply(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  plan: WorkflowPlanSummary,
+): void {
+  const task = renderFormTaskState(requestId, intake, {
+    status: "ready_for_review",
+    summary: "Review this exact GTM plan before authorizing container writes.",
+    verifyStatus: "pending",
+    question: "This writes the reviewed changes and validates the managed workspace. Browser preview must pass before an immutable version can be created. It does not publish. Continue?",
+    actions: [
+      { id: "confirm-form-workflow-apply", label: "Confirm apply & validate" },
+      { id: "return-to-form-plan", label: "Return to plan" },
+    ],
+  });
+  renderWorkflowPlan(task, plan);
+}
+
+function renderProviderProgress(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  progress: ProviderProgressProjectionV1,
+): void {
+  const stage = progress.stage ?? "provider";
+  const state = progress.state.replaceAll("_", " ");
+  const elapsed = progress.elapsedSeconds === undefined
+    ? ""
+    : ` Elapsed ${progress.elapsedSeconds} seconds; elapsed time does not determine success or failure.`;
+  renderFormTaskState(requestId, intake, {
+    status: progress.state === "in_flight" ? "working" : "blocked",
+    summary: `${stage[0]!.toUpperCase()}${stage.slice(1)} · ${state}. ${progress.message}${elapsed}`,
+    verifyStatus: "pending",
+    question: progress.state === "reconciling"
+      ? "Current Google state must be reconciled before another mutation can be offered."
+      : progress.state === "failed"
+        ? "Retry remains locked until the operation checkpoint and fresh Google state permit it."
+        : "Retry is locked while this provider state is active.",
+  });
+}
+
+function monitorProviderProgress(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  operationId: string,
+): () => void {
+  let stopped = false;
+  const timeout = window.setTimeout(() => {
+    void requestWorkflowProgress(operationId, { displayTimedOut: true })
+      .then((response) => {
+        if (!stopped && response.ok && response.result) {
+          renderProviderProgress(requestId, intake, response.result);
+        }
+      })
+      .catch(() => undefined);
+  }, 1_500);
+  return () => {
+    stopped = true;
+    window.clearTimeout(timeout);
+  };
+}
+
+function blockedWorkflowCopy(result: WorkflowResumeSummary): string {
+  if (result.status === "paused") {
+    return "Application paused after a partial write. Nothing was published.";
+  }
+  if (result.stage === "validation") {
+    return "Validation stopped the workflow. No immutable version was created or published.";
+  }
+  if (result.stage === "version") {
+    return "Version creation stopped. Nothing was published.";
+  }
+  return "The reviewed plan could not be applied. Nothing was published.";
+}
+
+function exactDraftRun(
+  preview: NonNullable<ReturnType<typeof workflowPreviewByRequest.get>>,
+  evidence: TrackingRunEvidenceV1,
+): ExactDraftBrowserRunV1 {
+  return {
+    schemaVersion: 1,
+    operationId: preview.operationId,
+    setupFingerprint: preview.setupFingerprint,
+    workspaceFingerprint: preview.workspaceFingerprint,
+    previewVersionFingerprint: preview.previewVersionFingerprint,
+    completedAt: new Date().toISOString(),
+    evidence,
+  };
+}
+
+async function beginDraftRepair(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  evidence: TrackingRunEvidenceV1,
+): Promise<void> {
+  const preview = workflowPreviewByRequest.get(requestId);
+  if (!preview) return;
+  renderFormTaskState(requestId, intake, {
+    status: "working",
+    summary: "The exact browser run failed. Checking for one bounded repair that preserves the approved tracking setup.",
+    verifyStatus: "active",
+  });
+  let response: WorkflowRepairResponse;
+  try {
+    response = await requestWorkflowRepair(preview.operationId, exactDraftRun(preview, evidence));
+  } catch {
+    response = { ok: false, error: "service_offline" };
+  }
+  if (!response.ok || !response.result) {
+    workflowRepairsByRequest.delete(requestId);
+    renderFormTaskState(requestId, intake, {
+      status: "blocked",
+      summary: "The exact browser run failed, and no safe deterministic repair is available. No version was created.",
+      verifyStatus: "blocked",
+      question: "Inspect the Tag Assistant and managed-workspace evidence before changing the approved tracking setup.",
+    });
+    return;
+  }
+
+  const repair = response.result;
+  workflowRepairsByRequest.set(requestId, repair);
+  const task = renderFormTaskState(requestId, intake, {
+    status: "ready_for_review",
+    summary: `Bounded repair ${repair.attempt} of ${repair.maximumAttempts} can restore the unchanged approved setup in the managed workspace. Nothing was applied or published.`,
+    verifyStatus: "blocked",
+    question: "Review this exact repair before authorizing workspace writes. A new exact browser preview will still be required.",
+  });
+  renderWorkflowPlan(task, {
+    operationId: repair.operationId,
+    status: "planned",
+    planStatus: "ready",
+    fingerprint: repair.planFingerprint,
+    actions: repair.actions,
+  });
+  renderQuickActions(
+    requestId,
+    [{ id: "approve-draft-repair", label: "Approve repair & revalidate" }],
+    task,
+  );
+  responseList?.scrollTo({ top: responseList.scrollHeight });
+}
+
+async function applyReviewedDraftRepair(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  repair: WorkflowRepairSummary,
+): Promise<void> {
+  renderFormTaskState(requestId, intake, {
+    status: "working",
+    summary: "Applying the reviewed bounded repair and validating the managed workspace. No version or publication is authorized.",
+    verifyStatus: "active",
+  });
+  let response: WorkflowResumeResponse;
+  try {
+    response = await requestApplyWorkflowRepair(repair.operationId, repair.planFingerprint);
+  } catch {
+    response = { ok: false, error: "service_offline" };
+  }
+  if (!response.ok
+    || !response.result
+    || response.result.status !== "awaiting_preview"
+    || response.result.nextStep !== "run_tag_assistant_preview"
+    || !response.result.setupFingerprint
+    || !response.result.workspaceFingerprint
+    || !response.result.previewVersionFingerprint) {
+    renderFormTaskState(requestId, intake, {
+      status: "blocked",
+      summary: "The reviewed repair did not reach a validated workspace. No version was created or published.",
+      verifyStatus: "blocked",
+      question: "Inspect the managed-workspace action receipt before another repair attempt.",
+    });
+    return;
+  }
+  const preview = {
+    operationId: response.result.operationId,
+    setupFingerprint: response.result.setupFingerprint,
+    workspaceFingerprint: response.result.workspaceFingerprint,
+    previewVersionFingerprint: response.result.previewVersionFingerprint,
+  };
+  workflowRepairsByRequest.delete(requestId);
+  previewReadinessByRequest.delete(requestId);
+  previewTargetByRequest.delete(requestId);
+  workflowPreviewByRequest.set(requestId, preview);
+  renderPreviewHandoff(requestId, intake, preview);
+}
+
+async function completeExactDraftVerification(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  evidence: TrackingRunEvidenceV1,
+): Promise<void> {
+  const preview = workflowPreviewByRequest.get(requestId);
+  if (!preview) return;
+  renderFormTaskState(requestId, intake, {
+    status: "working",
+    summary: "Browser verification passed. Binding the evidence to the exact setup, workspace, and GTM preview before version creation.",
+    verifyStatus: "active",
+  });
+  const run = exactDraftRun(preview, evidence);
+  let verification: { ok: boolean; error?: string };
+  try {
+    verification = await requestWorkflowDraftVerification(preview.operationId, run);
+  } catch {
+    verification = { ok: false, error: "service_offline" };
+  }
+  if (!verification.ok) {
+    renderFormTaskState(requestId, intake, {
+      status: "blocked",
+      summary: "The browser run passed locally but could not be bound to the exact managed-workspace draft. No version was created.",
+      verifyStatus: "blocked",
+      question: "Return to the exact preview handoff and run it again.",
+      actions: [{
+        id: intake.interaction === "form_submission"
+          ? "start-exact-form-preview"
+          : intake.interaction === "calendly_booking"
+            ? "start-exact-calendly-preview"
+            : "start-exact-interaction-preview",
+        label: "Retry exact browser run",
+      }],
+    });
+    return;
+  }
+  const stopProgress = monitorProviderProgress(requestId, intake, preview.operationId);
+  let resumed: WorkflowResumeResponse;
+  try {
+    resumed = await requestWorkflowResume(preview.operationId);
+  } finally {
+    stopProgress();
+  }
+  if (resumed.ok
+    && resumed.result?.status === "provider_progress"
+    && resumed.result.providerProgress) {
+    renderProviderProgress(requestId, intake, resumed.result.providerProgress);
+    return;
+  }
+  if (!resumed.ok
+    || !resumed.result
+    || resumed.result.status !== "versioned"
+    || resumed.result.nextStep !== "await_approval"
+    || !resumed.result.versionFingerprint) {
+    renderFormTaskState(requestId, intake, {
+      status: "blocked",
+      summary: "The exact draft is verified, but immutable version creation did not complete. Nothing was published.",
+      verifyStatus: "completed",
+      question: "Resume version creation after checking the managed workspace state.",
+    });
+    return;
+  }
+  previewReadinessByRequest.delete(requestId);
+  previewTargetByRequest.delete(requestId);
+  workflowPreviewByRequest.delete(requestId);
+  renderCompletedVersion(requestId, intake, resumed.result);
+}
+
+async function applyFormWorkflow(
+  requestId: string,
+  intake: ConversationIntakeResult,
+  plan: WorkflowPlanSummary,
+): Promise<void> {
+  renderFormTaskState(requestId, intake, {
+    status: "working",
+    summary: "Applying the reviewed changes and validating the exact workspace draft. Version creation remains locked until browser preview passes.",
+    verifyStatus: "pending",
+  });
+  let response: WorkflowResumeResponse;
+  const stopProgress = monitorProviderProgress(requestId, intake, plan.operationId);
+  try {
+    response = await requestWorkflowResume(plan.operationId);
+  } catch {
+    response = { ok: false, error: "service_offline" };
+  } finally {
+    stopProgress();
+  }
+  if (!response.ok || !response.result) {
+    renderFormTaskState(requestId, intake, {
+      status: "blocked",
+      summary: "The reviewed plan could not be applied. Nothing was published.",
+      verifyStatus: "pending",
+      question: "Return to the reviewed plan before retrying.",
+      actions: [{ id: "return-to-form-plan", label: "Return to plan" }],
+    });
+    return;
+  }
+  if (response.result.status === "provider_progress" && response.result.providerProgress) {
+    renderProviderProgress(requestId, intake, response.result.providerProgress);
+    return;
+  }
+  if (response.result.status === "awaiting_preview"
+    && response.result.validationStatus === "passed"
+    && response.result.nextStep === "run_tag_assistant_preview"
+    && response.result.setupFingerprint
+    && response.result.workspaceFingerprint
+    && response.result.previewVersionFingerprint) {
+    const preview = {
+      operationId: response.result.operationId,
+      setupFingerprint: response.result.setupFingerprint,
+      workspaceFingerprint: response.result.workspaceFingerprint,
+      previewVersionFingerprint: response.result.previewVersionFingerprint,
+    };
+    previewReadinessByRequest.delete(requestId);
+    previewTargetByRequest.delete(requestId);
+    workflowPreviewByRequest.set(requestId, preview);
+    renderPreviewHandoff(requestId, intake, preview);
+    return;
+  }
+  if (response.result.status !== "versioned"
+    || response.result.validationStatus !== "passed"
+    || !response.result.versionFingerprint
+    || response.result.nextStep !== "await_approval") {
+    renderFormTaskState(requestId, intake, {
+      status: "blocked",
+      summary: blockedWorkflowCopy(response.result),
+      verifyStatus: "pending",
+      question: "Review the plan and GTM workspace state before retrying.",
+      actions: [{ id: "return-to-form-plan", label: "Return to plan" }],
+    });
+    return;
+  }
+  renderCompletedVersion(requestId, intake, response.result);
+}
+
+async function planFormWorkflow(
+  requestId: string,
+  intake: ConversationIntakeResult,
+): Promise<void> {
+  renderFormTaskState(requestId, intake, {
+    status: "working",
+    summary: "Preparing the managed workspace and calculating the tracking change plan.",
+    verifyStatus: "pending",
+  });
+  const response = await requestWorkflowPlan(requestId, intake);
+  if (response.ok && response.resumeOperationId) {
+    try {
+      const progress = await requestWorkflowProgress(response.resumeOperationId, { browserReloaded: true });
+      if (progress.ok && progress.result
+        && ["in_flight", "reconciling", "failed"].includes(progress.result.state)) {
+        renderProviderProgress(requestId, intake, progress.result);
+        return;
+      }
+    } catch {
+      // The normal resume request below retains the existing offline behavior.
+    }
+    let resumed: WorkflowResumeResponse;
+    try {
+      resumed = await requestWorkflowResume(response.resumeOperationId);
+    } catch {
+      resumed = { ok: false, error: "service_offline" };
+    }
+    if (resumed.ok
+      && resumed.result?.status === "provider_progress"
+      && resumed.result.providerProgress) {
+      renderProviderProgress(requestId, intake, resumed.result.providerProgress);
+      return;
+    }
+    if (resumed.ok
+      && resumed.result?.status === "published"
+      && resumed.result.validationStatus === "passed"
+      && resumed.result.nextStep === "verify_publication"
+      && resumed.result.versionFingerprint
+      && resumed.result.publishedAt) {
+      renderPublishedVersion(requestId, intake, {
+        operationId: resumed.result.operationId,
+        versionFingerprint: resumed.result.versionFingerprint,
+        publishedAt: resumed.result.publishedAt,
+      });
+      return;
+    }
+    if (resumed.ok
+      && resumed.result?.status === "versioned"
+      && resumed.result.validationStatus === "passed"
+      && resumed.result.nextStep === "await_approval"
+      && resumed.result.versionFingerprint) {
+      renderCompletedVersion(requestId, intake, resumed.result);
+      return;
+    }
+    if (resumed.ok
+      && resumed.result?.status === "awaiting_preview"
+      && resumed.result.validationStatus === "passed"
+      && resumed.result.nextStep === "run_tag_assistant_preview"
+      && resumed.result.setupFingerprint
+      && resumed.result.workspaceFingerprint
+      && resumed.result.previewVersionFingerprint) {
+      const preview = {
+        operationId: resumed.result.operationId,
+        setupFingerprint: resumed.result.setupFingerprint,
+        workspaceFingerprint: resumed.result.workspaceFingerprint,
+        previewVersionFingerprint: resumed.result.previewVersionFingerprint,
+      };
+      previewReadinessByRequest.delete(requestId);
+      previewTargetByRequest.delete(requestId);
+      workflowPreviewByRequest.set(requestId, preview);
+      renderPreviewHandoff(requestId, intake, preview);
+      return;
+    }
+  }
+  if (!response.ok || !response.result) {
+    workflowPlansByRequest.delete(requestId);
+    renderFormTaskState(requestId, intake, {
+      status: "blocked",
+      summary: response.error === "planning_blocked"
+        ? "Planning stopped because the connected workspace cannot accept this setup. Nothing was applied or published."
+        : "The change plan could not be created. Nothing was applied or published.",
+      verifyStatus: "pending",
+      question: "Retry planning or download the setup for manual review.",
+      actions: [
+        { id: "plan-form-workflow", label: "Retry planning" },
+        {
+          id: generatedInteractionProposal(intake) ? "download-interaction-setup" : "download-form-setup",
+          label: "Download GTM setup",
+        },
+      ],
+    });
+    return;
+  }
+  showWorkflowPlan(requestId, intake, response.result);
+}
+
 function handleAssistantAction(actionId: string, requestId: string): void {
   if (actionId.startsWith("prompt:")) {
-    if (composer) composer.value = actionId.slice("prompt:".length);
+    if (composer) composer.value = actionId.slice("prompt:".length).replaceAll("_", " ");
     submitPrompt();
     return;
   }
@@ -1599,8 +4846,41 @@ function handleAssistantAction(actionId: string, requestId: string): void {
     renderNavigationPicker(navigationByRequest.get(requestId) ?? []);
     return;
   }
+  if (actionId === "copy-completion-summary") {
+    const summary = completionSummaryByRequest.get(requestId);
+    if (!summary) {
+      return;
+    }
+    void navigator.clipboard.writeText(summary)
+      .then(() => addMessage("Completion summary copied.", "assistant"))
+      .catch(() => addMessage("Copy was unavailable. The verified receipt remains in task details.", "assistant"));
+    return;
+  }
+  if (actionId === "start-another-setup") {
+    completedJourneyRequests.delete(requestId);
+    completionSummaryByRequest.delete(requestId);
+    currentTaskRequestId = undefined;
+    welcomeCard?.removeAttribute("hidden");
+    renderJourney("define");
+    composer?.focus();
+    return;
+  }
   const intake = intakeByRequest.get(requestId);
   const forms = formsByRequest.get(requestId) ?? [];
+  if (actionId.startsWith("scope:") && intake) {
+    const scope = actionId.slice("scope:".length);
+    if (scope === "sitewide" || scope === "current_page") {
+      const interaction = knownInteractionDefinition(intake.interaction)?.interaction;
+      if (interaction) {
+        highlightTargets(
+          interactionTargetsByRequest.get(requestId)?.[interaction] ?? [],
+          "confirmed",
+        );
+      }
+      renderIntakeStep(requestId, selectConversationScope(intake, scope));
+    }
+    return;
+  }
   if (actionId.startsWith("target:") && intake) {
     const target = forms.find((form) => form.id === actionId.slice("target:".length));
     if (target) {
@@ -1618,33 +4898,181 @@ function handleAssistantAction(actionId: string, requestId: string): void {
     renderFormDraft(requestId, intake);
     return;
   }
+  if (actionId === "confirm-interaction-specification" && intake?.canConfirm) {
+    renderInteractionDraft(requestId, intake);
+    return;
+  }
+  if (actionId === "confirm-calendly-specification" && intake?.canConfirm) {
+    renderCalendlyDraft(requestId, intake);
+    return;
+  }
+  if (actionId === "approve-interaction-setup" && intake?.canConfirm) {
+    renderInteractionApproved(requestId, intake);
+    return;
+  }
+  if (actionId === "approve-calendly-setup" && intake?.canConfirm) {
+    renderCalendlyApproved(requestId, intake);
+    return;
+  }
+  if (actionId === "author-interaction-alternative" && intake?.canConfirm) {
+    void authorInteractionAlternative(requestId, intake);
+    return;
+  }
+  if (actionId === "approve-model-authored-setup" && intake?.canConfirm) {
+    renderModelAuthoredApproved(requestId, intake);
+    return;
+  }
+  if (actionId === "return-to-interaction-review" && intake?.canConfirm) {
+    authoredSetupByRequest.delete(requestId);
+    renderInteractionDraft(requestId, intake);
+    return;
+  }
   if (actionId === "confirm-form-specification" && intake?.canConfirm) {
-    const proposal = formSetupProposal(intake);
+    renderApprovedFormSetup(requestId, intake);
+    return;
+  }
+  if (actionId === "review-ga4-configuration" && intake?.canConfirm) {
+    void planLeadGa4(requestId, intake);
+    return;
+  }
+  const ga4Plan = ga4PlansByRequest.get(requestId);
+  if (actionId === "apply-ga4-configuration" && intake?.canConfirm && ga4Plan) {
+    void applyLeadGa4(requestId, intake, ga4Plan);
+    return;
+  }
+  if (actionId === "return-to-approved-setup" && intake?.canConfirm) {
+    ga4PlansByRequest.delete(requestId);
+    renderApprovedFormSetup(requestId, intake);
+    return;
+  }
+  if (actionId === "plan-form-workflow" && intake?.canConfirm) {
+    void planFormWorkflow(requestId, intake);
+    return;
+  }
+  const workflowPlan = workflowPlansByRequest.get(requestId);
+  if (actionId === "review-managed-replacement" && intake?.canConfirm && workflowPlan) {
+    showReplacementReview(requestId, intake, workflowPlan);
+    return;
+  }
+  if (actionId === "approve-managed-replacement" && intake?.canConfirm && workflowPlan) {
+    void approveManagedReplacement(requestId, intake, workflowPlan);
+    return;
+  }
+  if (actionId === "apply-form-workflow" && intake?.canConfirm && workflowPlan) {
+    void applyFormWorkflow(requestId, intake, workflowPlan);
+    return;
+  }
+  if (actionId === "confirm-form-workflow-apply" && intake?.canConfirm && workflowPlan) {
+    void applyFormWorkflow(requestId, intake, workflowPlan);
+    return;
+  }
+  if (actionId === "open-tag-assistant" && intake?.canConfirm) {
+    void chrome.runtime.sendMessage({ type: "OPEN_TAG_ASSISTANT" });
+    const preview = workflowPreviewByRequest.get(requestId);
+    if (preview) renderPreviewHandoff(requestId, intake, preview);
+    return;
+  }
+  const workflowPreview = workflowPreviewByRequest.get(requestId);
+  if (actionId === "confirm-preview-readiness" && intake?.canConfirm && workflowPreview) {
+    confirmPreviewReadiness(requestId, intake, workflowPreview);
+    return;
+  }
+  if (actionId === "recheck-preview-readiness" && intake?.canConfirm && workflowPreview) {
+    renderPreviewHandoff(requestId, intake, workflowPreview);
+    return;
+  }
+  if ((actionId === "start-exact-form-preview"
+      || actionId === "start-exact-interaction-preview"
+      || actionId === "start-exact-calendly-preview")
+    && intake?.canConfirm
+    && workflowPreview) {
+    if (!previewReadiness(requestId, intake, workflowPreview).confirmed) {
+      previewReadinessByRequest.delete(requestId);
+      renderPreviewHandoff(requestId, intake, workflowPreview);
+      return;
+    }
+    if (actionId === "start-exact-form-preview") {
+      void prepareFormVerification(requestId, intake);
+    } else if (actionId === "start-exact-calendly-preview") {
+      prepareCalendlyVerification(requestId, intake);
+    } else {
+      prepareInteractionVerification(requestId, intake);
+    }
+    return;
+  }
+  const workflowRepair = workflowRepairsByRequest.get(requestId);
+  if (actionId === "approve-draft-repair" && intake?.canConfirm && workflowRepair) {
+    void applyReviewedDraftRepair(requestId, intake, workflowRepair);
+    return;
+  }
+  const workflowVersion = workflowVersionByRequest.get(requestId);
+  if (actionId === "review-exact-publication"
+    && intake?.canConfirm
+    && workflowVersion
+    && recognizedGtmContext?.status.publicationEnabled) {
+    renderPublicationReview(requestId, intake, workflowVersion);
+    return;
+  }
+  if (actionId === "confirm-exact-publication"
+    && intake?.canConfirm
+    && workflowVersion
+    && recognizedGtmContext?.status.publicationEnabled) {
+    void publishExactVersion(requestId, intake, workflowVersion);
+    return;
+  }
+  const workflowPublication = workflowPublicationByRequest.get(requestId);
+  if (actionId === "start-live-form-verification"
+    && intake?.canConfirm
+    && workflowPublication) {
+    void prepareFormVerification(requestId, intake);
+    return;
+  }
+  if (actionId === "start-live-interaction-verification"
+    && intake?.canConfirm
+    && workflowPublication) {
+    if (intake.interaction === "calendly_booking") {
+      prepareCalendlyVerification(requestId, intake);
+    } else {
+      prepareInteractionVerification(requestId, intake);
+    }
+    return;
+  }
+  if (actionId === "review-publication-rollback"
+    && intake?.canConfirm
+    && workflowPublication?.targetVersionFingerprint) {
+    renderRollbackReview(requestId, intake, workflowPublication);
+    return;
+  }
+  if (actionId === "confirm-publication-rollback"
+    && intake?.canConfirm
+    && workflowPublication?.targetVersionFingerprint) {
+    void rollbackPublication(requestId, intake, workflowPublication);
+    return;
+  }
+  if (actionId === "return-to-failed-publication"
+    && intake?.canConfirm
+    && workflowPublication?.targetVersionFingerprint) {
     renderFormTaskState(requestId, intake, {
-      status: "working",
-      summary: proposal
-        ? "Setup approved and generated. The next step is one guided browser verification."
-        : "Setup approved, but generation still needs one exact GTM container and GA4 destination.",
-      question: proposal
-        ? "Download the reviewable setup or start verification if it is already installed."
-        : "Connect one exact GTM container and GA4 destination to continue.",
-      verifyStatus: proposal ? "active" : "pending",
-      actions: proposal
-        ? [
-            { id: "download-form-setup", label: "Download GTM setup" },
-            { id: "start-form-verification", label: "Start verification" },
-          ]
-        : [],
+      status: "blocked",
+      summary: `Live browser verification failed for published version ${workflowPublication.versionFingerprint}.`,
+      verifyStatus: "blocked",
+      question: `Review the recorded rollback from ${workflowPublication.versionFingerprint} to ${workflowPublication.targetVersionFingerprint}.`,
+      actions: [{ id: "review-publication-rollback", label: "Review rollback" }],
     });
-    renderEvidencePath({
-      intentDetail: `Successful ${intake.target?.label ?? "form"} submission → generate_lead`,
-      inspectedDetail: `${forms.length} form${forms.length === 1 ? "" : "s"} found`,
-      confirmedDetail: `${intake.target?.label ?? "Selected form"} highlighted on this page`,
-      setupGenerated: proposal !== undefined,
-      setupDetail: proposal
-        ? "Reviewable generate_lead setup generated"
-        : "Connect a GTM container and GA4 measurement ID to generate setup",
-    }, requestId);
+    return;
+  }
+  if (actionId === "return-to-version-review" && intake?.canConfirm && workflowVersion) {
+    renderCompletedVersion(requestId, intake, {
+      operationId: workflowVersion.operationId,
+      status: "versioned",
+      validationStatus: "passed",
+      versionFingerprint: workflowVersion.versionFingerprint,
+      nextStep: "await_approval",
+    });
+    return;
+  }
+  if (actionId === "return-to-form-plan" && intake?.canConfirm && workflowPlan) {
+    showWorkflowPlan(requestId, intake, workflowPlan);
     return;
   }
   if (actionId === "download-form-setup" && intake?.canConfirm) {
@@ -1662,12 +5090,20 @@ function handleAssistantAction(actionId: string, requestId: string): void {
       summary: "The reviewable GTM container import was downloaded. Nothing was applied or published.",
       verifyStatus: "active",
       question: "Import it with Merge into a new workspace, then run verification.",
-      actions: [{ id: "start-form-verification", label: "Start verification" }],
+      actions: [{ id: "start-form-verification", label: "Verify already-installed setup" }],
     });
+    return;
+  }
+  if (actionId === "download-interaction-setup" && intake?.canConfirm) {
+    addMessage(`Downloaded the generated ${intake.eventName ?? "interaction"} setup. Nothing was applied or published.`, "assistant");
     return;
   }
   if (actionId === "start-form-verification" && intake?.canConfirm) {
     void prepareFormVerification(requestId, intake);
+    return;
+  }
+  if (actionId === "retry-ga4-confirmation" && intake?.canConfirm) {
+    void confirmGa4Platform(requestId);
     return;
   }
   if (actionId === "cancel") { clearTargetHighlights(); addMessage("Okay — nothing was selected.", "assistant"); }
@@ -1681,16 +5117,31 @@ function renderQuickActions(
   if (!actions.length) return;
   const row = document.createElement("div");
   row.className = "quick-actions";
-  for (const action of actions) {
+  if (actions.length === 1 && actions[0]?.id === "confirm-specification") {
+    appendAgentText(
+      row,
+      "next-action-guidance",
+      "Review the exact form, success signal, event name, and privacy boundary. Nothing will be created yet.",
+    );
+  }
+  for (const [index, action] of actions.entries()) {
     const downloadHref = action.id === "download-form-setup"
       ? formSetupDownloadHref(intakeByRequest.get(requestId)!)
+      : action.id === "download-interaction-setup"
+        ? interactionSetupDownloadHref(intakeByRequest.get(requestId)!)
       : undefined;
     const control = downloadHref ? document.createElement("a") : document.createElement("button");
     control.className = "quick";
+    control.dataset.actionId = action.id;
+    if (index === 0) {
+      control.classList.add("primary-quick");
+    }
     control.textContent = action.label;
     if (control instanceof HTMLAnchorElement) {
       control.href = downloadHref!;
-      control.download = "gtm-observability-generate-lead.json";
+      control.download = action.id === "download-interaction-setup"
+        ? `gtm-observability-${intakeByRequest.get(requestId)?.eventName?.replaceAll("_", "-") ?? "interaction"}.json`
+        : "gtm-observability-generate-lead.json";
       control.setAttribute("role", "button");
     }
     control.addEventListener("click", () => {
@@ -1700,13 +5151,117 @@ function renderQuickActions(
     row.append(control);
   }
   parent?.append(row);
+  if (parent?.classList.contains("agent-turn")) {
+    window.queueMicrotask(syncTaskArtifacts);
+    positionAgentTask(parent);
+    return;
+  }
   responseList?.scrollTo({ top: responseList.scrollHeight });
+}
+
+function updateResponseControls(): void {
+  if (!stopResponseButton) {
+    return;
+  }
+  stopResponseButton.hidden = pendingAssistantRequestId === undefined;
+}
+
+function queuePrompt(prompt: string): void {
+  const node = document.createElement("div");
+  node.className = "queued-prompt";
+  node.textContent = `Queued · ${prompt}`;
+  responseList?.append(node);
+  queuedPrompts.push({ prompt, node });
+  responseList?.scrollTo({ top: responseList.scrollHeight });
+}
+
+const shortConfirmations = new Set(["confirm", "yes", "continue", "ok", "okay"]);
+const readOnlyConfirmActions = new Set([
+  "confirm-specification",
+  "confirm-interaction-specification",
+  "confirm-calendly-specification",
+]);
+
+function handleShortConfirmation(prompt: string): boolean {
+  if (!shortConfirmations.has(prompt.toLowerCase()) || !currentTaskRequestId) {
+    return false;
+  }
+  const task = agentTaskNodes.get(currentTaskRequestId);
+  const controls = task
+    ? [...task.querySelectorAll<HTMLElement>(".quick-actions [data-action-id]")]
+      .filter((control) => !(control instanceof HTMLButtonElement) || !control.disabled)
+    : [];
+  if (controls.length === 0) {
+    return false;
+  }
+  addMessage(prompt, "user");
+  const control = controls[0];
+  const actionId = control?.dataset.actionId;
+  if (controls.length === 1 && actionId && readOnlyConfirmActions.has(actionId)) {
+    control.click();
+    return true;
+  }
+  const labels = controls.map((item) => item.textContent?.trim()).filter(Boolean);
+  if (controls.length > 1) {
+    addMessage(`Choose one of the visible actions so I don't guess: ${labels.join(" · ")}.`, "assistant");
+    return true;
+  }
+  addMessage(
+    `Use the visible “${labels[0] ?? "Continue"}” button so that this choice or approval remains explicit.`,
+    "assistant",
+  );
+  return true;
+}
+
+function startNextQueuedPrompt(): void {
+  const next = queuedPrompts.shift();
+  if (!next) {
+    updateResponseControls();
+    return;
+  }
+  next.node.remove();
+  startAssistantPrompt(next.prompt);
+}
+
+function finishAssistantRequest(requestId: string): void {
+  if (pendingAssistantRequestId !== requestId) {
+    return;
+  }
+  pendingAssistantRequestId = undefined;
+  startNextQueuedPrompt();
+}
+
+function stopPendingResponse(): void {
+  const requestId = pendingAssistantRequestId;
+  if (!requestId) {
+    return;
+  }
+  const timeout = requestTimeouts.get(requestId);
+  if (timeout !== undefined) {
+    window.clearTimeout(timeout);
+  }
+  requestTimeouts.delete(requestId);
+  const pending = responseNodes.get(requestId);
+  if (pending) {
+    pending.className = "agent-turn status-blocked";
+    pending.textContent = "Response stopped. Nothing changed.";
+  }
+  responseNodes.delete(requestId);
+  pendingAssistantRequestId = undefined;
+  const stoppedPort = port;
+  port = undefined;
+  stoppedPort?.disconnect();
+  startNextQueuedPrompt();
 }
 
 function connectAssistant(): chrome.runtime.Port {
   if (port) return port;
-  port = chrome.runtime.connect({ name: "assistant" });
-  port.onDisconnect.addListener(() => {
+  const connectedPort = chrome.runtime.connect({ name: "assistant" });
+  port = connectedPort;
+  connectedPort.onDisconnect.addListener(() => {
+    if (port !== connectedPort) {
+      return;
+    }
     port = undefined;
     for (const [requestId, node] of responseNodes) {
       node.className = "agent-turn status-blocked";
@@ -1716,23 +5271,66 @@ function connectAssistant(): chrome.runtime.Port {
       if (timeout !== undefined) window.clearTimeout(timeout);
       requestTimeouts.delete(requestId);
     }
+    pendingAssistantRequestId = undefined;
+    startNextQueuedPrompt();
   });
-  port.onMessage.addListener((message: {
+  connectedPort.onMessage.addListener((message: {
     type?: string;
     requestId?: string;
     turn?: unknown;
+    plan?: unknown;
     navigation?: NavigationElement[];
     forms?: FormCandidate[];
+    interactionCounts?: Partial<Record<KnownInteractionTypeV1, number>>;
+    calendlyEmbedCount?: number;
     intake?: ConversationIntakeResult;
   }) => {
     if (!message.requestId) return;
     const node = responseNodes.get(message.requestId);
+    if (message.type === "ASSISTANT_ERROR") {
+      if (node) {
+        node.className = "agent-turn status-blocked";
+        node.textContent = "I could not re-confirm that activity on this page. Restore the page evidence, then describe the task again.";
+        responseNodes.delete(message.requestId);
+      }
+      const timeout = requestTimeouts.get(message.requestId);
+      if (timeout !== undefined) {
+        window.clearTimeout(timeout);
+      }
+      requestTimeouts.delete(message.requestId);
+      finishAssistantRequest(message.requestId);
+      return;
+    }
+    if (message.type === "MEASUREMENT_PLAN") {
+      if (!node || !isMeasurementPlanV1(message.plan)) {
+        if (node) {
+          node.classList.remove("streaming");
+          node.textContent = "The measurement plan could not be safely read. Try again.";
+        }
+        finishAssistantRequest(message.requestId);
+        return;
+      }
+      responseNodes.delete(message.requestId);
+      const timeout = requestTimeouts.get(message.requestId);
+      if (timeout !== undefined) {
+        window.clearTimeout(timeout);
+      }
+      requestTimeouts.delete(message.requestId);
+      navigationByRequest.set(message.requestId, message.navigation ?? []);
+      formsByRequest.set(message.requestId, message.forms ?? []);
+      interactionCountsByRequest.set(message.requestId, message.interactionCounts ?? {});
+      calendlyEmbedCountByRequest.set(message.requestId, message.calendlyEmbedCount ?? 0);
+      renderMeasurementPlan(message.requestId, message.plan, node);
+      finishAssistantRequest(message.requestId);
+      return;
+    }
     if (message.type === "AGENT_TURN") {
       if (!node || !isAgentTurnV1(message.turn)) {
         if (node) {
           node.classList.remove("streaming");
           node.textContent = "The agent response could not be safely read. Try again.";
         }
+        finishAssistantRequest(message.requestId);
         return;
       }
       responseNodes.delete(message.requestId);
@@ -1741,25 +5339,61 @@ function connectAssistant(): chrome.runtime.Port {
       requestTimeouts.delete(message.requestId);
       navigationByRequest.set(message.requestId, message.navigation ?? []);
       formsByRequest.set(message.requestId, message.forms ?? []);
+      interactionCountsByRequest.set(message.requestId, message.interactionCounts ?? {});
+      calendlyEmbedCountByRequest.set(message.requestId, message.calendlyEmbedCount ?? 0);
       if (message.intake) {
         intakeByRequest.set(message.requestId, message.intake);
         if (message.intake.state === "awaiting_target") {
           highlightTargets(formTargets(message.forms ?? []), "candidate");
+        } else if (message.intake.target) {
+          highlightTargets(formTargets([message.intake.target]), "confirmed");
+        } else {
+          if (message.intake.interaction === "calendly_booking") {
+            highlightTargets(
+              calendlyTargetsByRequest.get(message.requestId) ?? [],
+              message.intake.canConfirm ? "confirmed" : "candidate",
+            );
+            renderAgentTurn(message.requestId, message.turn, node);
+            finishAssistantRequest(message.requestId);
+            return;
+          }
+          const interaction = knownInteractionDefinition(message.intake.interaction)?.interaction;
+          if (interaction) {
+            highlightTargets(
+              interactionTargetsByRequest.get(message.requestId)?.[interaction] ?? [],
+              "candidate",
+            );
+          }
         }
       }
       renderAgentTurn(message.requestId, message.turn, node);
+      finishAssistantRequest(message.requestId);
     }
   });
-  return port;
+  return connectedPort;
 }
 
 function submitPrompt(): void {
   const prompt = composer?.value.trim();
   if (!prompt) return;
-  clearTargetHighlights();
   composer!.value = "";
+  if (handleShortConfirmation(prompt)) {
+    return;
+  }
+  if (pendingAssistantRequestId) {
+    queuePrompt(prompt);
+    return;
+  }
+  startAssistantPrompt(prompt);
+}
+
+function startAssistantPrompt(prompt: string): void {
+  clearTargetHighlights();
+  welcomeCard?.setAttribute("hidden", "");
   addMessage(prompt, "user");
   const requestId = crypto.randomUUID();
+  pendingAssistantRequestId = requestId;
+  updateResponseControls();
   const pending = addAgentPending(requestId);
   requestTimeouts.set(requestId, window.setTimeout(() => {
     if (!responseNodes.has(requestId)) return;
@@ -1767,10 +5401,20 @@ function submitPrompt(): void {
     pending.textContent = "The agent did not respond. Try again.";
     responseNodes.delete(requestId);
     requestTimeouts.delete(requestId);
-    port?.disconnect();
+    pendingAssistantRequestId = undefined;
+    const timedOutPort = port;
+    port = undefined;
+    timedOutPort?.disconnect();
+    startNextQueuedPrompt();
   }, 8_000));
   const scan = scanNavigation();
   const forms = scanForms();
+  const interactionScan = scanKnownInteractions();
+  const interactionCounts = interactionScan.counts;
+  const calendlyTargets = scanCalendlyInlineEmbeds();
+  interactionTargetsByRequest.set(requestId, interactionScan.targets);
+  calendlyTargetsByRequest.set(requestId, calendlyTargets);
+  const coverage = automaticCoverage();
   connectAssistant().postMessage({
     type: "ASSISTANT_REQUEST",
     requestId,
@@ -1780,6 +5424,8 @@ function submitPrompt(): void {
       url: scan.pageUrl,
       navigation: scan.navigation,
       forms,
+      interactionCounts,
+      calendlyEmbedCount: calendlyTargets.length,
     },
     ...(recognizedGtmContext
       ? {
@@ -1789,6 +5435,7 @@ function submitPrompt(): void {
               ? { measurementId: recognizedGtmContext.measurementIds[0] }
               : {}),
           },
+          ...(coverage ? { automaticCoverage: coverage } : {}),
         }
       : {}),
   });
@@ -1817,7 +5464,7 @@ function enableDragging(handle: HTMLElement): void {
 
 async function mountOverlay(): Promise<void> {
   if (host) return;
-  const stored = await chrome.storage.local.get("overlayPreferences");
+  const stored = await chrome.storage.local.get(["overlayPreferences", "activeJourney"]);
   preferences = { ...preferences, ...(stored.overlayPreferences as Partial<OverlayPreferences> | undefined) };
   host = document.createElement("div");
   host.id = "gtm-observability-root";
@@ -1827,7 +5474,7 @@ async function mountOverlay(): Promise<void> {
       :host { all: initial; }
       .assistant { position: fixed; z-index: 2147483647; min-width: 310px; min-height: 220px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow: hidden; resize: both; border: 1px solid rgba(255,255,255,.19); border-radius: 22px; background: linear-gradient(145deg, rgba(26,32,38,.78), rgba(12,17,21,.7)); color: #f5f7f8; box-shadow: 0 24px 70px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.08); backdrop-filter: blur(26px) saturate(145%); -webkit-backdrop-filter: blur(26px) saturate(145%); font: 13px/1.45 Inter, ui-sans-serif, system-ui, sans-serif; display: grid; grid-template-rows: 30px 1fr auto; transition: width .18s ease, height .18s ease, border-color .18s ease, box-shadow .18s ease; }
       .assistant:focus-within { border-color: rgba(167,243,208,.32); box-shadow: 0 26px 76px rgba(0,0,0,.34), 0 0 0 1px rgba(167,243,208,.08), inset 0 1px 0 rgba(255,255,255,.1); }
-      .drag { position: relative; cursor: grab; display: flex; justify-content: flex-end; align-items: center; padding: 0 9px; user-select: none; }
+      .drag { position: relative; cursor: grab; display: flex; justify-content: space-between; align-items: center; padding: 0 9px; user-select: none; }
       .drag::before { content: ""; position: absolute; left: 50%; width: 34px; height: 3px; border-radius: 99px; transform: translateX(-50%); background: rgba(255,255,255,.16); }
       .drag:active { cursor: grabbing; }
       button { border: 0; cursor: pointer; font: inherit; }
@@ -1835,7 +5482,7 @@ async function mountOverlay(): Promise<void> {
       .icon:hover { color: white; background: rgba(255,255,255,.08); }
       .messages { overflow-y: auto; overflow-x: hidden; padding: 4px 16px 12px; display: flex; flex-direction: column; gap: 10px; }
       .messages > * { min-width: 0; }
-      .gtm-context { flex: none; display: grid; gap: 8px; padding: 11px 12px; border: 1px solid rgba(167,243,208,.16); border-radius: 14px; background: linear-gradient(145deg, rgba(21,36,32,.82), rgba(18,27,31,.78)); box-shadow: inset 0 1px 0 rgba(255,255,255,.045); }
+      .gtm-context { position: relative; flex: none; display: grid; gap: 8px; padding: 11px 12px; border: 1px solid rgba(167,243,208,.16); border-radius: 14px; background: linear-gradient(145deg, rgba(21,36,32,.82), rgba(18,27,31,.78)); box-shadow: inset 0 1px 0 rgba(255,255,255,.045); }
       .gtm-context-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
       .gtm-context-heading > strong { color: #f1f7f4; font-size: 12px; font-weight: 650; }
       .gtm-context-controls { display: flex; align-items: center; gap: 5px; }
@@ -1849,6 +5496,32 @@ async function mountOverlay(): Promise<void> {
       .gtm-context-row span { color: #7f8d94; font-size: 9px; text-transform: uppercase; }
       .gtm-context-row strong { min-width: 0; color: #e7eeeb; font-size: 11px; font-weight: 590; overflow-wrap: anywhere; }
       .gtm-context-body small { margin-top: 3px; color: #89969e; font-size: 9px; line-height: 1.4; }
+      .gtm-context.compact { gap: 4px; padding: 8px 10px; }
+      .gtm-context.compact .gtm-context-heading > strong { display: none; }
+      .gtm-context.compact .gtm-context-heading { position: absolute; top: 6px; right: 7px; }
+      .gtm-context.compact .gtm-context-body > p { margin: 0; padding-right: 112px; color: #dce9e4; font-size: 10px; font-weight: 620; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .gtm-context-details { display: grid; gap: 4px; padding-top: 7px; border-top: 1px solid rgba(255,255,255,.07); }
+      .gtm-context-details[hidden] { display: none; }
+      .gtm-context-toggle { padding: 3px 6px; border-radius: 7px; color: #b8c8c1; background: rgba(255,255,255,.055); font-size: 9px; }
+      .journey { position: sticky; top: 0; z-index: 3; flex: none; margin: 0 -4px; padding: 5px 6px 6px; border-radius: 10px; background: rgba(16,23,27,.94); box-shadow: 0 5px 12px rgba(0,0,0,.12); backdrop-filter: blur(12px); }
+      .journey ol { display: grid; grid-template-columns: repeat(6, 1fr); gap: 3px; margin: 0; padding: 0; list-style: none; }
+      .journey li { min-width: 0; color: #68777d; text-align: center; font-size: 8px; }
+      .journey li i { display: grid; place-items: center; width: 17px; height: 17px; margin: 0 auto 2px; border-radius: 50%; background: rgba(255,255,255,.045); font: 700 8px/1 Inter, sans-serif; }
+      .journey li span { display: block; overflow: hidden; text-overflow: ellipsis; }
+      .journey li.completed { color: #95aaa2; }
+      .journey li.completed i { color: #092419; background: #8de8bd; }
+      .journey li.active { color: #e6f6ef; font-weight: 650; }
+      .journey li.active i { color: #c8f9e1; background: rgba(57,113,88,.58); box-shadow: 0 0 0 1px rgba(141,232,189,.22); }
+      .journey li.blocked { color: #f4cf75; }
+      .journey li.blocked i { background: rgba(120,77,18,.35); }
+      .resume-card { display: flex; align-items: center; justify-content: space-between; gap: 9px; padding: 10px 11px; border: 1px solid rgba(141,232,189,.23); border-radius: 13px; background: linear-gradient(145deg, rgba(28,51,43,.9), rgba(20,34,34,.9)); }
+      .resume-card[hidden] { display: none; }
+      .resume-card > div { min-width: 0; }
+      .resume-kicker { color: #8de8bd; font-size: 8px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; }
+      .resume-goal { color: #eef8f3; font-size: 11px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .resume-stage { color: #91a29c; font-size: 9px; }
+      .enhanced-review { display: grid; gap: 6px; }
+      .enhanced-review > strong { color: #f1f7f4; font-size: 12px; }
       .message { max-width: 88%; padding: 9px 11px; border-radius: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
       .message.bot { align-self: flex-start; color: #e5ebef; background: rgba(41,50,57,.72); border: 1px solid rgba(255,255,255,.06); border-radius: 4px 14px 14px 14px; }
       .message.user { align-self: flex-end; color: #f5fff9; background: #28483d; border-radius: 13px 13px 4px 13px; }
@@ -1856,9 +5529,31 @@ async function mountOverlay(): Promise<void> {
       .agent-welcome { display: grid; gap: 3px; padding: 2px 1px 5px; }
       .agent-welcome strong { color: #eef5f1; font-size: 13px; font-weight: 650; }
       .agent-welcome small { color: #93a09f; font-size: 10px; line-height: 1.45; }
+      .agent-welcome[hidden] { display: none; }
+      .starter-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+      .starter-actions button { padding: 6px 8px; border: 1px solid rgba(255,255,255,.1); border-radius: 9px; color: #cbd8d3; background: rgba(255,255,255,.045); font-size: 10px; }
       .agent-turn { align-self: stretch; display: grid; gap: 9px; min-width: 0; padding: 12px; border: 1px solid rgba(167,243,208,.14); border-radius: 15px; background: linear-gradient(145deg, rgba(24,37,36,.9), rgba(21,29,34,.9)); box-shadow: inset 0 1px 0 rgba(255,255,255,.045); }
       .agent-turn.status-blocked, .agent-turn.status-unsupported { border-color: rgba(251,191,36,.18); }
       .agent-turn.status-completed { border-color: rgba(141,232,189,.25); }
+      .measurement-plan { align-self: stretch; display: grid; gap: 10px; min-width: 0; padding: 12px; border: 1px solid rgba(139,188,246,.2); border-radius: 15px; background: linear-gradient(145deg, rgba(23,35,43,.94), rgba(20,29,34,.94)); box-shadow: inset 0 1px 0 rgba(255,255,255,.045); }
+      .measurement-plan-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+      .measurement-plan-kicker { color: #a9cbed; font-size: 9px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
+      .measurement-plan-count { padding: 2px 6px; border-radius: 999px; color: #c7def3; background: rgba(62,101,136,.34); font-size: 8px; font-weight: 700; text-transform: uppercase; }
+      .measurement-plan-title { color: #f2f7f4; font-size: 14px; font-weight: 680; line-height: 1.3; }
+      .measurement-plan-summary, .measurement-plan-note { color: #aebcbd; font-size: 10px; line-height: 1.45; }
+      .measurement-plan-items { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+      .measurement-plan-item { display: grid; gap: 6px; min-width: 0; padding: 9px; border: 1px solid rgba(255,255,255,.08); border-radius: 11px; background: rgba(8,15,19,.34); }
+      .measurement-plan-item.recommended { border-color: rgba(141,232,189,.24); }
+      .measurement-plan-item-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+      .measurement-plan-outcome { min-width: 0; color: #edf5f1; font-size: 11px; font-weight: 660; overflow-wrap: anywhere; }
+      .measurement-plan-badges { display: flex; flex: none; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+      .measurement-plan-badge { padding: 2px 5px; border-radius: 999px; color: #b9c8c5; background: rgba(255,255,255,.06); font-size: 7px; font-weight: 700; text-transform: uppercase; }
+      .measurement-plan-badge.covered { color: #baf3d7; background: rgba(57,113,88,.3); }
+      .measurement-plan-badge.warning { color: #f4cf75; background: rgba(120,77,18,.28); }
+      .measurement-plan-detail { color: #8fa1a5; font-size: 9px; overflow-wrap: anywhere; }
+      .measurement-plan-item-summary { color: #b8c4c2; font-size: 9px; line-height: 1.4; overflow-wrap: anywhere; }
+      .measurement-plan-start { justify-self: start; padding: 6px 8px; border: 1px solid rgba(167,243,208,.25); border-radius: 9px; color: #dff9ec; background: rgba(40,72,61,.58); font-size: 10px; }
+      .measurement-plan-start:disabled { cursor: default; opacity: .55; }
       .agent-turn-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
       .agent-kicker { color: #8de8bd; font-size: 9px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
       .agent-status { padding: 2px 6px; border-radius: 999px; color: #baf3d7; background: rgba(57,113,88,.3); font-size: 8px; font-weight: 700; letter-spacing: .035em; text-transform: uppercase; }
@@ -1875,75 +5570,132 @@ async function mountOverlay(): Promise<void> {
       .agent-plan-stage.blocked { color: #e4c67e; }
       .agent-plan-stage.blocked i { color: #f4cf75; background: rgba(120,77,18,.35); }
       .agent-stage-kind { color: #84928f; font-size: 8px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; }
-      .agent-receipts { display: grid; gap: 4px; padding: 8px; border-radius: 10px; background: rgba(9,15,18,.38); }
-      .agent-receipt-heading { color: #85938f; font-size: 8px; font-weight: 700; letter-spacing: .055em; text-transform: uppercase; }
-      .agent-receipt { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; color: #a9b6b3; font-size: 9px; }
+      .agent-receipts { display: grid; gap: 4px; padding: 8px; border: 1px solid rgba(167,243,208,.1); border-radius: 10px; background: #111a1d; }
+      .agent-receipt-heading { color: #aab9b4; font-size: 10px; font-weight: 750; letter-spacing: .055em; text-transform: uppercase; }
+      .agent-receipt { display: grid; grid-template-columns: minmax(72px, .8fr) minmax(0, 1.2fr); align-items: start; gap: 8px; color: #c1ceca; font-size: 10px; line-height: 1.4; }
       .agent-receipt-label { min-width: 0; overflow-wrap: anywhere; }
-      .agent-receipt-detail { color: #7f8d92; text-align: right; overflow-wrap: anywhere; }
+      .agent-receipt-detail { min-width: 0; color: #aab8bd; text-align: right; overflow-wrap: anywhere; }
       .agent-question { padding-top: 1px; color: #e6eeea; font-size: 11px; font-weight: 590; overflow-wrap: anywhere; }
       .agent-specification { display: grid; gap: 5px; padding: 9px; border: 1px solid rgba(255,255,255,.08); border-radius: 11px; background: rgba(9,15,18,.35); }
       .agent-verification-result { display: grid; gap: 5px; padding: 9px; border: 1px solid rgba(141,232,189,.12); border-radius: 11px; background: rgba(9,15,18,.35); }
       .agent-specification-row { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 7px; font-size: 9px; }
       .agent-specification-label { color: #7f8d92; text-transform: uppercase; }
       .agent-specification-value { color: #dbe5e1; overflow-wrap: anywhere; }
+      .agent-semantics { max-height: 150px; margin: 0; padding: 7px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: #c8d7d1; background: rgba(0,0,0,.22); border-radius: 7px; font: 8px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; }
       .agent-verification-explanation { padding-top: 4px; color: #9fadaa; font-size: 9px; line-height: 1.45; overflow-wrap: anywhere; }
+      .artifact-source { position: relative; max-height: 72px; overflow: hidden; mask-image: linear-gradient(#000 62%, transparent); }
+      .artifact-toggle { padding: 3px 7px; border-radius: 8px; color: #b9c8c2; background: rgba(255,255,255,.055); font-size: 9px; }
+      .artifact-toggle[hidden] { display: none; }
+      .artifact-panel { position: absolute; z-index: 4; inset: 30px 0 0; display: grid; grid-template-rows: auto 1fr; border-radius: 0 0 21px 21px; background: rgba(14,20,24,.97); backdrop-filter: blur(24px); }
+      .artifact-panel[hidden] { display: none; }
+      .artifact-panel-header { display: flex; align-items: center; justify-content: space-between; padding: 11px 14px; border-bottom: 1px solid rgba(255,255,255,.08); }
+      .artifact-panel-header strong { color: #eff7f3; font-size: 12px; }
+      .artifact-body { display: grid; align-content: start; gap: 10px; padding: 14px; overflow: auto; }
+      .artifact-body .agent-specification, .artifact-body .agent-receipts, .artifact-body .agent-verification-result { max-height: none; mask-image: none; }
       .agent-loading { min-height: 70px; background: linear-gradient(100deg, rgba(24,37,36,.9) 20%, rgba(70,105,94,.35) 45%, rgba(21,29,34,.9) 70%); background-size: 220% 100%; animation: shimmer 1.15s linear infinite; }
-      .agent-turn > .quick-actions { margin-top: 1px; }
+      .agent-turn > .quick-actions { position: sticky; bottom: -12px; z-index: 2; margin: 1px -12px -12px; padding: 9px 12px 12px; background: linear-gradient(transparent, rgba(20,31,33,.98) 28%); }
       .quick-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+      .next-action-guidance { flex: 1 0 100%; color: #b8c7c2; font-size: 10px; line-height: 1.4; }
       .quick { padding: 7px 10px; border: 1px solid rgba(167,243,208,.22); border-radius: 10px; color: #dff9ec; background: rgba(40,72,61,.58); font-size: 12px; text-decoration: none; }
       .quick:hover { border-color: rgba(167,243,208,.42); background: rgba(47,88,73,.72); }
       .gtm-action { justify-self: start; margin-top: 3px; }
       .gtm-write-note { color: #89969e; font-size: 10px; }
-      .primary-quick { margin-top: 3px; justify-self: start; }
+      .primary-quick { margin-top: 3px; justify-self: start; border-color: rgba(141,232,189,.42); background: rgba(45,91,74,.82); }
       .picker { display: grid; gap: 6px; padding: 9px; border: 1px solid rgba(255,255,255,.09); border-radius: 13px; background: rgba(22,29,34,.62); }
       .pick { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; padding: 6px; border-radius: 8px; color: #e3eaee; }
       .pick:hover { background: rgba(255,255,255,.04); }
       .pick input { accent-color: #8de8bd; }
       .pick small { color: #87949d; font-size: 10px; text-transform: uppercase; }
-      .evidence-path { display: grid; gap: 0; padding: 11px; border: 1px solid rgba(255,255,255,.1); border-radius: 14px; background: rgba(13,19,23,.66); box-shadow: inset 0 1px 0 rgba(255,255,255,.035); }
-      .evidence-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 0 1px 9px; }
-      .evidence-heading span { color: #f2f7f4; font-weight: 650; }
-      .evidence-heading small { color: #7f8c94; font-size: 10px; }
-      .evidence-stage { position: relative; display: grid; grid-template-columns: 22px 1fr; gap: 7px; min-height: 38px; }
-      .evidence-stage:not(:last-child)::after { content: ""; position: absolute; top: 21px; bottom: -1px; left: 9px; width: 1px; background: rgba(255,255,255,.12); }
-      .evidence-stage i { position: relative; z-index: 1; display: grid; place-items: center; width: 19px; height: 19px; border-radius: 50%; color: #092419; background: #8de8bd; font: 700 11px/1 Inter, sans-serif; }
-      .evidence-stage.pending i { color: #849098; background: #253038; box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
-      .evidence-stage.failed i { color: #ffd7d7; background: #713838; box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
-      .evidence-stage span { display: grid; align-content: start; gap: 1px; padding-bottom: 8px; }
-      .evidence-stage strong { color: #e8efec; font-size: 12px; font-weight: 600; }
-      .evidence-stage small { color: #89969e; font-size: 10px; overflow-wrap: anywhere; }
-      .composer { margin: 0 12px 12px; padding: 6px 6px 6px 12px; display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 8px; border: 1px solid rgba(255,255,255,.14); border-radius: 15px; background: rgba(31,39,45,.72); box-shadow: inset 0 1px 0 rgba(255,255,255,.035); transition: border-color .16s ease, background .16s ease, box-shadow .16s ease; }
+      .queued-prompt { align-self: stretch; padding: 7px 9px; border: 1px dashed rgba(139,188,246,.22); border-radius: 10px; color: #a9bfd4; background: rgba(45,66,84,.24); font-size: 10px; overflow-wrap: anywhere; }
+      .composer { margin: 0 12px 12px; padding: 6px 6px 6px 12px; display: grid; grid-template-columns: 1fr auto auto; align-items: end; gap: 6px; border: 1px solid rgba(255,255,255,.14); border-radius: 15px; background: rgba(31,39,45,.72); box-shadow: inset 0 1px 0 rgba(255,255,255,.035); transition: border-color .16s ease, background .16s ease, box-shadow .16s ease; }
       .composer:focus-within { border-color: rgba(167,243,208,.38); background: rgba(34,43,49,.88); box-shadow: 0 0 0 3px rgba(167,243,208,.06), inset 0 1px 0 rgba(255,255,255,.05); }
       textarea { resize: none; min-height: 38px; max-height: 120px; padding: 8px 0; border: 0; outline: 0; color: white; background: transparent; font: inherit; }
       textarea::placeholder { color: #87939c; }
+      .stop-response { align-self: center; padding: 6px 7px; border-radius: 8px; color: #e8c985; background: rgba(120,77,18,.25); font-size: 9px; }
+      .stop-response[hidden] { display: none; }
       .send { width: 38px; height: 38px; border-radius: 12px; color: #0c1b15; background: linear-gradient(145deg, #c4fae0, #8de8bd); box-shadow: 0 5px 16px rgba(86,220,157,.16), inset 0 1px 0 rgba(255,255,255,.5); font-size: 20px; transition: transform .15s ease, box-shadow .15s ease; }
       .send:hover { transform: translateY(-1px); box-shadow: 0 7px 20px rgba(86,220,157,.24), inset 0 1px 0 rgba(255,255,255,.55); }
       .assistant.collapsed { width: 48px !important; height: 48px !important; min-width: 48px; min-height: 48px; resize: none; display: grid; place-items: center; border-radius: 16px; border-color: rgba(255,255,255,.24); background: linear-gradient(145deg, rgba(48,58,67,.76), rgba(17,23,28,.7)); box-shadow: 0 12px 34px rgba(0,0,0,.3), 0 0 0 1px rgba(167,243,208,.05), inset 0 1px 0 rgba(255,255,255,.14); backdrop-filter: blur(18px) saturate(150%); -webkit-backdrop-filter: blur(18px) saturate(150%); }
+      .assistant.verification-active { width: 164px !important; height: 48px !important; min-width: 164px; min-height: 48px; resize: none; display: grid; place-items: center; border-radius: 16px; border-color: rgba(141,232,189,.34); }
       .collapsed .drag, .collapsed .messages, .collapsed .composer { display: none; }
+      .verification-active .drag, .verification-active .messages, .verification-active .composer { display: none; }
       .orb { display: none; position: relative; width: 100%; height: 100%; border-radius: 16px; color: transparent; background: transparent; }
+      .orb span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
       .orb::before { content: ""; position: absolute; inset: 13px; border-radius: 7px; background: conic-gradient(from 210deg, #8de8bd, #8bbcf6, #bd9af8, #8de8bd); filter: saturate(.78); box-shadow: 0 0 16px rgba(141,232,189,.22); }
       .orb::after { content: ""; position: absolute; inset: 17px; border-radius: 5px; background: rgba(17,23,28,.9); box-shadow: inset 0 1px 0 rgba(255,255,255,.2); }
       .collapsed .orb { display: block; }
+      .verification-active .orb { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 13px; color: #dff9ec; font-size: 11px; font-weight: 650; }
+      .verification-active .orb span { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
+      .verification-active .orb::before { position: static; width: 9px; height: 9px; flex: none; border-radius: 50%; background: #8de8bd; box-shadow: 0 0 14px rgba(141,232,189,.55); }
+      .verification-active .orb::after { display: none; }
       .collapsed:hover { transform: translateY(-2px); border-color: rgba(167,243,208,.32); box-shadow: 0 16px 42px rgba(0,0,0,.34), 0 0 24px rgba(141,232,189,.1), inset 0 1px 0 rgba(255,255,255,.16); }
       @keyframes shimmer { to { background-position: -120% 0; } }
       @media (prefers-reduced-motion: reduce) { .assistant, .send { transition: none; } .message.streaming:empty, .agent-loading { animation: none; } }
     </style>
     <section class="assistant collapsed" aria-label="Tracking agent">
-      <div class="drag" aria-label="Drag agent"><button class="icon collapse" aria-label="Collapse agent">−</button></div>
-      <div class="messages" aria-live="polite"><section class="gtm-context" role="region" aria-label="GTM connection"></section><div class="agent-welcome"><strong>What should we set up or check?</strong><small>I use this page and its connected measurement context automatically.</small></div></div>
-      <div class="composer"><textarea aria-label="Tracking request" placeholder="Describe an action or outcome…"></textarea><button class="send" aria-label="Send request">↑</button></div>
-      <button class="orb" aria-label="Open tracking agent">G</button>
+      <div class="drag" aria-label="Drag agent"><button class="artifact-toggle" aria-expanded="false" hidden>Details</button><button class="icon collapse" aria-label="Collapse agent">−</button></div>
+      <div class="messages" aria-live="polite">
+        <section class="gtm-context" role="region" aria-label="GTM connection"></section>
+        <nav class="journey" aria-label="Setup journey"></nav>
+        <section class="resume-card" role="region" aria-label="Continue setup" hidden></section>
+        <div class="agent-welcome"><strong>What should we set up or check?</strong><small>I use this page and its connected measurement context automatically.</small><div class="starter-actions"><button data-prompt="Track leads from the contact form">Track a form</button><button data-prompt="Track CTA clicks">Track a click</button><button data-prompt="Check page view automatic coverage">Check automatic coverage</button></div></div>
+      </div>
+      <aside class="artifact-panel" aria-label="Task artifacts" hidden><div class="artifact-panel-header"><strong>Task details</strong><button class="icon artifact-close" aria-label="Close task artifacts">×</button></div><div class="artifact-body"></div></aside>
+      <div class="composer"><textarea aria-label="Tracking request" placeholder="Describe an action or outcome…"></textarea><button class="stop-response" aria-label="Stop response" hidden>Stop</button><button class="send" aria-label="Send request">↑</button></div>
+      <button class="orb" aria-label="Open tracking agent"><span>Verification active</span></button>
     </section>`;
   frame = shadow.querySelector<HTMLElement>(".assistant")!;
   responseList = shadow.querySelector<HTMLElement>(".messages")!;
   composer = shadow.querySelector<HTMLTextAreaElement>("textarea")!;
   gtmConnectionCard = shadow.querySelector<HTMLElement>(".gtm-context")!;
+  journeyRail = shadow.querySelector<HTMLElement>(".journey")!;
+  journeyResumeCard = shadow.querySelector<HTMLElement>(".resume-card")!;
+  welcomeCard = shadow.querySelector<HTMLElement>(".agent-welcome")!;
+  artifactPanel = shadow.querySelector<HTMLElement>(".artifact-panel")!;
+  artifactBody = shadow.querySelector<HTMLElement>(".artifact-body")!;
+  artifactToggle = shadow.querySelector<HTMLButtonElement>(".artifact-toggle")!;
+  stopResponseButton = shadow.querySelector<HTMLButtonElement>(".stop-response")!;
+  renderJourney("define");
   renderGtmConnection({ kind: "loading" });
-  shadow.querySelector(".orb")?.addEventListener("click", () => setCollapsed(false));
+  shadow.querySelector(".orb")?.addEventListener("click", () => {
+    restoreVerificationPresentation();
+    setCollapsed(false);
+  });
   shadow.querySelector(".collapse")?.addEventListener("click", () => setCollapsed(true));
   shadow.querySelector(".send")?.addEventListener("click", submitPrompt);
+  shadow.querySelector(".artifact-close")?.addEventListener("click", closeArtifactPanel);
+  artifactToggle.addEventListener("click", () => {
+    if (artifactToggle?.getAttribute("aria-expanded") === "true") {
+      closeArtifactPanel();
+      return;
+    }
+    const task = currentTaskRequestId ? agentTaskNodes.get(currentTaskRequestId) : undefined;
+    if (task) {
+      renderArtifactPanel(task);
+    }
+  });
+  stopResponseButton.addEventListener("click", stopPendingResponse);
+  shadow.querySelectorAll<HTMLButtonElement>(".starter-actions [data-prompt]").forEach((control) => {
+    control.addEventListener("click", () => {
+      const prompt = control.dataset.prompt;
+      if (prompt) {
+        startAssistantPrompt(prompt);
+      }
+    });
+  });
   composer.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submitPrompt(); }
+  });
+  shadow.addEventListener("keydown", (event) => {
+    if ((event as KeyboardEvent).key === "Escape"
+      && artifactToggle?.getAttribute("aria-expanded") === "true") {
+      closeArtifactPanel();
+      artifactToggle.focus();
+    }
+  });
+  new MutationObserver(() => window.queueMicrotask(syncTaskArtifacts)).observe(responseList, {
+    childList: true,
+    subtree: true,
   });
   enableDragging(shadow.querySelector<HTMLElement>(".drag")!);
   new ResizeObserver(() => {
@@ -1954,11 +5706,44 @@ async function mountOverlay(): Promise<void> {
   }).observe(frame);
   document.documentElement.append(host);
   applyPreferences();
+  const savedJourney = parseJourneySnapshot(stored.activeJourney);
+  if (savedJourney?.origin === location.origin) {
+    renderResumeCard(savedJourney);
+  }
   if (!preferences.collapsed) void loadGtmConnectionContext();
 }
 
+window.addEventListener("message", (event) => {
+  const active = activeCalendlyVerification;
+  if (!active || active.completionObserved) {
+    return;
+  }
+  const frames = scanCalendlyInlineEmbeds()
+    .flatMap((target) => target.element instanceof HTMLIFrameElement ? [target.element] : []);
+  if (frames.length !== 1
+    || event.origin !== CALENDLY_ORIGIN
+    || event.source !== frames[0]?.contentWindow
+    || !isRecord(event.data)
+    || event.data.event !== CALENDLY_PROVIDER_EVENT) {
+    return;
+  }
+
+  active.completionObserved = true;
+  window.setTimeout(() => finishCalendlyVerification(active), 1_200);
+});
+
 document.addEventListener("click", (event) => {
   const anchor = (event.target as Element | null)?.closest<HTMLAnchorElement>("a[href]");
+  const exactInteraction = activeInteractionVerification;
+  const exactType = exactInteraction
+    ? knownInteractionDefinition(exactInteraction.intake.interaction)?.interaction
+    : undefined;
+  const observed = anchor && exactType
+    ? countKnownLinkInteractions(location.href, [anchor.getAttribute("href") ?? ""])[exactType] === 1
+    : false;
+  if (exactInteraction && observed) {
+    window.setTimeout(() => finishInteractionVerification(exactInteraction), 1_200);
+  }
   if (!anchor || verificationScope.size === 0) return;
   const expected = [...verificationScope.values()].find((item) => item.href === anchor.href && anchor.matches(item.selector));
   if (!expected) return;

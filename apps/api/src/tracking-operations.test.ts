@@ -41,7 +41,7 @@ describe("tracking operation repository", () => {
     const directory = await mkdtemp(join(tmpdir(), "gtm-observability-operations-"));
     const filePath = join(directory, "tracking-operations.json");
     try {
-      const repository = new TrackingOperationRepository(filePath);
+      const repository = new TrackingOperationRepository(filePath).scope("org_beta");
       const original = operation();
       const created = repository.create(original);
       expect(created.accepted).toBe(true);
@@ -51,7 +51,7 @@ describe("tracking operation repository", () => {
       expect(statSync(filePath).mode & 0o777).toBe(0o600);
       expect(readFileSync(filePath, "utf8")).not.toContain(`${process.pid}.tmp`);
 
-      const reopened = new TrackingOperationRepository(filePath);
+      const reopened = new TrackingOperationRepository(filePath).scope("org_beta");
       expect(reopened.list()).toEqual([original]);
     } finally {
       await rm(directory, { recursive: true, force: true });
@@ -62,9 +62,9 @@ describe("tracking operation repository", () => {
     const directory = await mkdtemp(join(tmpdir(), "gtm-observability-operations-"));
     const filePath = join(directory, "tracking-operations.json");
     try {
-      const repository = new TrackingOperationRepository(filePath);
+      const repository = new TrackingOperationRepository(filePath).scope("org_beta");
       expect(repository.create(operation()).accepted).toBe(true);
-      const concurrentRepository = new TrackingOperationRepository(filePath);
+      const concurrentRepository = new TrackingOperationRepository(filePath).scope("org_beta");
       expect(repository.create(operation())).toEqual({ accepted: false, error: "already_exists" });
 
       const applying = operation();
@@ -105,14 +105,45 @@ describe("tracking operation repository", () => {
     };
     try {
       await writeFile(filePath, JSON.stringify({ schemaVersion: 1, operations: [legacy] }), "utf8");
-      expect(new TrackingOperationRepository(filePath).get(current.id)).toEqual(current);
+      expect(new TrackingOperationRepository(filePath, "org_beta").scope("org_beta").get(current.id)).toEqual(current);
 
       await writeFile(filePath, "{", "utf8");
       expect(() => new TrackingOperationRepository(filePath)).toThrow("Corrupted tracking-operation collection.");
       await writeFile(filePath, JSON.stringify({ schemaVersion: 99, operations: [] }), "utf8");
       expect(() => new TrackingOperationRepository(filePath)).toThrow("Unsupported tracking-operation collection schema.");
       await writeFile(filePath, JSON.stringify({ schemaVersion: 1, operations: [{ schemaVersion: 99 }] }), "utf8");
-      expect(() => new TrackingOperationRepository(filePath)).toThrow("Unsupported tracking operation schema.");
+      expect(() => new TrackingOperationRepository(filePath, "org_beta")).toThrow("Unsupported tracking operation schema.");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("isolates colliding operation identities between organizations", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "gtm-observability-operations-"));
+    const filePath = join(directory, "tracking-operations.json");
+    try {
+      const repository = new TrackingOperationRepository(filePath);
+      const beta = repository.scope("org_beta");
+      const other = repository.scope("org_other");
+      const betaOperation = operation();
+      expect(beta.create(betaOperation).accepted).toBe(true);
+      expect(other.create(operation()).accepted).toBe(true);
+
+      const otherUpdate = operation();
+      otherUpdate.status = "applying";
+      otherUpdate.updatedAt = "2026-08-22T12:01:00.000Z";
+      expect(other.update(otherUpdate.id, operation().updatedAt, otherUpdate).accepted).toBe(true);
+
+      expect(beta.get(betaOperation.id)?.status).toBe("planned");
+      expect(other.get(betaOperation.id)?.status).toBe("applying");
+      expect(beta.list()).toEqual([betaOperation]);
+      expect(JSON.parse(readFileSync(filePath, "utf8"))).toMatchObject({
+        schemaVersion: 2,
+        records: [
+          { organizationId: "org_beta", operation: { id: betaOperation.id } },
+          { organizationId: "org_other", operation: { id: betaOperation.id } },
+        ],
+      });
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

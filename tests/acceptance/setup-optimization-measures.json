@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "issue": ".scratch/gtm-setup-engine/issues/28-setup-optimization-measures.md",
+  "feature": "setup-optimization-measures",
+  "measures": [
+    { "id": "time_to_verified_setup", "start": "tracking_intent_submitted", "terminal": "first_generated_setup_browser_pass", "unit": "milliseconds", "aggregation": ["count", "minimum", "p50", "p90", "maximum"] },
+    { "id": "first_pass_verification_rate", "start": "first_browser_check_started", "terminal": "first_browser_verdict", "unit": "ratio", "aggregation": ["numerator", "denominator", "rate"] },
+    { "id": "false_positive_rate", "start": "ground_truth_scenario_started", "terminal": "browser_verdict", "unit": "ratio", "aggregation": ["numerator", "denominator", "rate", "verdict_category"] },
+    { "id": "false_negative_rate", "start": "known_correct_scenario_started", "terminal": "browser_verdict", "unit": "ratio", "aggregation": ["numerator", "denominator", "rate", "verdict_category"] },
+    { "id": "provider_activity_counts", "start": "tracking_operation_created", "terminal": "operation_terminal_or_sample_end", "unit": "count", "aggregation": ["read_calls", "mutation_calls", "failed_calls", "provider_stage"] },
+    { "id": "restart_recovery_rate", "start": "operation_interrupted", "terminal": "durable_checkpoint_recovered_or_blocked", "unit": "ratio", "aggregation": ["numerator", "denominator", "duplicate_mutation_count"] },
+    { "id": "clarification_count", "start": "tracking_intent_submitted", "terminal": "tracking_specification_confirmed", "unit": "count", "aggregation": ["count", "question_category"] },
+    { "id": "required_human_action_count", "start": "tracking_intent_submitted", "terminal": "terminal_browser_verdict", "unit": "count", "aggregation": ["count", "action_category"] }
+  ],
+  "sampleStrata": ["local_deterministic", "credentialed_google"],
+  "allowedFields": ["measure_id", "sample_stratum", "setup_type", "timestamps", "duration", "verdict_category", "provider_stage", "aggregate_counts"],
+  "forbiddenFields": ["intent_text", "page_labels", "urls", "query_strings", "selectors", "form_values", "request_payloads", "cookies", "credentials", "account_identity", "raw_provider_errors"],
+  "localBaseline": {
+    "recordedAt": "2026-08-27",
+    "durationKind": "playwright_test_body_upper_bound_proxy",
+    "samples": [
+      { "id": "static_exact_form", "runs": 5, "passed": 5, "minimumMs": 3173, "p50Ms": 3194, "p90Ms": 3213, "maximumMs": 3213 },
+      { "id": "phone_click_exact", "runs": 5, "passed": 5, "minimumMs": 3308, "p50Ms": 3346, "p90Ms": 3413, "maximumMs": 3413 },
+      { "id": "validated_restart_recovery", "runs": 5, "passed": 5, "minimumMs": 1162, "p50Ms": 1193, "p90Ms": 1519, "maximumMs": 1519 },
+      { "id": "preview_target_drift_rejection", "runs": 5, "passed": 5, "minimumMs": 1327, "p50Ms": 1349, "p90Ms": 1400, "maximumMs": 1400 }
+    ],
+    "firstPassVerification": { "numerator": 10, "denominator": 10 },
+    "restartRecovery": { "numerator": 5, "denominator": 5, "duplicateMutations": 0 },
+    "falsePositives": { "numerator": 0, "denominator": 10 },
+    "falseNegatives": { "numerator": 0, "denominator": 6 },
+    "staticExactForm": { "clarifications": 1, "requiredHumanActions": 9 },
+    "providerActivity": { "status": "not_observable_in_mocked_browser_routes" },
+    "credentialedGoogle": { "status": "not_measured_with_shared_boundaries" }
+  },
+  "performanceGate": false,
+  "productionTelemetry": false
+}
