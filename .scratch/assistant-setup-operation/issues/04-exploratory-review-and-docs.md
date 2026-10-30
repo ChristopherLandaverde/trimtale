@@ -1,6 +1,6 @@
 # Review and document assistant setup operation
 
-Status: in progress
+Status: resolved
 
 Blocked by: 01, 02, 03
 
@@ -28,6 +28,20 @@ Before resolving this issue:
 Do not mark the user-visible flow resolved on automated tests alone. The exploratory
 review is part of the acceptance gate.
 
-Review and documentation were added for the first assistant operation workflow slice.
-This issue should remain open until the full blocked-state and resume matrix in issues
-02 and 03 is complete.
+Review and documentation were added for the assistant operation workflow slices. The
+full blocked-state and resume matrix in issues 02 and 03 is complete.
+
+## Resolution Notes
+
+- Exploratory review evidence is recorded in:
+  - `docs/reviews/2026-08-30-assistant-setup-operation.md`
+  - `docs/reviews/2026-08-30-assistant-resume-blocked-operation.md`
+  - `docs/reviews/2026-08-30-assistant-blocked-state-matrix.md`
+  - `docs/reviews/2026-08-30-assistant-approval-publish.md`
+- Change records are recorded in:
+  - `.changes/2026-08-30-assistant-setup-operation.md`
+  - `.changes/2026-08-30-assistant-resume-blocked-operation.md`
+  - `.changes/2026-08-30-assistant-blocked-state-matrix.md`
+  - `.changes/2026-08-30-assistant-approval-publish.md`
+- The ordinary completion gate has passed with assistant operation coverage in
+  `tests/e2e/navigation-extension.spec.ts` and supporting extension unit tests.

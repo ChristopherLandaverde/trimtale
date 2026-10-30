@@ -5,6 +5,8 @@ import {
   fingerprintTrackingChangeActions,
   type FormSetupRequest,
   type SetupRequest,
+  type TrackingRunEvidenceV1,
+  type TrackingSetupOperationV1,
 } from "@gtm-observability/core";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -115,9 +117,46 @@ function google(overrides: Partial<WorkflowGoogleClient> = {}) {
       },
     }),
     publishApprovedVersion: vi.fn(),
+    rollbackPublishedVersion: vi.fn(),
     ...overrides,
   };
   return client;
+}
+
+function runEvidence(
+  operation: TrackingSetupOperationV1,
+  verdict: "browser_verified" | "tag_fired_request_missing" = "browser_verified",
+): TrackingRunEvidenceV1 {
+  const passed = verdict === "browser_verified";
+  return {
+    schemaVersion: 1,
+    runId: `run_${verdict}`,
+    specificationId: operation.specification.id,
+    startedAt: "2026-08-22T12:08:00.000Z",
+    observations: {
+      interaction: {
+        type: operation.specification.interaction.type,
+        targetId: operation.specification.targets[0]!.id,
+        attempted: true,
+        submissionResult: "success",
+      },
+      outcome: { observed: true, observable: true, evidenceType: operation.specification.interaction.type === "navigation_click" ? "navigation_click" : "data_layer_event" },
+      dataLayer: { matchingEvents: [] },
+      tagFired: passed ? true : null,
+      network: {
+        ga4Requests: passed
+          ? [{ url: "https://www.google-analytics.com/g/collect?v=2&tid=G-TEST123456&en=navigation_click", observedAt: "2026-08-22T12:08:01.000Z" }]
+          : [],
+      },
+      consent: { analyticsStorage: "unknown" },
+    },
+    verdict: {
+      code: verdict,
+      browserVerification: passed ? "passed" : "failed",
+      platformConfirmation: "unverified",
+      nextAction: passed ? "Google request verified." : "Open GTM Preview to determine whether the tag fired.",
+    },
+  };
 }
 
 describe("resumable non-publishing tracking workflow", () => {
@@ -146,6 +185,235 @@ describe("resumable non-publishing tracking workflow", () => {
     expect(client.applyManagedWorkspace).toHaveBeenCalledTimes(1);
     expect(client.createValidatedVersion).toHaveBeenCalledTimes(1);
     expect(client.publishApprovedVersion).not.toHaveBeenCalled();
+  });
+
+  it("publishes only after exact current fingerprint approval", async () => {
+    const store = await repository();
+    const client = google({
+      publishApprovedVersion: vi.fn().mockResolvedValue({
+        publishedAt: "2026-08-22T12:07:00.000Z",
+        versionFingerprint: "version-8",
+      }),
+    });
+    const runner = new TrackingWorkflowRunner(store, client, () => new Date("2026-08-22T12:00:00.000Z"));
+    const planned = await runner.plan(request);
+    if (planned.status === "blocked") throw new Error(planned.reason);
+    const versioned = await runner.resume(planned.operation.id);
+    if (versioned.status !== "versioned") throw new Error(versioned.status);
+
+    const published = await runner.approveAndPublish(
+      planned.operation.id,
+      "version-8",
+      "practitioner@example.test",
+    );
+    expect(published).toMatchObject({
+      status: "published",
+      nextStep: "verify_publication",
+      operation: {
+        status: "published",
+        approval: { versionFingerprint: "version-8", approvedBy: "practitioner@example.test" },
+        publication: { versionFingerprint: "version-8" },
+      },
+    });
+    expect(client.publishApprovedVersion).toHaveBeenCalledTimes(1);
+    expect(new TrackingOperationRepository(store.filePath).get(planned.operation.id)?.status).toBe("published");
+  });
+
+  it("blocks stale or repeated publication before any Google publish call", async () => {
+    const publishApprovedVersion = vi.fn();
+    const client = google({ publishApprovedVersion });
+    const runner = new TrackingWorkflowRunner(await repository(), client);
+    const planned = await runner.plan(request);
+    if (planned.status === "blocked") throw new Error(planned.reason);
+    const versioned = await runner.resume(planned.operation.id);
+    if (versioned.status !== "versioned") throw new Error(versioned.status);
+
+    await expect(runner.approveAndPublish(
+      planned.operation.id,
+      "wrong-version",
+      "practitioner@example.test",
+    )).resolves.toMatchObject({
+      status: "blocked",
+      stage: "approval",
+      reason: "fingerprint_mismatch",
+    });
+    expect(publishApprovedVersion).not.toHaveBeenCalled();
+
+    publishApprovedVersion.mockResolvedValue({
+      publishedAt: "2026-08-22T12:07:00.000Z",
+      versionFingerprint: "version-8",
+    });
+    await runner.approveAndPublish(planned.operation.id, "version-8", "practitioner@example.test");
+    await expect(runner.approveAndPublish(
+      planned.operation.id,
+      "version-8",
+      "practitioner@example.test",
+    )).resolves.toMatchObject({
+      status: "blocked",
+      stage: "approval",
+      reason: "operation_not_versioned",
+    });
+    expect(publishApprovedVersion).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the operation versioned when Google publication fails", async () => {
+    const store = await repository();
+    const client = google({
+      publishApprovedVersion: vi.fn().mockRejectedValue(new Error("publication disabled")),
+    });
+    const runner = new TrackingWorkflowRunner(store, client);
+    const planned = await runner.plan(request);
+    if (planned.status === "blocked") throw new Error(planned.reason);
+    const versioned = await runner.resume(planned.operation.id);
+    if (versioned.status !== "versioned") throw new Error(versioned.status);
+
+    await expect(runner.approveAndPublish(
+      planned.operation.id,
+      "version-8",
+      "practitioner@example.test",
+    )).rejects.toThrow("publication disabled");
+    const persisted = store.get(planned.operation.id);
+    expect(persisted?.status).toBe("versioned");
+    expect(persisted?.approval).toBeUndefined();
+    expect(persisted?.publication).toBeUndefined();
+  });
+
+  it("records post-publication browser evidence as complete without platform confirmation", async () => {
+    const store = await repository();
+    const client = google({
+      publishApprovedVersion: vi.fn().mockResolvedValue({
+        publishedAt: "2026-08-22T12:07:00.000Z",
+        versionFingerprint: "version-8",
+      }),
+    });
+    const runner = new TrackingWorkflowRunner(store, client, () => new Date("2026-08-22T12:00:00.000Z"));
+    const planned = await runner.plan(request);
+    if (planned.status === "blocked") throw new Error(planned.reason);
+    const versioned = await runner.resume(planned.operation.id);
+    if (versioned.status !== "versioned") throw new Error(versioned.status);
+    const published = await runner.approveAndPublish(planned.operation.id, "version-8", "practitioner@example.test");
+    if (published.status !== "published") throw new Error(published.status);
+
+    await expect(runner.recordBrowserVerification(
+      planned.operation.id,
+      runEvidence(published.operation),
+    )).resolves.toMatchObject({
+      status: "completed",
+      nextStep: "platform_unavailable",
+      operation: {
+        status: "completed",
+        postPublicationEvidenceId: "run_browser_verified",
+      },
+    });
+    expect(new TrackingOperationRepository(store.filePath).get(planned.operation.id)).toMatchObject({
+      status: "completed",
+      postPublicationEvidenceId: "run_browser_verified",
+    });
+  });
+
+  it("turns failed post-publication browser evidence into rollback-required state", async () => {
+    const store = await repository();
+    const client = google({
+      publishApprovedVersion: vi.fn().mockResolvedValue({
+        publishedAt: "2026-08-22T12:07:00.000Z",
+        versionFingerprint: "version-8",
+      }),
+    });
+    const runner = new TrackingWorkflowRunner(store, client, () => new Date("2026-08-22T12:00:00.000Z"));
+    const planned = await runner.plan(request);
+    if (planned.status === "blocked") throw new Error(planned.reason);
+    await runner.resume(planned.operation.id);
+    const published = await runner.approveAndPublish(planned.operation.id, "version-8", "practitioner@example.test");
+    if (published.status !== "published") throw new Error(published.status);
+
+    await expect(runner.recordBrowserVerification(
+      planned.operation.id,
+      runEvidence(published.operation, "tag_fired_request_missing"),
+    )).resolves.toMatchObject({
+      status: "rollback_required",
+      nextStep: "rollback_approval",
+      operation: {
+        status: "rollback_required",
+        rollback: { targetVersionFingerprint: "live-7", status: "required" },
+      },
+    });
+  });
+
+  it("rolls back only after exact target fingerprint approval", async () => {
+    const store = await repository();
+    const client = google({
+      publishApprovedVersion: vi.fn().mockResolvedValue({
+        publishedAt: "2026-08-22T12:07:00.000Z",
+        versionFingerprint: "version-8",
+      }),
+      rollbackPublishedVersion: vi.fn().mockResolvedValue({
+        targetVersionFingerprint: "live-7",
+        status: "completed",
+        completedAt: "2026-08-22T12:09:00.000Z",
+      }),
+    });
+    const runner = new TrackingWorkflowRunner(store, client, () => new Date("2026-08-22T12:00:00.000Z"));
+    const planned = await runner.plan(request);
+    if (planned.status === "blocked") throw new Error(planned.reason);
+    await runner.resume(planned.operation.id);
+    const published = await runner.approveAndPublish(planned.operation.id, "version-8", "practitioner@example.test");
+    if (published.status !== "published") throw new Error(published.status);
+    await runner.recordBrowserVerification(
+      planned.operation.id,
+      runEvidence(published.operation, "tag_fired_request_missing"),
+    );
+
+    await expect(runner.approveAndRollback(planned.operation.id, "wrong-live")).resolves.toMatchObject({
+      status: "blocked",
+      stage: "rollback",
+      reason: "rollback_fingerprint_mismatch",
+    });
+    expect(client.rollbackPublishedVersion).not.toHaveBeenCalled();
+
+    await expect(runner.approveAndRollback(planned.operation.id, "live-7")).resolves.toMatchObject({
+      status: "rolled_back",
+      nextStep: "complete",
+      operation: {
+        status: "rolled_back",
+        rollback: {
+          targetVersionFingerprint: "live-7",
+          status: "completed",
+          completedAt: "2026-08-22T12:09:00.000Z",
+        },
+      },
+    });
+    expect(client.rollbackPublishedVersion).toHaveBeenCalledTimes(1);
+    expect(new TrackingOperationRepository(store.filePath).get(planned.operation.id)?.status).toBe("rolled_back");
+  });
+
+  it("rejects browser verification before publish or for another specification", async () => {
+    const runner = new TrackingWorkflowRunner(await repository(), google());
+    const planned = await runner.plan(request);
+    if (planned.status === "blocked") throw new Error(planned.reason);
+    const versioned = await runner.resume(planned.operation.id);
+    if (versioned.status !== "versioned") throw new Error(versioned.status);
+
+    await expect(runner.recordBrowserVerification(
+      planned.operation.id,
+      runEvidence(versioned.operation),
+    )).rejects.toThrow("Only a published operation accepts post-publication evidence");
+
+    const client = google({
+      publishApprovedVersion: vi.fn().mockResolvedValue({
+        publishedAt: "2026-08-22T12:07:00.000Z",
+        versionFingerprint: "version-8",
+      }),
+    });
+    const publishedRunner = new TrackingWorkflowRunner(await repository(), client);
+    const second = await publishedRunner.plan(request);
+    if (second.status === "blocked") throw new Error(second.reason);
+    await publishedRunner.resume(second.operation.id);
+    const published = await publishedRunner.approveAndPublish(second.operation.id, "version-8", "practitioner@example.test");
+    if (published.status !== "published") throw new Error(published.status);
+    await expect(publishedRunner.recordBrowserVerification(
+      second.operation.id,
+      { ...runEvidence(published.operation), specificationId: "spec_other" },
+    )).rejects.toThrow("Post-publication evidence belongs to another specification");
   });
 
   it("persists partial application evidence and resumes safely", async () => {

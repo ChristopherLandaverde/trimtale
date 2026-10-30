@@ -2,7 +2,7 @@
 
 Status date: 2026-08-30
 
-GTM Observability currently turns a supported tracking intent into a confirmed tracking specification, generates a reviewable GTM setup, observes the website's GTM runtime, matches the observed container to Google access, and safely prepares one reusable managed workspace. When container-write access is enabled, the website assistant can now start the guarded backend setup operation for confirmed navigation-click and lead-form setups, render the durable operation timeline, create an immutable GTM version, and stop at separate publication approval. Separate backend clients can publish an exactly approved version and restore its recorded prior-live version; the website assistant still does not expose approval, publication, or rollback actions.
+GTM Observability currently turns a supported tracking intent into a confirmed tracking specification, generates a reviewable GTM setup, observes the website's GTM runtime, matches the observed container to Google access, and safely prepares one reusable managed workspace. When container-write access is enabled, the website assistant can now start the guarded backend setup operation for confirmed navigation-click and lead-form setups, render the durable operation timeline, create an immutable GTM version, publish only after exact fingerprint approval, record post-publication browser evidence, and restore the recorded prior-live version after exact rollback approval. The website assistant still does not expose autonomous rollback or platform confirmation.
 
 ## Current product workflow
 
@@ -18,7 +18,10 @@ Open the assistant and inspect page GTM / authorized access
     -> match that ID to one accessible Google container
     -> create or reuse one managed workspace
     -> optionally prepare a durable GTM version
-    -> stop before publication approval or publishing changes
+    -> optionally publish the exact approved version fingerprint
+    -> optionally verify the browser-to-Google collection request
+    -> if verification fails, optionally approve rollback to the exact prior live fingerprint
+    -> stop before platform confirmation
 ```
 
 Each evidence stage is intentionally separate. A generated setup does not mean it was applied. A detected container does not mean the connected Google account can edit it. A prepared workspace does not mean the setup passed browser verification or was published.
@@ -44,6 +47,12 @@ The assistant currently supports:
 - A durable setup-operation timeline that separates planning, owned entity
   application, workspace validation, immutable version creation, and publication
   approval.
+- A publication action that appears only from a versioned operation card and submits
+  the exact immutable version fingerprint to the backend approval/publish route.
+- A post-publication **Start browser verification** action that records whether the
+  confirmed interaction produced exactly one expected Google collection request.
+- A rollback action that appears only from a `rollback_required` operation and submits
+  the exact prior-live fingerprint for approval-gated restoration.
 
 The conversation classifier and state transitions are deterministic today. Model-backed conversation intake is the next product slice, but no production model currently interprets tracking intents or decides whether evidence passed.
 
@@ -140,11 +149,33 @@ and matched that ID to one accessible container with write access. The assistant
 the operation ID locally for the confirmed setup and re-reads the latest operation
 detail from the local workflow API when the same setup is opened again.
 
-The runner stops at the `versioned` state and returns `await_approval`. The assistant
-displays the immutable version fingerprint and prior live fingerprint, labels
-publication approval as a separate required step, and never publishes or labels the
-setup as platform-confirmed. Publication remains behind its separate backend flag,
-OAuth scope, and exact fingerprint approval.
+Interrupted operation cards can be resumed from the assistant. A partial application
+shows a bounded resume state, re-reads GTM through the backend, and replaces the stale
+operation card with the latest durable state. Validation failures and other blocked
+states remain separate from publication and include review guidance instead of raw
+Google response details.
+
+The visible blocked-state matrix now covers managed workspace capacity, ownership
+conflict, synchronization conflict, stale workspace, stale plan, inaccessible
+container, validation failure, and publication-disabled responses. These states do
+not create versions, publish, roll back, or claim platform confirmation.
+
+The setup runner stops at the `versioned` state and returns `await_approval`. The
+assistant displays the immutable version fingerprint and prior live fingerprint before
+rendering a fingerprint-specific publish action. The publish route approves and
+publishes only that exact fingerprint and remains behind its separate backend flag,
+OAuth scope, approval lifetime, live-version drift check, and Google publish
+confirmation.
+
+After publication, the assistant can run browser verification for the confirmed
+navigation or lead-form interaction. Passing evidence marks the operation completed
+with `Google request verified`; failed evidence marks it `rollback_required` and
+shows the prior live version fingerprint for explicit rollback approval. If rollback
+is approved, the backend re-reads the target version and live container state, then
+publishes the prior-live version with Google's fingerprint guard and records
+`rolled_back`.
+Platform confirmation remains unavailable because browser evidence cannot prove GA4
+processing, reporting, attribution, or destination receipt.
 
 ## Evidence and diagnosis foundations
 
@@ -239,26 +270,37 @@ Current completion gate:
 npm run verify
 ```
 
-The most recent full completion run passed 264 deterministic tests across 37 files and
-all 33 Chromium workflows.
+The most recent full completion run passed 292 deterministic tests across 40 files and
+all 45 Chromium workflows.
 
 ## Credentialed disposable-container evidence
 
-The first complete credentialed exercise used only disposable container
-`GTM-PCJ3Q5RK`. It reused owned trigger `6` and tag `7`, validated two expected changes,
-created immutable version `3`, and published fingerprint `1787458659661` after exact
-approval. Prior-live version `2` remains available at fingerprint `1786828091962`.
+Credentialed Phase 1 evidence uses only disposable container `GTM-PCJ3Q5RK`
+(`ConsentFlow Verification`) and disposable page `https://consentflow-psi.vercel.app/`.
+No ordinary verification or CI path consumes real Google credentials.
 
-A live Chromium signal produced exactly one correctly parameterized `generate_lead`
-request. GA4 transmitted the standard `page_location` field as wire parameter `dl`;
-the evidence normalizer and verdict engine now accept and privacy-filter that standard
-representation. The live ConsentFlow page now contains the real
-`#workflow-smoke-form` interaction. Evidence run
-`run_spec_disposable_form_smoke_v3_1787493019725` observed one successful outcome,
-one metadata-only event, and exactly one expected GA4 request. Its normalized verdict
-was `browser_verified`, so operation `operation_spec_disposable_form_smoke_v3` is now
-`completed` with no rollback required. Browser evidence continues to leave platform
-confirmation unverified.
+The current real-Google lane evidence is recorded in
+`docs/reviews/2026-08-31-real-google-dry-run.md`:
+
+- Disposable dry run
+  `operation_spec_disposable_form_smoke_2026_08_31_dry_run` reached `versioned`,
+  validation passed, and immutable version `7` was created at fingerprint
+  `1788183353134` while publication remained disabled.
+- Approved publication smoke published only exact fingerprint `1788183353134`, then
+  browser evidence run
+  `run_spec_disposable_form_smoke_2026_08_31_dry_run_1788184399167` observed exactly
+  one sanitized GA4 `generate_lead` request for `G-YV879ECLRV` with `form_id`,
+  `form_name`, and page location transported through GA4's `dl` wire parameter.
+- Rollback drill published distinct disposable version `8`, fingerprint
+  `1788185422573`, then controlled failed browser evidence
+  `run_spec_disposable_form_smoke_2026_08_31_rollback_drill_blocked_collect_1788185485815`
+  moved the operation to `rollback_required`.
+- Rollback was approved only for prior-live fingerprint `1788183353134`; live
+  container readback confirmed version `7`, fingerprint `1788183353134`, after
+  rollback completed.
+
+Browser evidence continues to leave platform confirmation `unverified`; Phase 1 does
+not claim GA4, Ads, reporting, attribution, or destination-side receipt.
 
 ## What is not built yet
 

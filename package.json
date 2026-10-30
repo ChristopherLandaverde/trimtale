@@ -18,6 +18,7 @@
     "test": "vitest run",
     "test:google": "tsx apps/api/src/google.integration.ts",
     "test:e2e": "npm run build && playwright test",
+    "test:e2e:update-snapshots": "npm run build && playwright test --update-snapshots",
     "verify": "npm run preflight && npm run check:change-docs && npm run check && npm test && npm run test:e2e",
     "evaluate:intake": "tsx apps/api/src/run-intake-evaluation.ts",
     "dev:api": "npm run dev --workspace @gtm-observability/api",

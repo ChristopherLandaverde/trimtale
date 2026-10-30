@@ -1,8 +1,11 @@
 import {
+  approveTrackingVersion,
   createFormSetupProposal,
   createSetupProposal,
+  recordPostPublicationEvidence,
   type FormSetupRequest,
   type SetupRequest,
+  type TrackingRunEvidenceV1,
   type TrackingSetupOperationV1,
 } from "@gtm-observability/core";
 import type { GtmDiscoveryClient } from "./google.js";
@@ -14,6 +17,8 @@ export type WorkflowGoogleClient = Pick<GtmDiscoveryClient,
   | "applyManagedWorkspace"
   | "validateManagedWorkspace"
   | "createValidatedVersion"
+  | "publishApprovedVersion"
+  | "rollbackPublishedVersion"
 >;
 
 export type TrackingWorkflowRequest = SetupRequest | FormSetupRequest;
@@ -28,6 +33,30 @@ export type WorkflowResumeResult =
     status: "blocked" | "paused";
     operation: TrackingSetupOperationV1;
     stage: "planning" | "application" | "validation" | "version";
+    reason: string;
+    details?: unknown;
+  };
+
+export type WorkflowPublishResult =
+  | { status: "published"; operation: TrackingSetupOperationV1; nextStep: "verify_publication" }
+  | {
+    status: "blocked";
+    operation: TrackingSetupOperationV1;
+    stage: "approval" | "publication";
+    reason: string;
+    details?: unknown;
+  };
+
+export type WorkflowBrowserVerificationResult =
+  | { status: "completed"; operation: TrackingSetupOperationV1; nextStep: "platform_unavailable" }
+  | { status: "rollback_required"; operation: TrackingSetupOperationV1; nextStep: "rollback_approval" };
+
+export type WorkflowRollbackResult =
+  | { status: "rolled_back"; operation: TrackingSetupOperationV1; nextStep: "complete" }
+  | {
+    status: "blocked";
+    operation: TrackingSetupOperationV1;
+    stage: "rollback";
     reason: string;
     details?: unknown;
   };
@@ -204,6 +233,88 @@ export class TrackingWorkflowRunner {
       version: version.version,
     });
     return { status: "versioned", operation, nextStep: "await_approval" };
+  }
+
+  async approveAndPublish(
+    id: string,
+    approvedFingerprint: string,
+    approvedBy: string,
+  ): Promise<WorkflowPublishResult> {
+    const operation = this.requiredOperation(id);
+    if (operation.status !== "versioned" || !operation.version) {
+      return {
+        status: "blocked",
+        operation,
+        stage: "approval",
+        reason: "operation_not_versioned",
+      };
+    }
+    if (approvedFingerprint !== operation.version.fingerprint) {
+      return {
+        status: "blocked",
+        operation,
+        stage: "approval",
+        reason: "fingerprint_mismatch",
+      };
+    }
+    const approved = approveTrackingVersion(
+      operation,
+      approvedBy,
+      nextTimestamp(operation.updatedAt, this.now),
+    );
+    if (!approved.approval) throw new Error("Publication approval was not recorded.");
+    const publication = await this.google.publishApprovedVersion(approved);
+    const published = this.save(operation, {
+      status: "published",
+      approval: approved.approval,
+      publication,
+    });
+    return { status: "published", operation: published, nextStep: "verify_publication" };
+  }
+
+  async recordBrowserVerification(
+    id: string,
+    evidence: TrackingRunEvidenceV1,
+  ): Promise<WorkflowBrowserVerificationResult> {
+    const operation = this.requiredOperation(id);
+    const updated = recordPostPublicationEvidence(
+      operation,
+      evidence,
+      nextTimestamp(operation.updatedAt, this.now),
+    );
+    const saved = this.save(operation, updated);
+    return saved.status === "completed"
+      ? { status: "completed", operation: saved, nextStep: "platform_unavailable" }
+      : { status: "rollback_required", operation: saved, nextStep: "rollback_approval" };
+  }
+
+  async approveAndRollback(
+    id: string,
+    approvedTargetFingerprint: string,
+  ): Promise<WorkflowRollbackResult> {
+    const operation = this.requiredOperation(id);
+    if (operation.status !== "rollback_required" || !operation.rollback) {
+      return {
+        status: "blocked",
+        operation,
+        stage: "rollback",
+        reason: "operation_not_rollback_required",
+      };
+    }
+    if (approvedTargetFingerprint !== operation.rollback.targetVersionFingerprint) {
+      return {
+        status: "blocked",
+        operation,
+        stage: "rollback",
+        reason: "rollback_fingerprint_mismatch",
+      };
+    }
+    const rollback = await this.google.rollbackPublishedVersion(operation);
+    const rolledBack = this.save(operation, {
+      status: "rolled_back",
+      rollback,
+    });
+    return { status: "rolled_back", operation: rolledBack, nextStep: "complete" };
   }
 
   private requiredOperation(id: string): TrackingSetupOperationV1 {

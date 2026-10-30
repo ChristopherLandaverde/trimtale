@@ -14,7 +14,8 @@ import {
   googleOAuthConfig,
 } from "./google.js";
 import { TrackingOperationRepository } from "./tracking-operations.js";
-import { TrackingWorkflowRunner, type TrackingWorkflowRequest } from "./workflow-runner.js";
+import { TrackingWorkflowRunner } from "./workflow-runner.js";
+import { handleGoogleWorkflowRoute } from "./workflow-routes.js";
 
 const port = Number.parseInt(process.env.PORT ?? "18787", 10);
 const configuredExtensionOrigin = process.env.EXTENSION_ORIGIN;
@@ -239,60 +240,7 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (request.method === "POST" && requestUrl.pathname === "/api/google/workflows/plan") {
-    if (!workflowRunner) {
-      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
-      return;
-    }
-    try {
-      const result = await workflowRunner.plan((await readJson(request)) as TrackingWorkflowRequest);
-      sendJson(response, result.status === "planned" ? 201 : result.status === "blocked" ? 409 : 200, { result });
-    } catch (workflowError) {
-      const status = workflowError instanceof GoogleIntegrationError
-        ? workflowError.status
-        : workflowError instanceof SyntaxError
-          ? 400
-          : 400;
-      const message = workflowError instanceof Error
-        ? workflowError.message
-        : "Unable to plan the tracking workflow.";
-      sendJson(response, status, { error: message });
-    }
-    return;
-  }
-
-  const workflowMatch = requestUrl.pathname.match(/^\/api\/google\/workflows\/([A-Za-z0-9_-]+)$/);
-  if (request.method === "GET" && workflowMatch) {
-    if (!workflowRunner) {
-      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
-      return;
-    }
-    const operation = workflowRunner.get(workflowMatch[1] ?? "");
-    sendJson(response, operation ? 200 : 404, operation ? { operation } : { error: "Tracking operation was not found." });
-    return;
-  }
-
-  const resumeMatch = requestUrl.pathname.match(
-    /^\/api\/google\/workflows\/([A-Za-z0-9_-]+)\/resume$/,
-  );
-  if (request.method === "POST" && resumeMatch) {
-    if (!workflowRunner) {
-      sendJson(response, 503, { error: "Google OAuth is not configured on this backend." });
-      return;
-    }
-    try {
-      sendJson(response, 200, { result: await workflowRunner.resume(resumeMatch[1] ?? "") });
-    } catch (workflowError) {
-      const status = workflowError instanceof GoogleIntegrationError
-        ? workflowError.status
-        : workflowError instanceof Error && workflowError.message.includes("not found")
-          ? 404
-          : 409;
-      const message = workflowError instanceof Error
-        ? workflowError.message
-        : "Unable to resume the tracking workflow.";
-      sendJson(response, status, { error: message });
-    }
+  if (await handleGoogleWorkflowRoute({ request, response, requestUrl, workflowRunner, readJson, sendJson })) {
     return;
   }
 

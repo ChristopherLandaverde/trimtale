@@ -1,6 +1,6 @@
 # Add a closed command for updating Playwright snapshots
 
-Status: open
+Status: resolved
 
 ## Objective
 
@@ -61,3 +61,13 @@ Required invariants:
 - `npm run verify` passes.
 - README and `docs/engineering/delivery-harness.md` no longer instruct a bare
   `npx` invocation for this workflow.
+
+## Resolution Notes
+
+- Added `test:e2e:update-snapshots` as a fixed npm script.
+- Added `npm run agent -- update-snapshots` as the closed harness entry for reviewed
+  Playwright visual-baseline updates.
+- Extended `scripts/agent-harness.test.ts` to assert the exact command mapping and
+  argument rejection.
+- Updated README and `docs/engineering/delivery-harness.md` so the sanctioned
+  snapshot workflow no longer uses a bare `npx` invocation.

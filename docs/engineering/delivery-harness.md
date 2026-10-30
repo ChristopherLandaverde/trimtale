@@ -117,8 +117,7 @@ Protect stable states with role/name assertions, keyboard and focus tests, acces
 Update an intentional Chromium baseline with:
 
 ```bash
-npm run build
-npx playwright test tests/e2e/navigation-extension.spec.ts --update-snapshots
+npm run agent -- update-snapshots
 npm run verify
 ```
 

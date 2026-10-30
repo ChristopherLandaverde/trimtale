@@ -112,6 +112,8 @@ npm run agent -- status
 npm run agent -- check
 npm run agent -- test
 npm run agent -- e2e
+npm run agent -- commit
+npm run agent -- update-snapshots
 npm run agent -- verify
 ```
 
@@ -121,6 +123,16 @@ repository root, and rejects additional arguments. It does not provide dependenc
 installation, arbitrary `npx` execution, credentialed integrations, remote Git
 operations, destructive commands, or a shell escape hatch. Those operations retain
 their own explicit authorization boundary.
+
+`update-snapshots` is the only sanctioned visual-baseline update path. It runs the
+fixed `test:e2e:update-snapshots` npm script, then the generated images and Git diff
+must be reviewed before committing. Never use it only to make a failing gate green.
+
+`commit` commits only the already-staged index using the fixed message file at
+`.scratch/commit-message.md`. The command refuses to run when the message file is
+missing or empty, when the current branch is `main`, or when nothing is staged. A
+successful commit deletes the message file. Staging and pushing remain outside the
+agent harness by design.
 
 Like the direct `npm` and `git` commands it replaces, the harness inherits the
 caller's environment so standard executable lookup and npm configuration continue to

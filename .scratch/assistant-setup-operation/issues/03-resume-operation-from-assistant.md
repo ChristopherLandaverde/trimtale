@@ -1,6 +1,6 @@
 # Resume setup operation from assistant
 
-Status: in progress
+Status: resolved
 
 Blocked by: 01, 02
 
@@ -27,6 +27,9 @@ Add deterministic tests covering:
 Prefer an explicit persisted operation identifier over trying to reconstruct identity
 from chat transcript text. Never use browser cookies or Google web-login state.
 
-The assistant now stores the operation ID for a confirmed setup/container pair and
-re-reads versioned operation detail after reopening the same setup. Remaining work is
-explicit resume-button coverage for partially applied and blocked operations.
+Resolved for the current setup-operation workflow. The assistant stores the operation
+ID for a confirmed setup/container pair, re-reads versioned operation detail after
+reopening the same setup, replaces stale operation cards on resume, resumes a partially
+applied operation to version creation without leaving duplicate controls, and renders
+stale workspace, stale plan, ownership conflict, synchronization conflict, inaccessible
+container, validation failure, and publication-disabled blocks with bounded guidance.
