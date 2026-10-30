@@ -2,20 +2,20 @@ import { describe, expect, it } from "vitest";
 import { formFixtureScenarios, getFormFixtureScenario } from "./form-scenarios.js";
 
 const requiredIds = [
-  "successful_correct", "validation_failure", "attempt_only", "ajax_success",
+  "successful_correct", "validation_failure", "html5_validation_failure", "attempt_only", "ajax_success",
   "thank_you_redirect", "spa_success", "outcome_event_missing", "datalayer_tag_not_firing",
   "tag_fired_request_missing", "missing_required_parameter", "duplicate_request", "consent_denied",
-  "server_error", "dynamic_form", "multiple_forms", "cross_origin_iframe",
+  "server_error", "dynamic_form", "multiple_forms", "embedded_form", "cross_origin_iframe",
 ];
 
 describe("deterministic form fixture matrix", () => {
   it("contains every accepted scenario exactly once", () => {
     expect(Object.keys(formFixtureScenarios)).toEqual(requiredIds);
-    expect(new Set(Object.values(formFixtureScenarios).map((item) => item.id)).size).toBe(16);
+    expect(new Set(Object.values(formFixtureScenarios).map((item) => item.id)).size).toBe(18);
   });
 
   it("keeps non-conversions and unavailable evidence from emitting analytics signals", () => {
-    for (const id of ["validation_failure", "attempt_only", "server_error", "cross_origin_iframe"]) {
+    for (const id of ["validation_failure", "html5_validation_failure", "attempt_only", "server_error", "cross_origin_iframe"]) {
       expect(getFormFixtureScenario(id)).toMatchObject({ outcomeObserved: false, dataLayerEvent: false, ga4RequestCount: 0 });
     }
   });
@@ -31,6 +31,8 @@ describe("deterministic form fixture matrix", () => {
   it("selects explicit presentations and defaults unknown IDs safely", () => {
     expect(getFormFixtureScenario("dynamic_form").presentation).toBe("dynamic");
     expect(getFormFixtureScenario("multiple_forms").presentation).toBe("multiple");
+    expect(getFormFixtureScenario("embedded_form").presentation).toBe("embedded");
+    expect(getFormFixtureScenario("html5_validation_failure").validation).toBe("html5");
     expect(getFormFixtureScenario("cross_origin_iframe").presentation).toBe("cross_origin_iframe");
     expect(getFormFixtureScenario("unknown").id).toBe("successful_correct");
   });

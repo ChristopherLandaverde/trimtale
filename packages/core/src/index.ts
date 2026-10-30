@@ -6,6 +6,7 @@ export * from "./tracking-operation.js";
 export * from "./publication.js";
 export * from "./generator.js";
 export * from "./form-evidence.js";
+export * from "./form-signals.js";
 export * from "./form-verdict.js";
 export * from "./gtm-runtime.js";
 export * from "./intake-evaluation.js";

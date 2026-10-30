@@ -77,11 +77,29 @@ The lead-generation flow can:
 - Highlight candidate forms and retain only the confirmed target.
 - Propose one stable status/live region in the form's nearest semantic section as
   visible success evidence while rejecting ambiguous or ID-less candidates.
+- Propose a thank-you page when the form's same-origin `action` names one
+  (`thank`, `success`, `confirm` or `complete` in the path).
 - Distinguish a submit attempt from a successful conversion outcome.
 - Confirm success through a visible element, thank-you URL, data-layer event, or same-page success signal.
 - Generate a `generate_lead` setup with `form_id`, `form_name`, and `page_location`.
 - Download `trimtale-generate-lead.json`.
 - Guide a browser submission and classify the observed result.
+
+Form verdicts are built from real browser signals only (2026-10-30, Slice 1); no page
+flag is read:
+
+| Verdict input | Browser signal |
+|---|---|
+| Submit attempt | The confirmed form's `submit` event, or `invalid` events from the browser's constraint validation |
+| Validation failure | `invalid` events, a field with `aria-invalid="true"` after the submit, or a 400/422 response from the form endpoint |
+| Server error | A 5xx response from the form endpoint (Resource Timing `responseStatus` of the page's fetch/XHR, or of the navigation after a native POST) |
+| Success outcome | The confirmed success element becoming visible, the page URL matching the confirmed thank-you pattern (also after a full redirect), or the confirmed dataLayer event |
+| dataLayer event | A MAIN-world observer that reads `window.dataLayer` entries (object pushes and `gtag()` commands) without replacing `push`; it runs only after verification starts |
+| Tag fired / request delivered | GA4 `/g/collect` request attempts from `webRequest`, and their completion or network error |
+| Consent | Consent Mode `gtag('consent', 'default'|'update', …)` commands, else the `gcs` parameter on observed GA4 requests |
+
+Only event names, identifier-shaped `form_id`/`form_name` values and consent states cross
+from the page into the extension. Form field values are never read into the run.
 
 The deterministic verdict engine covers successful browser verification, expected validation failures, missing events, tags that did not fire, missing requests, missing parameters, duplicate requests, consent limitations, server errors, and insufficient observable evidence.
 

@@ -1,5 +1,7 @@
 import {
+  type FormRun,
   createFormSetupProposal,
+  thankYouUrlPattern,
   createSetupProposal,
   observeGtmRuntime,
   selectConversationSuccess,
@@ -18,10 +20,12 @@ import {
   type TrackingSpecificationV1,
 } from "@trimtale/core";
 import {
+  buildFormRunEvidence,
   FormEvidenceController,
   NavigationEvidenceController,
   type PostPublicationEvidenceCompletion,
 } from "./evidence-capture.js";
+import { FormSignalCapture, type FormAnalyticsRequest, type FormRunContext } from "./form-signal-capture.js";
 import { presentSetupOperation, type SetupOperationAction } from "./setup-operation-presenter.js";
 import type { TrackingWorkflowRequest, WorkflowBridgeResponse, WorkflowResult } from "./workflow-bridge.js";
 
@@ -115,12 +119,14 @@ type ExtensionRequest =
   | { type: "START_VERIFICATION"; navigation: NavigationElement[] }
   | { type: "GET_EVIDENCE" }
   | { type: "VERIFICATION_EVIDENCE"; evidence: BrowserEvidence }
-  | { type: "FORM_ANALYTICS_REQUEST"; request: { url: string; observedAt: string } }
+  | { type: "FORM_ANALYTICS_REQUEST"; request: FormAnalyticsRequest }
+  | { type: "FORM_ANALYTICS_DELIVERY"; id: string; delivered: boolean }
   | { type: "TOGGLE_OVERLAY" };
 
 const analyticsPattern = /(?:google-analytics\.com|analytics\.google\.com)\/g\/collect/i;
 const navigationEvidence = new NavigationEvidenceController();
 const formEvidence = new FormEvidenceController();
+let formCapture: FormSignalCapture | undefined;
 let preferences: OverlayPreferences = { width: 380, height: 260, collapsed: true };
 let host: HTMLDivElement | undefined;
 let frame: HTMLElement | undefined;
@@ -250,26 +256,24 @@ function renderFormEvidence(evidence: TrackingRunEvidenceV1): HTMLElement {
   return verdictMessage;
 }
 
-function finishFormVerification(result: ConversationIntakeResult, startedAt: string): void {
-  const specification = confirmedFormSpecification(result);
-  const target = result.target;
-  const success = successEvidenceFor(result);
-  if (!specification || !target || !success) return;
-  renderFormEvidence(formEvidence.buildRunEvidence(
-    specification,
-    target,
-    success,
-    startedAt,
-    document.documentElement.dataset,
-  ));
+function finishFormRun(run: FormRun, context: FormRunContext): void {
+  if (context.mode === "post_publication") {
+    if (!formEvidence.postPublicationRequest && context.operationId && context.request) {
+      formEvidence.resumePostPublication(context.operationId, context.request);
+    }
+    const completion = formEvidence.finishPostPublication(run);
+    if (!completion) return;
+    renderFormEvidence(completion.evidence);
+    void recordPostPublicationBrowserEvidence(completion.operationId, completion.evidence, completion.request);
+    return;
+  }
+  renderFormEvidence(buildFormRunEvidence({
+    specification: context.specification,
+    target: context.target,
+    success: context.success,
+    run,
+  }));
   activeFormVerification = undefined;
-}
-
-function finishPostPublicationFormVerification(startedAt: string): void {
-  const completion = formEvidence.finishPostPublication(startedAt, document.documentElement.dataset);
-  if (!completion) return;
-  renderFormEvidence(completion.evidence);
-  void recordPostPublicationBrowserEvidence(completion.operationId, completion.evidence, completion.request);
 }
 
 function finishPostPublicationNavigationVerification(expected: NavigationElement, item: BrowserEvidence): void {
@@ -349,6 +353,20 @@ function adjacentFormSuccessSignal(form: HTMLFormElement): FormCandidate["succes
   };
 }
 
+/** A same-origin form action that names a thank-you/success page, e.g. action="/thank-you". */
+function thankYouPageSignal(form: HTMLFormElement): FormCandidate["successSignals"][number] | undefined {
+  const action = form.getAttribute("action");
+  if (!action) return undefined;
+  try {
+    const url = new URL(action, location.href);
+    if (url.origin !== location.origin) return undefined;
+    if (!/(?:thank|success|confirm|complete)/i.test(url.pathname)) return undefined;
+    return { id: "thank-you-url", label: "Thank-you page", type: "thank_you_url", value: thankYouUrlPattern(url.href) };
+  } catch {
+    return undefined;
+  }
+}
+
 function scanForms(): FormCandidate[] {
   return [...document.querySelectorAll<HTMLFormElement>("form")].map((form, index) => {
     const id = form.id || form.getAttribute("name") || `form_${index + 1}`;
@@ -362,16 +380,10 @@ function scanForms(): FormCandidate[] {
         ? `form[name="${CSS.escape(form.getAttribute("name")!)}"]`
         : `form:nth-of-type(${index + 1})`;
     const successSignals: FormCandidate["successSignals"] = [];
-    if (form.dataset.successSelector) {
-      successSignals.push({ id: "success-message", label: "Success message", type: "visible_element", value: form.dataset.successSelector });
-    }
-    if (form.dataset.successUrl) {
-      successSignals.push({ id: "thank-you-url", label: "Thank-you URL", type: "thank_you_url", value: form.dataset.successUrl });
-    }
-    if (successSignals.length === 0) {
-      const adjacent = adjacentFormSuccessSignal(form);
-      if (adjacent) successSignals.push(adjacent);
-    }
+    const thankYou = thankYouPageSignal(form);
+    if (thankYou) successSignals.push(thankYou);
+    const adjacent = adjacentFormSuccessSignal(form);
+    if (adjacent) successSignals.push(adjacent);
     return { id, label, selector, pageUrl: location.href, successSignals };
   });
 }
@@ -931,6 +943,10 @@ async function startPostPublicationBrowserVerification(
   if (isFormWorkflowRequest(request)) {
     formEvidence.startPostPublication(operation.id, request);
     const target = request.specification.targets[0];
+    const success = request.specification.successEvidence[0];
+    if (target && success) {
+      formCapture?.arm({ mode: "post_publication", specification: request.specification, target, success, operationId: operation.id, request });
+    }
     if (target) highlightTargets([{ id: target.id, label: target.label, selector: target.selector }], "confirmed");
     addMessage(`Browser verification is ready. Submit ${target?.label ?? "the selected form"} once.`, "assistant");
     return;
@@ -1305,7 +1321,11 @@ function handleAssistantAction(actionId: string, requestId: string): void {
     return;
   }
   if (actionId === "start-form-verification" && intake?.canConfirm) {
-    formEvidence.startInteractiveVerification();
+    const specification = confirmedFormSpecification(intake);
+    const target = specification?.targets[0];
+    const success = successEvidenceFor(intake);
+    if (!specification || !target || !success) return;
+    formCapture?.arm({ mode: "interactive", specification, target, success });
     activeFormVerification = { requestId, intake };
     addMessage(`Verification is ready. Submit ${intake.target?.label ?? "the selected form"} once.`, "assistant");
     return;
@@ -1589,23 +1609,24 @@ document.addEventListener("click", (event) => {
   }, 1200);
 }, true);
 
-document.addEventListener("submit", (event) => {
-  const active = activeFormVerification;
-  const form = event.target instanceof HTMLFormElement ? event.target : undefined;
-  const target = active?.intake.target;
-  if (form && formEvidence.matchesPostPublicationForm(form)) {
-    const startedAt = new Date().toISOString();
-    window.setTimeout(() => finishPostPublicationFormVerification(startedAt), 800);
+
+async function resumeFormRun(): Promise<void> {
+  let response: { saved?: unknown; requests?: FormAnalyticsRequest[] } | undefined;
+  try {
+    response = await chrome.runtime.sendMessage({ type: "FORM_RUN_RESUME" }) as typeof response;
+  } catch {
     return;
   }
-  if (!active || !form || !target || !form.matches(target.selector)) return;
-  const startedAt = new Date().toISOString();
-  window.setTimeout(() => finishFormVerification(active.intake, startedAt), 800);
-}, true);
+  const context = formCapture?.resume(response?.saved, response?.requests ?? []);
+  if (!context) return;
+  setCollapsed(false);
+  addMessage(`The form submission opened ${location.pathname}. Continuing verification of ${context.target.label} here.`, "assistant");
+}
 
 if (!window.__gtmObservabilityInstalled) {
   window.__gtmObservabilityInstalled = true;
-  void mountOverlay();
+  formCapture = new FormSignalCapture(finishFormRun);
+  void mountOverlay().then(resumeFormRun);
   chrome.runtime.onMessage.addListener((request: ExtensionRequest, _sender, sendResponse) => {
     if (request.type === "TOGGLE_OVERLAY") { void mountOverlay().then(() => setCollapsed(!preferences.collapsed)); sendResponse({ toggled: true }); return true; }
     if (request.type === "SCAN_NAVIGATION") { sendResponse(scanNavigation()); return; }
@@ -1616,7 +1637,8 @@ if (!window.__gtmObservabilityInstalled) {
       sendResponse({ recorded: true });
       return;
     }
-    if (request.type === "FORM_ANALYTICS_REQUEST") { formEvidence.recordAnalyticsRequest(request.request); sendResponse({ recorded: true }); return; }
+    if (request.type === "FORM_ANALYTICS_REQUEST") { formCapture?.recordAnalyticsRequest(request.request); sendResponse({ recorded: true }); return; }
+    if (request.type === "FORM_ANALYTICS_DELIVERY") { formCapture?.recordAnalyticsDelivery(request.id, request.delivered); sendResponse({ recorded: true }); return; }
     if (request.type === "GET_EVIDENCE") sendResponse({ evidence: navigationEvidence.evidence });
   });
 }
