@@ -18,8 +18,8 @@ container identifiers.
 
 ## Behavior
 
-- `GTM-PCJ3Q5RK`, account `6305900974`, container `261236292`, `G-YV879ECLRV` and the
-  account display name are replaced with placeholders in 10 docs and notes files. The
+- The disposable test container's public ID, its account and container numbers, its GA4
+  measurement ID and the account display name are replaced with placeholders in 10 docs and notes files. The
   evidence they describe is unchanged.
 - Added `SECURITY.md`, `CONTRIBUTING.md` and `.github/ISSUE_TEMPLATE/`.
 - Rewrote the stale Google, permissions and publishing sections of

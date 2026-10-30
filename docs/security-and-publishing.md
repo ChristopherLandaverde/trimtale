@@ -73,8 +73,9 @@ the callback, which checks a single-use random `state`. Access is read-only
 
 - `GOOGLE_GTM_CONTAINER_WRITES_ENABLED=true` requests the container-edit scope, so Trimtale
   can prepare its managed workspace.
-- `GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED=true` and `GOOGLE_GTM_PUBLICATION_ENABLED=true`
-  are both required before anything can be published. Both are off by default.
+- `GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED=true` and `GOOGLE_GTM_PUBLICATION_ENABLED=true`,
+  together with container writes, are all required before anything can be published. All
+  three are off by default.
 - `GOOGLE_OAUTH_TOKEN_STORE` optionally persists tokens to a local file. Operation records go
   to `.data/`, which is git-ignored.
 
@@ -87,7 +88,9 @@ Google and intake-evaluation routes answer cross-origin requests only from the o
 
 ## Extension permissions
 
-The extension requests `activeTab`, `scripting`, `storage` and `webRequest`. Its host
+The extension requests `activeTab`, `scripting`, `storage` and `webRequest`. Its content
+scripts, including the page observer, load on every `http` and `https` page and stay idle
+until the practitioner starts a check there. Its host
 permissions are the configured API origin from `GTM_OBSERVABILITY_API_BASE`, the local
 fixture origin for deterministic checks, and the Google Analytics collection hosts it
 observes for browser evidence. Generated files are saved through a download link in the panel, so
@@ -114,7 +117,7 @@ Before promoting a Vercel deployment to production:
 - Run `npm run verify`.
 - Typecheck the root Vercel API entrypoints.
 - Verify `GET /api/health` and `POST /api/setups` on the deployment with a disposable request.
-- Confirm `.env*`, `.vercel` and `.data/` remain ignored and uncommitted.
+- Confirm `.env*.local`, `.vercel` and `.data/` remain ignored and uncommitted.
 - Build any distributable extension artifact with the production API origin and without
   `GTM_OBSERVABILITY_EXTENSION_TOKEN`.
 
