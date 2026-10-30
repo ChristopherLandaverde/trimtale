@@ -3,6 +3,7 @@ import { evaluateExplanation } from "@trimtale/core";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { openExtensionJourney } from "./helpers/extension-journey.js";
+import { expectVerdictFinding } from "./helpers/verdict.js";
 
 interface AcceptanceJourney {
   id: string;
@@ -66,10 +67,13 @@ for (const acceptance of contract.journeys) {
       await expect(root.getByText(/Verification is ready/)).toBeVisible();
       await page.locator("form#contact button[type='submit']").click();
 
-      await expect(root.getByText(`Verdict: ${acceptance.expected.verdict}`, { exact: false })).toBeVisible();
-      await expect(root.getByText(`Browser verification: ${acceptance.expected.browserVerification}`, { exact: false })).toBeVisible();
-      await expect(root.getByText(`Platform confirmation: ${acceptance.expected.platformConfirmation}`, { exact: false })).toBeVisible();
-      const explanation = await root.locator(".explanation").last().innerText();
+      const finding = await expectVerdictFinding(root, {
+        code: acceptance.expected.verdict,
+        browserVerification: acceptance.expected.browserVerification,
+        platformConfirmation: acceptance.expected.platformConfirmation,
+      });
+      await finding.getByRole("button", { name: "Hide evidence" }).click();
+      const explanation = await finding.innerText();
       const evaluation = evaluateExplanation(explanation, {
         mustInclude: acceptance.expected.explanationMustInclude,
         mustNotClaim: acceptance.expected.explanationMustNotClaim,

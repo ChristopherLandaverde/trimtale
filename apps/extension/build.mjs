@@ -34,6 +34,7 @@ async function buildExtension() {
       target: "chrome120",
       outdir,
       sourcemap: true,
+      loader: { ".woff2": "binary" },
       define: {
         __GTM_OBSERVABILITY_API_BASE__: JSON.stringify(apiBase),
         __GTM_OBSERVABILITY_EXTENSION_TOKEN__: JSON.stringify(resolverToken),
@@ -52,6 +53,11 @@ async function buildExtension() {
     for (const file of ["workbench.html", "workbench.css"]) {
       await cp(`src/${file}`, `${outdir}/${file}`);
     }
+    // The fonts are inlined into content-script.js; ship their licences beside it.
+    await mkdir(`${outdir}/fonts`, { recursive: true });
+    for (const file of ["OFL-DMSans.txt", "OFL-IBMPlexMono.txt"]) {
+      await cp(`src/fonts/${file}`, `${outdir}/fonts/${file}`);
+    }
     console.log(`Built extension in ${outdir} for ${apiBase}`);
   } finally {
     building = false;
@@ -69,6 +75,8 @@ if (shouldWatch) {
   let timeout;
   const watchedFiles = [
     "src/content-script.ts",
+    "src/panel-styles.ts",
+    "src/verdict-presenter.ts",
     "src/page-observer.ts",
     "src/page-bridge.ts",
     "src/page-signal-bridge.ts",

@@ -40,7 +40,13 @@ test("mounts and streams through the floating tracking assistant", async () => {
     await expect(root.getByRole("button", { name: /model evaluation reports/i })).toHaveCount(0);
     await expect(root.getByText("Evals", { exact: true })).toHaveCount(0);
     await expect(root.getByLabel("Tracking request")).toBeFocused();
-    expect(await assistant.evaluate((element) => getComputedStyle(element).fontFamily)).toContain("Inter");
+    expect(await assistant.evaluate((element) => getComputedStyle(element).fontFamily)).toMatch(/^"Trimtale DM Sans"/);
+    // Bundled Focosys faces load from the extension itself, without a network request.
+    expect(await site.evaluate(async () => {
+      await document.fonts.ready;
+      return ["400 14px \"Trimtale DM Sans\"", "600 14px \"Trimtale DM Sans\"", "400 13px \"Trimtale IBM Plex Mono\""]
+        .map((font) => document.fonts.check(font));
+    })).toEqual([true, true, true]);
     await root.getByLabel("Tracking request").evaluate((element) => (element as HTMLElement).blur());
     await expect(assistant).toHaveScreenshot("assistant-open.png", screenshotOptions);
 
