@@ -15,6 +15,7 @@ export async function openExtensionJourney(
   fixtureState: string,
   gtmContainerId?: string,
   prepare?: (context: BrowserContext) => Promise<void>,
+  query: Record<string, string> = {},
 ): Promise<ExtensionJourney> {
   const profile = await mkdtemp(join(tmpdir(), "gtm-observability-journey-"));
   const extensionPath = resolve("apps/extension/dist");
@@ -28,6 +29,7 @@ export async function openExtensionJourney(
   const url = new URL("http://127.0.0.1:14173/");
   url.searchParams.set("formScenario", fixtureState);
   if (gtmContainerId) url.searchParams.set("gtm", gtmContainerId);
+  for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
   await page.goto(url.toString());
   const root = page.locator("#trimtale-root");
   await expect(root).toBeAttached();
@@ -47,4 +49,30 @@ export async function openExtensionJourney(
       await rm(profile, { recursive: true, force: true });
     },
   };
+}
+
+interface CdpExecutionContext { id: number; name: string; origin: string; auxData?: { type?: string; frameId?: string } }
+
+/**
+ * Evaluates an expression in the extension's isolated content-script world of the page's main
+ * frame (via CDP), where page scripts cannot reach. Used to inspect what actually crossed from
+ * the page observer into the extension.
+ */
+export async function evaluateInExtensionWorld<T>(page: Page, expression: string): Promise<T> {
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    const contexts: CdpExecutionContext[] = [];
+    cdp.on("Runtime.executionContextCreated", (event: { context: CdpExecutionContext }) => contexts.push(event.context));
+    await cdp.send("Runtime.enable");
+    const { frameTree } = await cdp.send("Page.getFrameTree");
+    const context = contexts.find((item) => item.auxData?.type === "isolated"
+      && item.auxData.frameId === frameTree.frame.id
+      && item.origin.startsWith("chrome-extension://"));
+    if (!context) throw new Error(`No extension isolated world in ${JSON.stringify(contexts.map((item) => [item.name, item.origin, item.auxData]))}`);
+    const result = await cdp.send("Runtime.evaluate", { contextId: context.id, expression, returnByValue: true });
+    if (result.exceptionDetails) throw new Error(result.exceptionDetails.text);
+    return result.result.value as T;
+  } finally {
+    await cdp.detach();
+  }
 }

@@ -26,6 +26,7 @@ async function buildExtension() {
         "service-worker": "src/service-worker.ts",
         "content-script": "src/content-script.ts",
         "page-observer": "src/page-observer.ts",
+        "page-bridge": "src/page-bridge.ts",
         "workbench": "src/workbench.ts",
       },
       bundle: true,
@@ -69,6 +70,8 @@ if (shouldWatch) {
   const watchedFiles = [
     "src/content-script.ts",
     "src/page-observer.ts",
+    "src/page-bridge.ts",
+    "src/page-signal-bridge.ts",
     "src/manifest.json",
     "src/service-worker.ts",
     "src/workbench.css",

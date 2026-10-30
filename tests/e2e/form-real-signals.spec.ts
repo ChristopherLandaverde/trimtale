@@ -1,10 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openExtensionJourney } from "./helpers/extension-journey.js";
+import { evaluateInExtensionWorld, openExtensionJourney } from "./helpers/extension-journey.js";
 
 // Slice 1 regression contract: the extension's form verdict comes from real browser
 // signals (submit/invalid events, the success signal, a dataLayer observer, GA4 request
 // delivery, consent commands), never from page flags. The fixture page sets no verdict
-// flags, and no typed form value may cross into the extension or its API traffic.
+// flags, and no typed form value may cross into the extension (checked in its isolated world)
+// or its API traffic.
 
 const sentinel = "private-sentinel@example.com";
 
@@ -38,21 +39,21 @@ const cases: RealSignalCase[] = [
   { scenario: "embedded_form", verdict: "browser_verified", form: { label: "Request a demo", selector: "form[aria-label='Request a demo']" }, fill: true },
 ];
 
+/** Signals the extension actually received from the page observer, read in its isolated world. */
+async function receivedSignals(page: Page): Promise<string> {
+  return JSON.stringify(await evaluateInExtensionWorld<unknown>(
+    page,
+    "(() => { const bridge = globalThis[Symbol.for('trimtale.pageSignalBridge')]; return bridge ? bridge.received : null; })()",
+  ));
+}
+
 async function verdictFlagAttributes(page: Page): Promise<string[]> {
   return page.evaluate(() => document.documentElement.getAttributeNames().filter((name) => name.startsWith("data-")));
 }
 
 for (const item of cases) {
   test(`real signals: ${item.scenario} gets ${item.verdict} without page flags`, async () => {
-    const journey = await openExtensionJourney(item.scenario, undefined, async (context) => {
-      await context.addInitScript(() => {
-        const log: string[] = [];
-        (window as Window & { __pageSignalLog?: string[] }).__pageSignalLog = log;
-        document.addEventListener("trimtale:page-signal", (event) => {
-          log.push(String((event as CustomEvent<unknown>).detail));
-        });
-      });
-    });
+    const journey = await openExtensionJourney(item.scenario);
     const apiBodies: string[] = [];
     journey.context.on("request", (request) => {
       if (request.url().startsWith("http://127.0.0.1:18787")) apiBodies.push(`${request.url()} ${request.postData() ?? ""}`);
@@ -69,7 +70,7 @@ for (const item of cases) {
 
       const form = page.locator(item.form.selector);
       if (item.fill) await form.locator("input[type='email']").fill(sentinel);
-      const signalLog = await page.evaluate(() => (window as Window & { __pageSignalLog?: string[] }).__pageSignalLog ?? []);
+      const signalLog = await receivedSignals(page);
       await form.locator("button[type='submit']").click();
       if (item.navigatesTo) await page.waitForURL(item.navigatesTo);
 
@@ -77,8 +78,7 @@ for (const item of cases) {
       await expect(root.getByText("Platform confirmation: unverified", { exact: false })).toBeVisible();
       expect(await verdictFlagAttributes(page)).toEqual([]);
 
-      const finalSignals = await page.evaluate(() => (window as Window & { __pageSignalLog?: string[] }).__pageSignalLog ?? []);
-      const crossed = [...signalLog, ...finalSignals].join("\n");
+      const crossed = `${signalLog}\n${await receivedSignals(page)}`;
       expect(crossed).not.toContain("private-sentinel");
       expect(apiBodies.join("\n")).not.toContain("private-sentinel");
       expect(await root.innerText()).not.toContain("private-sentinel");
@@ -102,17 +102,11 @@ test("real signals: a cross-origin iframe form is reported as not inspectable", 
 });
 
 test("real signals: the page observer stays idle until verification, then reports consent and lead events but not their values", async () => {
-  const journey = await openExtensionJourney("consent_denied", undefined, async (context) => {
-    await context.addInitScript(() => {
-      const log: string[] = [];
-      (window as Window & { __pageSignalLog?: string[] }).__pageSignalLog = log;
-      document.addEventListener("trimtale:page-signal", (event) => log.push(String((event as CustomEvent<unknown>).detail)));
-    });
-  });
+  const journey = await openExtensionJourney("consent_denied");
   try {
     const { page, root } = journey;
     await page.waitForTimeout(300);
-    expect(await page.evaluate(() => (window as Window & { __pageSignalLog?: string[] }).__pageSignalLog ?? [])).toEqual([]);
+    expect(await receivedSignals(page)).toBe("[]");
     await journey.send("Track leads from this form");
     await root.getByRole("button", { name: "Contact sales", exact: true }).click();
     await root.getByRole("button", { name: "Review setup" }).click();
@@ -122,9 +116,8 @@ test("real signals: the page observer stays idle until verification, then report
       const layer = (window as Window & { dataLayer?: unknown[] }).dataLayer!;
       layer.push({ event: "generate_lead", form_id: "contact", email: value, form_name: value });
     }, sentinel);
-    await expect.poll(async () => (await page.evaluate(() => (window as Window & { __pageSignalLog?: string[] }).__pageSignalLog ?? [])).join("\n"))
-      .toContain("\"event\":\"generate_lead\"");
-    const log = (await page.evaluate(() => (window as Window & { __pageSignalLog?: string[] }).__pageSignalLog ?? [])).join("\n");
+    await expect.poll(() => receivedSignals(page)).toContain("\"event\":\"generate_lead\"");
+    const log = await receivedSignals(page);
     expect(log).toContain("\"analyticsStorage\":\"denied\"");
     expect(log).toContain("\"formId\":\"contact\"");
     expect(log).not.toContain("private-sentinel");

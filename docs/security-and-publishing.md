@@ -27,6 +27,23 @@ The extension may read current-page DOM markup, script URLs, inline script text,
 
 During a lead-form verification, a MAIN-world page observer (`page-observer.js`) reads `window.dataLayer` entries without replacing `dataLayer.push`. It stays idle until a verification starts on the page. It forwards only event names, identifier-shaped `form_id`/`form_name` values and Consent Mode `analytics_storage` states to the isolated content script, which re-validates them. Form field values and other dataLayer fields never cross that boundary, and GA4 request URLs are reduced to an allowlist (`v`, `tid`, `en`, `ep.form_id`, `ep.form_name`, `ep.page_location`, `dl`, `gcs`, with query strings stripped from page URLs) before they are stored.
 
+### Page-observer channel
+
+Page scripts share the observer's world, so the channel between it and the extension is built so that a page cannot forge, start, read or disable it:
+
+- The observer (`page-observer.js`, MAIN world) and a bridge (`page-bridge.js`, isolated world) both run at `document_start`, observer first. Chrome injects `document_start` scripts "before any other DOM is constructed or any other script is run" and injects static content scripts "in the order in which they are specified in the manifest" ([content scripts](https://developer.chrome.com/docs/extensions/develop/concepts/content-scripts)).
+- The bridge creates a `MessageChannel` and hands one port to the observer in a single synchronous `MessageEvent` on `document`; the observer takes it and removes its listener before any page script exists. Signals and the start command travel only over that port. No DOM event carries them, so a page cannot dispatch fake signals, start polling, or listen to the stream, and a later handshake attempt finds no listener.
+- The observer captures the built-ins on that path (`EventTarget` listeners, `MessagePort`, `setInterval`, `Date.now`, `Reflect.apply`) before page scripts can replace them. It sends structured-cloned objects, not JSON, so a rewritten `JSON.stringify` or `toJSON` has no effect. It keeps its state in a closure; there is no global flag a page could pre-set.
+- The bridge rebuilds every signal from allowlisted fields with the isolated world's own built-ins (`pageSignalFromValue`).
+- Submit and `invalid` events start or fail a run only when `isTrusted`; a page script's synthetic events are ignored.
+
+What a page still controls, by definition:
+
+- **Its own `dataLayer`.** The observer reports what the page pushed. A page can push a `generate_lead` it never acted on, or a consent command GTM ignores, and the observer reports it, the same as before. A page that rewrites built-ins the sanitizer uses can make the observer report dataLayer content that is not there, which gains nothing over pushing it. A page can also tell that something is reading `window.dataLayer` (a getter on `window.dataLayer` sees the polling).
+- **Its DOM and URL.** The success element and thank-you URL are page state.
+
+How verdicts weigh that evidence: dataLayer signals alone can never produce `browser_verified`. A passing verdict also needs exactly one GA4 `/g/collect` request for the specified event, with `form_id`, `form_name` and a page location, seen by the service worker through `chrome.webRequest` and not reported failed. A page cannot fabricate that observation without the browser actually sending the request; a page that sends a hand-made GA4 request is really sending a hit to Google, which is why platform confirmation stays `unverified` until GA4 reports it. What dataLayer-only evidence can change is which failure or inconclusive verdict a broken setup gets (for example `outcome_observed_event_missing` versus `datalayer_event_observed_tag_not_firing`), and a page-reported denied consent state takes precedence over the `gcs` parameter, giving `consent_limited` (inconclusive, never passed).
+
 ## Google integration controls
 
 `GET /api/google/status` is public and reports whether Google discovery is configured.
