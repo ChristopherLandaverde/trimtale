@@ -28,7 +28,7 @@ test("mounts and streams through the floating tracking assistant", async () => {
     const site = await context.newPage();
     await site.goto("http://127.0.0.1:14173/");
 
-    const root = site.locator("#gtm-observability-root");
+    const root = site.locator("#trimtale-root");
     const assistant = root.locator("section.assistant");
     await expect(root).toBeAttached();
     await expect(assistant).toHaveClass(/collapsed/);
@@ -58,14 +58,14 @@ test("mounts and streams through the floating tracking assistant", async () => {
     await expect(root.getByText("Reviewable navigation_click setup generated")).toBeVisible();
     await expect(root.getByText("No GTM container detected on this page")).toBeVisible();
     await expect(root.getByText("Unverified — browser evidence cannot confirm GA4 processing")).toBeVisible();
-    await expect(site.locator("#gtm-observability-targets")).toBeAttached();
-    await expect(site.locator("#gtm-observability-targets").locator(".target.confirmed")).toHaveCount(5);
+    await expect(site.locator("#trimtale-targets")).toBeAttached();
+    await expect(site.locator("#trimtale-targets").locator(".target.confirmed")).toHaveCount(5);
     await expect(assistant).toHaveScreenshot("assistant-evidence-path.png", screenshotOptions);
 
     const downloadPromise = site.waitForEvent("download");
     await root.getByRole("button", { name: "Download GTM setup" }).click();
     const download = await downloadPromise;
-    expect(download.suggestedFilename()).toBe("gtm-observability-navigation-click.json");
+    expect(download.suggestedFilename()).toBe("trimtale-navigation-click.json");
     const downloadPath = await download.path();
     if (!downloadPath) throw new Error("The navigation setup download did not produce a local artifact.");
     const generated = JSON.parse(readFileSync(downloadPath, "utf8")) as {
@@ -109,7 +109,7 @@ test("mounts and streams through the floating tracking assistant", async () => {
     await root.getByRole("button", { name: "Collapse assistant" }).click();
     await expect(assistant).toHaveClass(/collapsed/);
     await site.reload();
-    await expect(site.locator("#gtm-observability-root section.assistant")).toHaveClass(/collapsed/);
+    await expect(site.locator("#trimtale-root section.assistant")).toHaveClass(/collapsed/);
   } finally {
     await context.close();
     await rm(profile, { recursive: true, force: true });
@@ -127,7 +127,7 @@ test("reports an observed GTM public container ID separately from setup generati
   try {
     const site = await context.newPage();
     await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
-    const root = site.locator("#gtm-observability-root");
+    const root = site.locator("#trimtale-root");
     await root.getByRole("button", { name: "Open tracking assistant" }).click();
     await root.getByLabel("Tracking request").fill("navigation");
     await root.getByRole("button", { name: "Send request" }).click();
@@ -152,7 +152,7 @@ test("does not claim setup generation without measurement context", async () => 
     const site = await context.newPage();
     await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
     await site.locator('meta[name="gtm-observability-measurement-id"]').evaluate((meta) => meta.remove());
-    const root = site.locator("#gtm-observability-root");
+    const root = site.locator("#trimtale-root");
     await root.getByRole("button", { name: "Open tracking assistant" }).click();
     await root.getByLabel("Tracking request").fill("navigation");
     await root.getByRole("button", { name: "Send request" }).click();
@@ -207,7 +207,7 @@ test("matches the observed container and explicitly prepares one managed workspa
   try {
     const site = await context.newPage();
     await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
-    const root = site.locator("#gtm-observability-root");
+    const root = site.locator("#trimtale-root");
     await root.getByRole("button", { name: "Open tracking assistant" }).click();
     await root.getByLabel("Tracking request").fill("navigation");
     await root.getByRole("button", { name: "Send request" }).click();
@@ -272,7 +272,7 @@ test("does not start operations when managed workspace inspection is blocked", a
     try {
       const site = await context.newPage();
       await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
-      const root = site.locator("#gtm-observability-root");
+      const root = site.locator("#trimtale-root");
       await root.getByRole("button", { name: "Open tracking assistant" }).click();
       await root.getByLabel("Tracking request").fill("navigation");
       await root.getByRole("button", { name: "Send request" }).click();
@@ -301,7 +301,7 @@ test("starts a navigation setup operation and stops at approval", async () => {
   try {
     const site = await context.newPage();
     await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
-    const root = site.locator("#gtm-observability-root");
+    const root = site.locator("#trimtale-root");
     await root.getByRole("button", { name: "Open tracking assistant" }).click();
     await root.getByLabel("Tracking request").fill("navigation");
     await root.getByRole("button", { name: "Send request" }).click();
@@ -333,7 +333,7 @@ test("starts a lead-form setup operation and stops at approval", async () => {
   try {
     const site = await context.newPage();
     await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
-    const root = site.locator("#gtm-observability-root");
+    const root = site.locator("#trimtale-root");
     await root.getByRole("button", { name: "Open tracking assistant" }).click();
     await root.getByLabel("Tracking request").fill("Track leads from a form");
     await root.getByRole("button", { name: "Send request" }).click();
@@ -366,7 +366,7 @@ test("reloads the latest setup operation from durable storage", async () => {
   try {
     const site = await context.newPage();
     await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
-    let root = site.locator("#gtm-observability-root");
+    let root = site.locator("#trimtale-root");
     await root.getByRole("button", { name: "Open tracking assistant" }).click();
     await root.getByLabel("Tracking request").fill("navigation");
     await root.getByRole("button", { name: "Send request" }).click();
@@ -378,7 +378,7 @@ test("reloads the latest setup operation from durable storage", async () => {
     await site.close();
     const resumed = await context.newPage();
     await resumed.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
-    root = resumed.locator("#gtm-observability-root");
+    root = resumed.locator("#trimtale-root");
     const openButton = root.getByRole("button", { name: "Open tracking assistant" });
     if (await openButton.count()) await openButton.click();
     await root.getByLabel("Tracking request").fill("navigation");
@@ -423,7 +423,7 @@ test("resumes a partial setup operation without leaving duplicate operation cont
   try {
     const site = await context.newPage();
     await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
-    const root = site.locator("#gtm-observability-root");
+    const root = site.locator("#trimtale-root");
     await root.getByRole("button", { name: "Open tracking assistant" }).click();
     await root.getByLabel("Tracking request").fill("navigation");
     await root.getByRole("button", { name: "Send request" }).click();
@@ -469,7 +469,7 @@ test("renders blocked validation state with bounded guidance and no publish clai
   try {
     const site = await context.newPage();
     await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
-    const root = site.locator("#gtm-observability-root");
+    const root = site.locator("#trimtale-root");
     await root.getByRole("button", { name: "Open tracking assistant" }).click();
     await root.getByLabel("Tracking request").fill("navigation");
     await root.getByRole("button", { name: "Send request" }).click();
@@ -531,7 +531,7 @@ test("renders stale and conflict resume blocks with bounded guidance", async () 
     try {
       const site = await context.newPage();
       await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
-      const root = site.locator("#gtm-observability-root");
+      const root = site.locator("#trimtale-root");
       await root.getByRole("button", { name: "Open tracking assistant" }).click();
       await root.getByLabel("Tracking request").fill("navigation");
       await root.getByRole("button", { name: "Send request" }).click();
@@ -567,7 +567,7 @@ test("publishes only from an approved immutable version and keeps verification p
   try {
     const site = await context.newPage();
     await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
-    const root = site.locator("#gtm-observability-root");
+    const root = site.locator("#trimtale-root");
     await root.getByRole("button", { name: "Open tracking assistant" }).click();
     await root.getByLabel("Tracking request").fill("navigation");
     await root.getByRole("button", { name: "Send request" }).click();
@@ -612,7 +612,7 @@ test("records post-publication navigation browser verification without platform 
   try {
     const site = await context.newPage();
     await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
-    const root = site.locator("#gtm-observability-root");
+    const root = site.locator("#trimtale-root");
     await root.getByRole("button", { name: "Open tracking assistant" }).click();
     await root.getByLabel("Tracking request").fill("navigation");
     await root.getByRole("button", { name: "Send request" }).click();
@@ -661,7 +661,7 @@ test("records post-publication lead-form browser verification without leaking fo
   try {
     const site = await context.newPage();
     await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123&formScenario=ajax_success");
-    const root = site.locator("#gtm-observability-root");
+    const root = site.locator("#trimtale-root");
     await root.getByRole("button", { name: "Open tracking assistant" }).click();
     await root.getByLabel("Tracking request").fill("Track leads from the contact form");
     await root.getByRole("button", { name: "Send request" }).click();
@@ -719,7 +719,7 @@ test("rolls back a failed publication only after exact target approval", async (
   try {
     const site = await context.newPage();
     await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123&scenario=duplicate");
-    const root = site.locator("#gtm-observability-root");
+    const root = site.locator("#trimtale-root");
     await root.getByRole("button", { name: "Open tracking assistant" }).click();
     await root.getByLabel("Tracking request").fill("navigation");
     await root.getByRole("button", { name: "Send request" }).click();
@@ -769,7 +769,7 @@ test("keeps publication failures bounded without advancing verification", async 
   try {
     const site = await context.newPage();
     await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
-    const root = site.locator("#gtm-observability-root");
+    const root = site.locator("#trimtale-root");
     await root.getByRole("button", { name: "Open tracking assistant" }).click();
     await root.getByLabel("Tracking request").fill("navigation");
     await root.getByRole("button", { name: "Send request" }).click();
@@ -804,12 +804,12 @@ test("renders page-controlled target labels as inert text", async () => {
     await site.locator("header nav a").first().evaluate((anchor) => {
       anchor.textContent = '<img src=x onerror="window.__unsafeHighlightExecuted=true">';
     });
-    const root = site.locator("#gtm-observability-root");
+    const root = site.locator("#trimtale-root");
     await root.getByRole("button", { name: "Open tracking assistant" }).click();
     await root.getByLabel("Tracking request").fill("navigation");
     await root.getByRole("button", { name: "Send request" }).click();
     await root.getByRole("button", { name: "Choose links" }).click();
-    const targets = site.locator("#gtm-observability-targets");
+    const targets = site.locator("#trimtale-targets");
     await expect(targets.locator(".target span").filter({ hasText: "<img src=x" })).toHaveCount(1);
     await expect(targets.locator(".target img")).toHaveCount(0);
     expect(await site.evaluate(() => (window as Window & { __unsafeHighlightExecuted?: boolean }).__unsafeHighlightExecuted)).not.toBe(true);

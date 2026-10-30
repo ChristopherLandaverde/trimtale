@@ -1,4 +1,4 @@
-import type { IntakeProviderEvaluationV1 } from "@gtm-observability/core";
+import type { IntakeProviderEvaluationV1 } from "@trimtale/core";
 import {
   IntakeEvaluationReportRepository,
   type IntakeEvaluationReportV1,

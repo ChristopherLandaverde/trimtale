@@ -1,6 +1,6 @@
-# GTM Observability
+# Trimtale
 
-GTM Observability is a commercial site-aware analytics assistant for implementing, investigating, and observing website measurement from the website itself. Google Tag Manager is its initial implementation target; verification evidence connects setup work with later monitoring and diagnosis.
+Trimtale (formerly GTM Observability) is a commercial site-aware analytics assistant for implementing, investigating, and observing website measurement from the website itself. Google Tag Manager is its initial implementation target; verification evidence connects setup work with later monitoring and diagnosis.
 
 ## Language
 

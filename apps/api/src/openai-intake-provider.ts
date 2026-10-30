@@ -3,7 +3,7 @@ import {
   type IntakeInterpretationInputV1,
   type IntakeShadowProvider,
   type IntakeShadowProviderContext,
-} from "@gtm-observability/core";
+} from "@trimtale/core";
 
 export const OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses" as const;
 

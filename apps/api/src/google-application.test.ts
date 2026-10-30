@@ -6,7 +6,7 @@ import {
   GTM_MANAGED_WORKSPACE_NAME,
   type GtmEntitySet,
   type TrackingSetupOperationV1,
-} from "@gtm-observability/core";
+} from "@trimtale/core";
 import { describe, expect, it, vi } from "vitest";
 import { GtmDiscoveryClient } from "./google.js";
 

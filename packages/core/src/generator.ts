@@ -136,9 +136,9 @@ function createFormContainerFile(request: FormSetupRequest): GtmContainerExport 
     exportTime: new Date().toISOString(),
     containerVersion: {
       path: `${base}/versions/0`, accountId, containerId, containerVersionId: "0",
-      name: "GTM Observability - Confirmed form setup",
+      name: "Trimtale - Confirmed form setup",
       description: "Generated generate_lead tracking from practitioner-confirmed success evidence. Apply to the recognized managed workspace or import with Merge; never overwrite.",
-      container: { path: base, accountId, containerId, name: request.container.name || "GTM Observability import", publicId: request.container.publicId, usageContext: ["WEB"] },
+      container: { path: base, accountId, containerId, name: request.container.name || "Trimtale import", publicId: request.container.publicId, usageContext: ["WEB"] },
       trigger: triggers,
       tag: [{
         accountId, containerId, tagId: "919999", name: "GA4 Event - generate_lead", type: "gaawe",
@@ -202,13 +202,13 @@ function createContainerFile(request: SetupRequest): GtmContainerExport {
       accountId,
       containerId,
       containerVersionId: "0",
-      name: "GTM Observability - Navigation click setup",
+      name: "Trimtale - Navigation click setup",
       description: "Generated navigation_click tracking. Apply to the recognized managed workspace or import with Merge; never overwrite.",
       container: {
         path: base,
         accountId,
         containerId,
-        name: request.container.name || "GTM Observability import",
+        name: request.container.name || "Trimtale import",
         publicId: request.container.publicId,
         usageContext: ["WEB"],
       },

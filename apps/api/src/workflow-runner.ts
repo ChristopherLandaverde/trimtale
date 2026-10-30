@@ -7,7 +7,7 @@ import {
   type SetupRequest,
   type TrackingRunEvidenceV1,
   type TrackingSetupOperationV1,
-} from "@gtm-observability/core";
+} from "@trimtale/core";
 import type { GtmDiscoveryClient } from "./google.js";
 import { TrackingOperationRepository } from "./tracking-operations.js";
 

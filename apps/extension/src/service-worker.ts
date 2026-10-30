@@ -3,7 +3,7 @@ import {
   type BrowserEvidence,
   type FormCandidate,
   type NavigationElement,
-} from "@gtm-observability/core";
+} from "@trimtale/core";
 import {
   workflowResultFromStoredOperation,
   type GtmWorkflowAction,

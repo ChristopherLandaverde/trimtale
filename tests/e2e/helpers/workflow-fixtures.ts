@@ -55,7 +55,7 @@ export function operation(status: WorkflowOperationStatus = "versioned"): Record
         accountId: "1",
         containerId: "10",
         containerVersionId: "0",
-        name: "GTM Observability import",
+        name: "Trimtale import",
         description: "fixture",
         container: {
           path: "accounts/1/containers/10",
@@ -173,7 +173,7 @@ export function formOperation(status: WorkflowOperationStatus = "versioned"): Re
         accountId: "1",
         containerId: "10",
         containerVersionId: "0",
-        name: "GTM Observability import",
+        name: "Trimtale import",
         description: "fixture",
         container: {
           path: "accounts/1/containers/10",

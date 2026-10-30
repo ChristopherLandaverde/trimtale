@@ -2,7 +2,7 @@ import {
   IntakeShadowHarness,
   type IntakeInterpretationInputV1,
   type IntakeInterpretationV1,
-} from "@gtm-observability/core";
+} from "@trimtale/core";
 import { describe, expect, it, vi } from "vitest";
 import {
   OPENAI_RESPONSES_ENDPOINT,

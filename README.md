@@ -1,219 +1,122 @@
-# GTM Observability
+# Trimtale
 
-An intelligent creation, testing, and observability layer for Google Tag Manager.
+**Prove that your site's tracking fires: set up GA4 events through Google Tag Manager and check each one against what the browser actually sends.**
 
-This project does not replace GTM. GTM remains the configuration, execution, versioning, environment, and publishing layer. This product connects GTM configuration evidence with browser-runtime evidence so teams can detect broken tracking, understand why it broke, test corrections, and deploy verified GTM changes.
+[Quick start](#quick-start) · [What it does](#what-it-does) · [Known limits](#known-limits) · [Privacy](#privacy-and-permissions) · [Docs](docs/)
 
-## Product promise
+Trimtale is a Chrome extension and small API for analytics consultants and marketers who
+set up tracking on lead-generation sites and need proof that it works. It finds the links
+and forms on the page you're on, generates the GTM setup for a navigation click or a lead
+form, and then records whether a real click or submission produced exactly one matching
+GA4 collection request. Every step reports its own evidence, so "setup generated", "container
+detected" and "request seen in the browser" stay separate claims. Seeing a request leave the
+browser is browser evidence only; it does not prove that GA4 processed it.
 
-Describe what should be tracked. The system tests the real user journey, explains failures, generates a GTM draft, and continuously verifies that tracking still works.
+Sailors trim their sails by watching the telltales, the short ribbons that show whether air is
+flowing the way it should. Trimtale is meant to be the telltale for your tracking.
 
-## Core workflow
+<p align="center">
+  <img src="docs/media/assistant-gtm-connection.png" width="382" alt="The Trimtale assistant on the bundled Northstar fixture site, showing GTM container GTM-TEST123 matched to the Agency account's Lead site container in read-only mode, and asking what to track on the page.">
+</p>
 
-```text
-Connect GTM
-    -> Audit configuration
-    -> Observe dataLayer and network behavior
-    -> Record or generate Playwright journeys
-    -> Monitor continuously
-    -> Diagnose incidents
-    -> Generate and test corrections
-    -> Create a reviewable GTM workspace
-    -> Deploy with human approval
-```
+## Quick start
 
-## GTM API responsibilities
-
-- Read accounts, containers, workspaces, versions, tags, triggers, and variables.
-- Audit the live container and compare versions.
-- Create isolated workspaces and apply changes.
-- Check synchronization and compiler errors.
-- Create container versions and target environments.
-- Publish only with an explicit approval workflow.
-
-## Product-owned responsibilities
-
-- Capture data-layer events and property schemas.
-- Observe analytics network requests.
-- Run synthetic user journeys with Playwright.
-- Decode and validate destination payloads.
-- Monitor schema drift, missing events, and duplicate delivery.
-- Correlate runtime failures with GTM configuration changes.
-- Explain incidents and verify proposed corrections.
-
-## Initial MVP
-
-1. Browser-based Tracking Check without requiring GTM access.
-2. Read-only GTM connection and container audit.
-3. Scheduled Playwright journey monitoring.
-4. Evidence-backed incident diagnosis.
-5. Verified GTM workspace creation without automatic production publishing.
-
-## Mockups
-
-The `mockups/` directory contains the observability overview, container audit, live debugger, automated test, scheduled journeys, incident diagnosis, and GTM change-review screens.
-
-## Product plan
-
-The `docs/product-plan/` directory describes the staged path from the navigation-tracking MVP to a full GTM and GA4 observability product, including architecture, agent design, weekly scans, and go-to-market timing.
-
-## Navigation tracking MVP
-
-The first implemented vertical slice is a Chrome extension plus a small local backend:
-
-```text
-Discover navigation
-    -> confirm scope
-    -> generate a partial GTM container file
-    -> import with Merge into a new workspace
-    -> connect GTM Preview
-    -> perform guided browser verification
-```
-
-The implementation deliberately distinguishes browser verification from GA4 platform confirmation. See [the feature specification](.scratch/navigation-tracking/spec.md) for the supported path and exclusions.
-
-The Chrome extension action opens the workbench as an overlay on the current site so practitioners can stay on the page they are configuring.
-
-### Development
-
-Requirements: Node.js 22+ and npm 10+.
+Requires Node.js 22+ and npm 10+. Not published on the Chrome Web Store; you load it unpacked.
 
 ```bash
-npm install
-npm run agent -- preflight
-npm run verify
+npm ci
+npx playwright install chromium   # only needed for the browser tests
+npm run build
+npm run dev:api        # terminal 1: local API on http://127.0.0.1:18787
+npm run dev:fixture    # terminal 2: sample site on http://127.0.0.1:14173
 ```
 
-The local preflight checks supported Node and npm versions, the lockfile, installed
-dependencies, required repository scripts, and Playwright's managed Chromium binary.
-It runs automatically at the start of `npm run verify`.
+Then in Chrome, open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**
+and choose `apps/extension/dist`. Open `http://127.0.0.1:14173`, press **Cmd+Shift+Y**
+(**Ctrl+Shift+Y** on Windows/Linux) and type `navigation` or
+`Track successful submissions of this form`. The assistant highlights the matching targets on the sample
+site and walks you through confirming them and generating the GTM setup.
 
-`npm run verify` is the agent-owned completion gate. It:
+To run the full check suite (types, unit tests, build, and the browser tests in a managed
+Chromium), use `npm run verify`.
 
-- Runs strict TypeScript checks.
-- Runs the deterministic scenario corpus.
-- Builds the backend, fixture site, shared package, and extension.
-- Starts the local services.
-- Launches Playwright's managed Chromium with the extension preloaded.
-- Exercises discovery, generation, download validation, and guided browser verification.
-- Validates the browser-verification evidence report download.
-- Saves Playwright traces and failure evidence under `test-results/`.
+## What it does
 
-Humans do not need to launch the development services or load the extension to verify changes. Manual Chrome loading is reserved for exploratory product review.
+| Step | What Trimtale does |
+|---|---|
+| Understand the request | Classifies a navigation-click or lead-form request. Classification is deterministic; no AI model decides anything today. |
+| Find the targets | Discovers links and forms on the current page, highlights candidates and keeps only the ones you confirm. |
+| Generate the setup | Builds a GTM container file: one GA4 event tag (`navigation_click` or `generate_lead` with `form_id`, `form_name`, `page_location`), its trigger and variables. Downloads as `trimtale-navigation-click.json` or `trimtale-generate-lead.json`. |
+| Detect the container | Reads public `GTM-` IDs from the page's script URLs and, with Google connected, matches one to exactly one container your account can access. |
+| Prepare a workspace | With container writes switched on, creates or reuses one managed custom workspace, applies the setup, validates it and creates an immutable GTM version. |
+| Verify in the browser | Watches GA4 collection requests while you click or submit, and classifies the result: verified, expected validation failure, missing event, tag did not fire, missing request, missing parameter, duplicate request, consent-limited, server error, or not enough evidence. |
+| Publish and roll back | Publishing and rollback exist behind an exact version-fingerprint approval and a separate backend switch. They are off by default and are never run by CI or `npm run verify`. |
 
-#### Agent command harness
+## Known limits
 
-Routine local agent work is available through one closed, repository-owned command surface:
+- **Lead-form verdicts are only fully observed on the bundled fixture site.** The submit,
+  success, dataLayer and consent inputs to the form verdict are read from page flags that
+  only the fixture sets. On a real site, the GA4 request is the only real evidence, so most
+  verdicts fall back to "not enough evidence". Replacing those flags
+  with real browser signals is the next slice.
+- **Verification is tied to setup.** You can't yet point Trimtale at tracking that already
+  exists and get a verdict without generating a setup first. A read-only check mode is planned.
+- **Only GA4 collection requests are captured**, from `*.google-analytics.com` and
+  `analytics.google.com`. Server-side GTM, first-party collection domains, Google Ads
+  conversions and non-Google pixels aren't seen yet.
+- **No scheduled re-checks.** Each verification is a one-off browser run.
+- **GTM and GA4 only.** Other tag managers and analytics platforms aren't supported.
+- The managed GTM workspace is still named `GTM Observability` (the product's earlier name),
+  because that name and its ownership marker identify workspaces already created in real
+  containers.
 
-```bash
-npm run agent -- help
-npm run agent -- preflight
-npm run agent -- status
-npm run agent -- check
-npm run agent -- test
-npm run agent -- e2e
-npm run agent -- commit
-npm run agent -- update-snapshots
-npm run agent -- verify
-```
+## Privacy and permissions
 
-The harness also supports `build`, `change-docs`, `diff`, and `inspect`. Each name
-maps to a fixed local `npm` or read-only `git` invocation, always runs from the
-repository root, and rejects additional arguments. It does not provide dependency
-installation, arbitrary `npx` execution, credentialed integrations, remote Git
-operations, destructive commands, or a shell escape hatch. Those operations retain
-their own explicit authorization boundary.
+Trimtale never sends form field values, cookies, local storage or page HTML anywhere. What
+does leave the browser:
 
-`update-snapshots` is the only sanctioned visual-baseline update path. It runs the
-fixed `test:e2e:update-snapshots` npm script, then the generated images and Git diff
-must be reviewed before committing. Never use it only to make a failing gate green.
+- **To the Trimtale API** (local `127.0.0.1:18787` by default, or the hosted API you build
+  against): the tracking intent, page URL, detected public GTM and GA4 IDs, and the confirmed
+  link text, URL, area and selector. Lead-form verification evidence keeps only an allowlisted
+  part of each GA4 request (measurement ID, event name, `form_id`, `form_name`, and the page
+  URL without its query string), never what people typed into the form.
+- **To Google**, only if you configure OAuth on the API: Tag Manager API calls made by the API
+  server. Without OAuth the Google routes are disabled.
 
-`commit` commits only the already-staged index using the fixed message file at
-`.scratch/commit-message.md`. The command refuses to run when the message file is
-missing or empty, when the current branch is `main`, or when nothing is staged. A
-successful commit deletes the message file. Staging and pushing remain outside the
-agent harness by design.
+| Permission | Why |
+|---|---|
+| `activeTab`, `scripting` | Inject the assistant into the page you opened it on. |
+| `storage` | Remember the panel position and, per site, the detected GTM and GA4 IDs. |
+| `webRequest` | Observe GA4 collection requests as verification evidence. |
+| Host access to the API origin, `*.google-analytics.com`, `analytics.google.com` | Call the API and observe GA4 requests. |
 
-Like the direct `npm` and `git` commands it replaces, the harness inherits the
-caller's environment so standard executable lookup and npm configuration continue to
-work. It does not load environment files or select any credentialed script. Local
-`.env*.local`, `.vercel/`, and generated `.build/` artifacts are ignored repository-wide
-to keep credentials, deployment linkage, and generated output out of commits.
+More detail: [Security and publishing notes](docs/security-and-publishing.md).
 
-### Google Tag Manager integration
+## How it works
 
-The API can run a separately gated OAuth flow and discover the connected tracking practitioner's GTM accounts and containers. It is read-only by default and is disabled unless the OAuth variables are set:
+| Part | Role |
+|---|---|
+| `apps/extension` | Chrome MV3 extension: the on-page assistant, target discovery, evidence capture. |
+| `apps/api` | Node API: setup generation, Google OAuth, GTM reads and writes, the durable setup operation. |
+| `packages/core` | Domain logic: tracking specs, the GTM generator, the deterministic form verdict engine, change planning. |
+| `apps/fixture-site` | The sample "Northstar" lead-gen site with 16 form scenarios used by the browser tests. |
+| `apps/verification-target` | A disposable smoke-test page for credentialed runs. |
 
-```bash
-GOOGLE_OAUTH_CLIENT_ID=...
-GOOGLE_OAUTH_CLIENT_SECRET=...
-GOOGLE_OAUTH_REDIRECT_URI=http://127.0.0.1:18787/api/google/oauth/callback
-EXTENSION_ORIGIN=chrome-extension://<extension-id>
-npm run dev:api
-```
+The product plan and current status live in [`docs/product-plan/`](docs/product-plan/), starting
+with [What Trimtale has today](docs/product-plan/current-capabilities.md).
 
-Find the unpacked extension ID on `chrome://extensions` and configure its exact
-`chrome-extension://` origin. Google-backed API routes fail closed for browser
-origins when `EXTENSION_ORIGIN` is absent, `*`, or different from the request origin;
-they never emit a wildcard CORS header. Direct OAuth navigation and server-side
-clients that do not send an `Origin` header remain supported.
+## Development
 
-Register the exact redirect URI in the Google Cloud OAuth client and enable the Tag
-Manager API. Then open `http://127.0.0.1:18787/api/google/oauth/start`; after consent,
-`GET /api/google/accounts` returns each accessible account with its containers. Set
-`GOOGLE_OAUTH_TOKEN_STORE` to a backend-local path to persist only an owner-readable
-refresh token and reconnect after restart without another browser consent. Without that
-setting, authorization remains memory-only. Ordinary `npm run verify` remains
-credential-free and never calls Google.
+`npm run verify` is the completion gate: strict TypeScript checks, the unit and scenario
+tests, every workspace build, and the Playwright browser tests with the extension loaded.
+It uses only local fixture services and never calls Google. CI runs the same command on
+every pull request.
 
-Before starting an explicitly credentialed workspace-write session, validate only the
-presence and shape of its configuration without printing values:
+The agent command harness, Google OAuth setup, container-write and publication switches, and
+hosted API builds are documented in [Local development](docs/engineering/local-development.md)
+and the [GTM setup workflow runbook](docs/engineering/gtm-workflow-runbook.md). Contributors
+and agents follow [AGENTS.md](AGENTS.md).
 
-```bash
-npm run preflight:google
-```
+## License
 
-This Google preflight remains outside `npm run agent` and ordinary verification. It
-checks the OAuth client variables, exact local callback, exact extension origin, and
-explicit container-write switch; it does not contact Google or prove live access.
-
-Container edits require `GOOGLE_GTM_CONTAINER_WRITES_ENABLED=true` before consent.
-Request publish consent separately with
-`GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED=true`; this does not enable publication.
-For an explicitly approved publication session, also set
-`GOOGLE_GTM_PUBLICATION_ENABLED=true` and run `npm run preflight:publication`.
-Ordinary Google preflight, CI, and `npm run verify` never enable or call publication.
-
-See the [GTM setup workflow operator runbook](docs/engineering/gtm-workflow-runbook.md)
-for durable operation paths, exact-fingerprint approval, API quota behavior,
-post-publication evidence, and rollback.
-
-## Hosted API builds
-
-The API routes can run locally through `apps/api/src/server.ts` or on Vercel through explicit root `api/` function entrypoints.
-
-The extension points at the local API by default. To build it against a hosted API, set `GTM_OBSERVABILITY_API_BASE`:
-
-```bash
-GTM_OBSERVABILITY_API_BASE=https://your-api.vercel.app npm run build:extension
-```
-
-For the current production API, use:
-
-```bash
-npm run build:extension:prod
-```
-
-That command writes to `apps/extension/prod-dist`, which is the folder to load as an unpacked Chrome extension for production-style testing. Local verification still uses `apps/extension/dist`.
-
-During product testing, keep this running to rebuild `prod-dist` whenever extension source files change:
-
-```bash
-npm run watch:extension:prod
-```
-
-Chrome may still require clicking Reload for the unpacked extension on `chrome://extensions`, but you do not need to choose the extension folder again.
-
-Security and production-publish guardrails are documented in [Security and Publishing Notes](docs/security-and-publishing.md).
-
-The current release status and remaining human acceptance test are in [Current Release Status](docs/pre-merge-checklist.md).
+No license has been chosen yet; all rights reserved.

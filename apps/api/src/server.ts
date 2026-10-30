@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { createSetupProposal, type SetupRequest } from "@gtm-observability/core";
+import { createSetupProposal, type SetupRequest } from "@trimtale/core";
 import { resolve } from "node:path";
 import { corsDecision } from "./cors.js";
 import { intakeEvaluationApiResponse } from "./intake-evaluation-api.js";
@@ -285,5 +285,5 @@ const server = createServer(async (request, response) => {
 });
 
 server.listen(port, "127.0.0.1", () => {
-  console.log(`GTM Observability API listening on http://127.0.0.1:${port}`);
+  console.log(`Trimtale API listening on http://127.0.0.1:${port}`);
 });

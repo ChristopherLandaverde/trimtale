@@ -53,7 +53,7 @@ test("clarifies a form intent and requires explicit specification confirmation",
     const site = await context.newPage();
     await site.goto("http://127.0.0.1:14173/");
     await site.addStyleTag({ content: visualStabilityCss });
-    const root = site.locator("#gtm-observability-root");
+    const root = site.locator("#trimtale-root");
     await root.getByRole("button", { name: "Open tracking assistant" }).click();
 
     const ambiguous = acceptanceCase("ambiguous-form-requires-target");
@@ -62,7 +62,7 @@ test("clarifies a form intent and requires explicit specification confirmation",
     await expect(root.getByText("I found 2 forms. Which one represents the outcome you want to measure?")).toBeVisible();
     await expect(root.getByRole("button", { name: "Contact sales" })).toBeVisible();
     await expect(root.getByRole("button", { name: "Newsletter signup" })).toBeVisible();
-    const targets = site.locator("#gtm-observability-targets");
+    const targets = site.locator("#trimtale-targets");
     await expect(targets.locator(".target.candidate")).toHaveCount(2);
     await expect(targets.locator(".target.candidate[data-target-id='contact']")).toHaveCount(1);
     await expect(targets.locator(".target.candidate[data-target-id='newsletter']")).toHaveCount(1);
@@ -122,7 +122,7 @@ test("uses one adjacent stable status as form success evidence and rejects ambig
   async function submitIntent(url: string) {
     const page = await context.newPage();
     await page.goto(url);
-    const root = page.locator("#gtm-observability-root");
+    const root = page.locator("#trimtale-root");
     const assistant = root.locator("section.assistant");
     await expect(assistant).toBeAttached();
     if (await assistant.evaluate((element) => element.classList.contains("collapsed"))) {
@@ -168,7 +168,7 @@ test("keeps the assistant fully open when a request is sent during the open tran
   try {
     const site = await context.newPage();
     await site.goto("http://127.0.0.1:14173/");
-    const root = site.locator("#gtm-observability-root");
+    const root = site.locator("#trimtale-root");
     const assistant = root.locator("section.assistant");
     await expect(assistant).toHaveClass(/collapsed/);
 

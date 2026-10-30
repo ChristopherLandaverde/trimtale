@@ -15,7 +15,7 @@ import {
   createSetupProposal,
   GTM_MANAGED_WORKSPACE_DESCRIPTION,
   GTM_MANAGED_WORKSPACE_NAME,
-} from "@gtm-observability/core";
+} from "@trimtale/core";
 
 const config = {
   clientId: "client-id",

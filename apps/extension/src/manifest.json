@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "GTM Observability",
-  "description": "Generate and verify evidence-backed GTM navigation tracking.",
+  "name": "Trimtale",
+  "description": "Set up and verify GTM tracking for link clicks and lead forms, checked against what the browser actually sends.",
   "version": "0.1.0",
   "minimum_chrome_version": "120",
   "permissions": ["activeTab", "scripting", "storage", "webRequest"],
@@ -16,7 +16,7 @@
     "type": "module"
   },
   "action": {
-    "default_title": "Open GTM Observability orb"
+    "default_title": "Open Trimtale"
   },
   "content_scripts": [{
     "matches": ["http://*/*", "https://*/*"],
@@ -26,7 +26,7 @@
   "commands": {
     "toggle-assistant": {
       "suggested_key": { "default": "Ctrl+Shift+Y", "mac": "Command+Shift+Y" },
-      "description": "Toggle the GTM Observability assistant"
+      "description": "Toggle the Trimtale assistant"
     }
   }
 }

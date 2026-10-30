@@ -1,4 +1,4 @@
-import type { TrackingSetupOperationV1 } from "@gtm-observability/core";
+import type { TrackingSetupOperationV1 } from "@trimtale/core";
 import type { WorkflowResult } from "./workflow-bridge.js";
 
 export interface SetupOperationStage {

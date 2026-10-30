@@ -1,8 +1,8 @@
-# What GTM Observability has today
+# What Trimtale has today
 
 Status date: 2026-08-30
 
-GTM Observability currently turns a supported tracking intent into a confirmed tracking specification, generates a reviewable GTM setup, observes the website's GTM runtime, matches the observed container to Google access, and safely prepares one reusable managed workspace. When container-write access is enabled, the website assistant can now start the guarded backend setup operation for confirmed navigation-click and lead-form setups, render the durable operation timeline, create an immutable GTM version, publish only after exact fingerprint approval, record post-publication browser evidence, and restore the recorded prior-live version after exact rollback approval. The website assistant still does not expose autonomous rollback or platform confirmation.
+Trimtale currently turns a supported tracking intent into a confirmed tracking specification, generates a reviewable GTM setup, observes the website's GTM runtime, matches the observed container to Google access, and safely prepares one reusable managed workspace. When container-write access is enabled, the website assistant can now start the guarded backend setup operation for confirmed navigation-click and lead-form setups, render the durable operation timeline, create an immutable GTM version, publish only after exact fingerprint approval, record post-publication browser evidence, and restore the recorded prior-live version after exact rollback approval. The website assistant still does not expose autonomous rollback or platform confirmation.
 
 ## Current product workflow
 
@@ -65,7 +65,7 @@ After navigation targets are confirmed, the assistant generates a `navigation_cl
 - Required click variables.
 - The configured GA4 measurement ID.
 
-The assistant marks Setup generation as passed only when this artifact exists and offers `Download GTM setup`. The downloaded file is named `gtm-observability-navigation-click.json`.
+The assistant marks Setup generation as passed only when this artifact exists and offers `Download GTM setup`. The downloaded file is named `trimtale-navigation-click.json`.
 
 If the container or measurement context is missing, generation remains pending and no download is offered.
 
@@ -80,7 +80,7 @@ The lead-generation flow can:
 - Distinguish a submit attempt from a successful conversion outcome.
 - Confirm success through a visible element, thank-you URL, data-layer event, or same-page success signal.
 - Generate a `generate_lead` setup with `form_id`, `form_name`, and `page_location`.
-- Download `gtm-observability-generate-lead.json`.
+- Download `trimtale-generate-lead.json`.
 - Guide a browser submission and classify the observed result.
 
 The deterministic verdict engine covers successful browser verification, expected validation failures, missing events, tags that did not fire, missing requests, missing parameters, duplicate requests, consent limitations, server errors, and insufficient observable evidence.
@@ -115,7 +115,7 @@ applies a change, or publishes.
 
 ## Managed GTM workspace
 
-Standard GTM accounts have three concurrent workspaces: the default workspace and two custom workspaces. The assistant therefore reserves at most one custom workspace named `GTM Observability` with an exact ownership marker.
+Standard GTM accounts have three concurrent workspaces: the default workspace and two custom workspaces. The assistant therefore reserves at most one custom workspace named `GTM Observability` with an exact ownership marker. The workspace name, its ownership marker (`gtm-observability:v1`) and the `Managed by GTM Observability` entity note predate the Trimtale rename and are kept unchanged on purpose: they identify workspaces and entities already created in real containers.
 
 `Prepare managed workspace` performs a fresh inspection and then:
 

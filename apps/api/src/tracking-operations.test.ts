@@ -2,7 +2,7 @@ import {
   createSetupProposal,
   createTrackingChangePlan,
   type TrackingSetupOperationV1,
-} from "@gtm-observability/core";
+} from "@trimtale/core";
 import { readFileSync, statSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";

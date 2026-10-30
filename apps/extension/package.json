@@ -1,5 +1,5 @@
 {
-  "name": "@gtm-observability/extension",
+  "name": "@trimtale/extension",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -8,6 +8,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@gtm-observability/core": "*"
+    "@trimtale/core": "*"
   }
 }

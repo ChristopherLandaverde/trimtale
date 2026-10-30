@@ -1,6 +1,6 @@
 # Product Plan
 
-This folder describes how GTM Observability should grow from the current navigation-tracking MVP into a conversion setup, debugging, and observability product.
+This folder describes how Trimtale should grow from the current navigation-tracking MVP into a conversion setup, debugging, and observability product.
 
 The core thesis:
 
@@ -23,7 +23,7 @@ Define what counts as a conversion
 
 The existing injected assistant is the product surface for this workflow. Its current interaction and visual design should remain stable while conversion capabilities are added; new technical capabilities should appear inside the existing conversation rather than introduce another customer-facing layer.
 
-GTM Observability has three layers:
+Trimtale has three layers:
 
 1. **Setup and verification**
    Turn a tracking intent into a reviewable GTM change and browser-side proof.

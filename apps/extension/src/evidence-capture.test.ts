@@ -6,8 +6,8 @@ import type {
   SetupRequest,
   SuccessEvidence,
   TrackingSpecificationV1,
-} from "@gtm-observability/core";
-import { createSetupProposal } from "@gtm-observability/core";
+} from "@trimtale/core";
+import { createSetupProposal } from "@trimtale/core";
 import {
   buildFormRunEvidence,
   FormEvidenceController,

@@ -3,7 +3,7 @@ import {
   createSetupProposal,
   createTrackingChangePlan,
   type TrackingSetupOperationV1,
-} from "@gtm-observability/core";
+} from "@trimtale/core";
 import { describe, expect, it, vi } from "vitest";
 import { GtmDiscoveryClient } from "./google.js";
 

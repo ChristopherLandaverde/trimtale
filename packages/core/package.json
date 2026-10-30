@@ -1,5 +1,5 @@
 {
-  "name": "@gtm-observability/core",
+  "name": "@trimtale/core",
   "version": "0.1.0",
   "type": "module",
   "exports": {

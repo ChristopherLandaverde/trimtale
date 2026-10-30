@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { TrackingSetupOperationV1 } from "@gtm-observability/core";
+import type { TrackingSetupOperationV1 } from "@trimtale/core";
 import { presentSetupOperation } from "./setup-operation-presenter.js";
 import type { WorkflowResult } from "./workflow-bridge.js";
 
@@ -38,7 +38,7 @@ function operation(status: TrackingSetupOperationV1["status"]): TrackingSetupOpe
         accountId: "1",
         containerId: "10",
         containerVersionId: "0",
-        name: "GTM Observability import",
+        name: "Trimtale import",
         description: "fixture",
         container: {
           path: "accounts/1/containers/10",

@@ -1,7 +1,7 @@
 import {
   assertIntakeAcceptanceCorpus,
   type IntakeAcceptanceCorpusV1,
-} from "@gtm-observability/core";
+} from "@trimtale/core";
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";

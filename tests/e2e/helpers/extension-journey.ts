@@ -27,7 +27,7 @@ export async function openExtensionJourney(
   url.searchParams.set("formScenario", fixtureState);
   if (gtmContainerId) url.searchParams.set("gtm", gtmContainerId);
   await page.goto(url.toString());
-  const root = page.locator("#gtm-observability-root");
+  const root = page.locator("#trimtale-root");
   await expect(root).toBeAttached();
   await root.getByRole("button", { name: "Open tracking assistant" }).click();
 

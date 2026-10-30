@@ -3,7 +3,7 @@ import type {
   SetupRequest,
   TrackingRunEvidenceV1,
   TrackingSetupOperationV1,
-} from "@gtm-observability/core";
+} from "@trimtale/core";
 
 export type GtmWorkflowAction = "start" | "resume" | "get" | "publish" | "browserVerification" | "rollback";
 export type TrackingWorkflowRequest = SetupRequest | FormSetupRequest;

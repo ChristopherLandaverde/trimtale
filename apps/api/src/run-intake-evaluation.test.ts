@@ -2,7 +2,7 @@ import {
   assertIntakeAcceptanceCorpus,
   type IntakeAcceptanceCorpusV1,
   type IntakeInterpretationInputV1,
-} from "@gtm-observability/core";
+} from "@trimtale/core";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
