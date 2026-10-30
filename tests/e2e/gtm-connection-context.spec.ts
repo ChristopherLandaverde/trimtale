@@ -85,6 +85,8 @@ test("shows authenticated account, container, and read-only access before chat",
     await expect.poll(() => statusRequests).toBe(2);
     await expect.poll(() => recognitionRequests).toBe(2);
     await expect(card.getByText("Lead site", { exact: true })).toBeVisible();
+    // The refresh re-renders the card under the pointer; take the baseline without a hover state.
+    await page.mouse.move(0, 0);
     await expect(root.locator("section.assistant")).toHaveScreenshot("gtm-context-matched.png", screenshotOptions);
   });
 });

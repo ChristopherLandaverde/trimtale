@@ -26,7 +26,10 @@ import {
   type PostPublicationEvidenceCompletion,
 } from "./evidence-capture.js";
 import { FormSignalCapture, type FormAnalyticsRequest, type FormRunContext } from "./form-signal-capture.js";
+import { registerPanelFonts } from "./panel-fonts.js";
+import { panelStyles, targetHighlightStyles } from "./panel-styles.js";
 import { presentSetupOperation, type SetupOperationAction } from "./setup-operation-presenter.js";
+import { presentVerdict } from "./verdict-presenter.js";
 import type { TrackingWorkflowRequest, WorkflowBridgeResponse, WorkflowResult } from "./workflow-bridge.js";
 
 declare global {
@@ -236,24 +239,100 @@ function formSetupDownloadHref(result: ConversationIntakeResult): string | undef
   return containerFileDownloadHref(proposal.containerFile);
 }
 
-function formExplanation(verdict: TrackingRunEvidenceV1["verdict"]): string {
-  if (verdict.code === "browser_verified") {
-    return "Browser-to-Google request verified because one generate_lead request was observed. Platform confirmation remains unavailable.";
-  }
-  if (verdict.code === "expected_non_conversion") {
-    return "The form was stopped by validation, so this attempt was not counted. Correct the input and submit again. Platform confirmation remains unavailable.";
-  }
-  return `${verdict.code.replaceAll("_", " ")}. ${verdict.nextAction} Platform confirmation remains unavailable.`;
+/** Text in backticks is evidence (event or parameter names) and renders as mono code. */
+function appendRichText(parent: HTMLElement, copy: string): void {
+  copy.split("`").forEach((part, index) => {
+    if (!part) return;
+    if (index % 2 === 1) {
+      const code = document.createElement("code");
+      code.textContent = part;
+      parent.append(code);
+    } else {
+      parent.append(document.createTextNode(part));
+    }
+  });
 }
 
-function renderFormEvidence(evidence: TrackingRunEvidenceV1): HTMLElement {
-  const verdictMessage = addMessage(
-    `Verdict: ${evidence.verdict.code}\nBrowser verification: ${evidence.verdict.browserVerification}\nPlatform confirmation: ${evidence.verdict.platformConfirmation}\nNext action: ${evidence.verdict.nextAction}`,
-    "assistant",
-  );
-  addMessage(formExplanation(evidence.verdict), "assistant").classList.add("explanation");
-  window.requestAnimationFrame(() => verdictMessage.scrollIntoView({ block: "start" }));
-  return verdictMessage;
+let findingSequence = 0;
+
+/**
+ * A run verdict, led by the plain-language outcome: observed → why → fix → verify.
+ * The raw contract fields (verdict code, browser and platform states) sit behind
+ * "Show evidence" in mono.
+ */
+function renderFinding(evidence: TrackingRunEvidenceV1, targetLabel?: string): HTMLElement {
+  const finding = presentVerdict(evidence, targetLabel ? { targetLabel } : {});
+  const id = `trimtale-finding-${++findingSequence}`;
+  const article = document.createElement("article");
+  article.className = `finding explanation ${finding.status}`;
+  article.dataset.verdictCode = finding.code;
+  article.setAttribute("aria-labelledby", `${id}-title`);
+
+  const tag = document.createElement("span");
+  tag.className = `tag ${finding.status}`;
+  const symbol = document.createElement("span");
+  symbol.setAttribute("aria-hidden", "true");
+  symbol.textContent = finding.symbol;
+  tag.append(symbol, document.createTextNode(finding.statusLabel));
+
+  const title = document.createElement("h2");
+  title.id = `${id}-title`;
+  title.className = "finding-title";
+  title.textContent = finding.title;
+
+  const steps = document.createElement("dl");
+  steps.className = "steps";
+  for (const [label, copy] of [
+    ["Observed", finding.observed],
+    ["Why", finding.consequence],
+    ["Fix", finding.fix],
+    ["Verify", finding.verify],
+  ] as const) {
+    const term = document.createElement("dt");
+    term.textContent = label;
+    const detail = document.createElement("dd");
+    appendRichText(detail, copy);
+    steps.append(term, detail);
+  }
+
+  const evidenceList = document.createElement("dl");
+  evidenceList.id = `${id}-evidence`;
+  evidenceList.className = "evidence";
+  evidenceList.hidden = true;
+  for (const row of finding.evidence) {
+    const term = document.createElement("dt");
+    term.dataset.field = row.label;
+    // Field paths may wrap only at their dots.
+    row.label.split(".").forEach((part, index) => {
+      if (index > 0) term.append(".", document.createElement("wbr"));
+      term.append(part);
+    });
+    const detail = document.createElement("dd");
+    detail.textContent = row.value;
+    evidenceList.append(term, detail);
+  }
+
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "disclosure";
+  toggle.setAttribute("aria-expanded", "false");
+  toggle.setAttribute("aria-controls", evidenceList.id);
+  toggle.textContent = "Show evidence";
+  toggle.addEventListener("click", () => {
+    const open = evidenceList.hidden;
+    evidenceList.hidden = !open;
+    toggle.setAttribute("aria-expanded", String(open));
+    toggle.textContent = open ? "Hide evidence" : "Show evidence";
+  });
+
+  article.append(tag, title, steps, toggle, evidenceList);
+  responseList?.append(article);
+  window.requestAnimationFrame(() => article.scrollIntoView({ block: "start" }));
+  return article;
+}
+
+function renderFormEvidence(evidence: TrackingRunEvidenceV1, targetLabel?: string): HTMLElement {
+  return renderFinding(evidence, targetLabel);
 }
 
 function finishFormRun(run: FormRun, context: FormRunContext): void {
@@ -263,7 +342,8 @@ function finishFormRun(run: FormRun, context: FormRunContext): void {
     }
     const completion = formEvidence.finishPostPublication(run);
     if (!completion) return;
-    renderFormEvidence(completion.evidence);
+    const request = completion.request;
+    renderFormEvidence(completion.evidence, "specification" in request ? request.specification.targets[0]?.label : undefined);
     void recordPostPublicationBrowserEvidence(completion.operationId, completion.evidence, completion.request);
     return;
   }
@@ -272,7 +352,7 @@ function finishFormRun(run: FormRun, context: FormRunContext): void {
     target: context.target,
     success: context.success,
     run,
-  }));
+  }), context.target.label);
   activeFormVerification = undefined;
 }
 
@@ -283,10 +363,10 @@ function finishPostPublicationNavigationVerification(expected: NavigationElement
 }
 
 function recordPostPublicationNavigationCompletion(completion: PostPublicationEvidenceCompletion): void {
-  addMessage(
-    `Verdict: ${completion.evidence.verdict.code}\nBrowser verification: ${completion.evidence.verdict.browserVerification}\nPlatform confirmation: ${completion.evidence.verdict.platformConfirmation}\nNext action: ${completion.evidence.verdict.nextAction}`,
-    "assistant",
-  );
+  const request = completion.request;
+  const targetId = completion.evidence.observations.interaction.targetId;
+  const link = "navigation" in request ? request.navigation.find((item) => item.id === targetId) : undefined;
+  renderFinding(completion.evidence, link?.text);
   void recordPostPublicationBrowserEvidence(completion.operationId, completion.evidence, completion.request);
 }
 
@@ -531,12 +611,13 @@ function accessExplanation(status: GtmConnectionStatus): string {
   return "This backend can inspect GTM. Editing and publishing are off.";
 }
 
-function appendConnectionRow(parent: HTMLElement, label: string, value: string): void {
+function appendConnectionRow(parent: HTMLElement, label: string, value: string, mono = label === "Page"): void {
   const row = document.createElement("div");
   row.className = "gtm-context-row";
   const term = document.createElement("span");
   term.textContent = label;
   const detail = document.createElement("strong");
+  if (mono) detail.className = "mono";
   detail.textContent = value;
   row.append(term, detail);
   parent.append(row);
@@ -631,6 +712,19 @@ function renderGtmConnection(view: GtmConnectionView): void {
     note.textContent = accessExplanation(view.status);
   }
 
+  const badgeWord = badge.textContent ?? "";
+  const badgeSymbol = badge.classList.contains("warning") ? "!" : view.kind === "loading" ? "" : "□";
+  if (!badge.classList.contains("warning") && view.kind !== "loading") badge.classList.add("observed");
+  badge.replaceChildren();
+  if (badgeSymbol) {
+    const symbol = document.createElement("span");
+    symbol.setAttribute("aria-hidden", "true");
+    symbol.textContent = badgeSymbol;
+    badge.append(symbol);
+  }
+  const word = document.createElement("span");
+  word.textContent = badgeWord;
+  badge.append(word);
   body.prepend(summary);
   if (note.textContent) body.append(note);
   gtmConnectionCard.append(heading, body);
@@ -1034,13 +1128,9 @@ function highlightTargets(targets: PageTarget[], tone: "candidate" | "confirmed"
     targetHost = document.createElement("div");
     targetHost.id = "trimtale-targets";
     const shadow = targetHost.attachShadow({ mode: "open" });
-    shadow.innerHTML = `<style>
-      :host { all: initial; pointer-events: none; }
-      .target { position: fixed; z-index: 2147483646; box-sizing: border-box; border: 2px solid #f6c768; border-radius: 9px; background: rgba(246,199,104,.08); box-shadow: 0 0 0 3px rgba(246,199,104,.13), 0 8px 24px rgba(0,0,0,.16); transition: inset .12s ease, border-color .18s ease, background .18s ease; }
-      .target.confirmed { border-color: #8de8bd; background: rgba(141,232,189,.1); box-shadow: 0 0 0 3px rgba(141,232,189,.14), 0 8px 24px rgba(0,0,0,.16); }
-      .target span { position: absolute; left: -2px; bottom: calc(100% + 5px); max-width: 220px; padding: 4px 7px; overflow: hidden; border-radius: 7px; color: #201806; background: #f6c768; box-shadow: 0 5px 16px rgba(0,0,0,.2); font: 600 11px/1.2 Inter, ui-sans-serif, system-ui, sans-serif; text-overflow: ellipsis; white-space: nowrap; }
-      .target.confirmed span { color: #092419; background: #8de8bd; }
-    </style>`;
+    const style = document.createElement("style");
+    style.textContent = targetHighlightStyles;
+    shadow.append(style);
     document.documentElement.append(targetHost);
     window.addEventListener("scroll", updateTargetHighlights, { passive: true });
     window.addEventListener("resize", updateTargetHighlights, { passive: true });
@@ -1471,81 +1561,18 @@ async function mountOverlay(): Promise<void> {
   host = document.createElement("div");
   host.id = "trimtale-root";
   const shadow = host.attachShadow({ mode: "open" });
-  shadow.innerHTML = `
-    <style>
-      :host { all: initial; }
-      .assistant { position: fixed; z-index: 2147483647; min-width: 310px; min-height: 220px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow: hidden; resize: both; border: 1px solid rgba(255,255,255,.19); border-radius: 22px; background: linear-gradient(145deg, rgba(26,32,38,.78), rgba(12,17,21,.7)); color: #f5f7f8; box-shadow: 0 24px 70px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.08); backdrop-filter: blur(26px) saturate(145%); -webkit-backdrop-filter: blur(26px) saturate(145%); font: 13px/1.45 Inter, ui-sans-serif, system-ui, sans-serif; display: grid; grid-template-rows: 30px 1fr auto; transition: width .18s ease, height .18s ease, border-color .18s ease, box-shadow .18s ease; }
-      .assistant:focus-within { border-color: rgba(167,243,208,.32); box-shadow: 0 26px 76px rgba(0,0,0,.34), 0 0 0 1px rgba(167,243,208,.08), inset 0 1px 0 rgba(255,255,255,.1); }
-      .drag { position: relative; cursor: grab; display: flex; justify-content: flex-end; align-items: center; padding: 0 9px; user-select: none; }
-      .drag::before { content: ""; position: absolute; left: 50%; width: 34px; height: 3px; border-radius: 99px; transform: translateX(-50%); background: rgba(255,255,255,.16); }
-      .drag:active { cursor: grabbing; }
-      button { border: 0; cursor: pointer; font: inherit; }
-      .icon { width: 24px; height: 24px; border-radius: 50%; color: #aab4bc; background: transparent; font-size: 17px; }
-      .icon:hover { color: white; background: rgba(255,255,255,.08); }
-      .messages { overflow: auto; padding: 4px 16px 12px; display: flex; flex-direction: column; gap: 10px; }
-      .gtm-context { flex: none; display: grid; gap: 8px; padding: 11px 12px; border: 1px solid rgba(167,243,208,.16); border-radius: 14px; background: linear-gradient(145deg, rgba(21,36,32,.82), rgba(18,27,31,.78)); box-shadow: inset 0 1px 0 rgba(255,255,255,.045); }
-      .gtm-context-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-      .gtm-context-heading > strong { color: #f1f7f4; font-size: 12px; font-weight: 650; }
-      .gtm-context-controls { display: flex; align-items: center; gap: 5px; }
-      .gtm-context-badge { padding: 3px 7px; border: 1px solid rgba(141,232,189,.2); border-radius: 999px; color: #baf3d7; background: rgba(53,105,82,.3); font-size: 9px; font-weight: 700; letter-spacing: .025em; text-transform: uppercase; }
-      .gtm-context-badge.warning { border-color: rgba(251,191,36,.18); color: #f4cf75; background: rgba(120,77,18,.24); }
-      .gtm-context-refresh { display: grid; place-items: center; width: 23px; height: 23px; border-radius: 8px; color: #9aa7af; background: transparent; font-size: 15px; }
-      .gtm-context-refresh:hover { color: #eff6f2; background: rgba(255,255,255,.07); }
-      .gtm-context-body { display: grid; gap: 4px; min-width: 0; }
-      .gtm-context-body p { margin: 0 0 2px; color: #c9d4d0; font-size: 10px; }
-      .gtm-context-row { display: grid; grid-template-columns: 60px minmax(0, 1fr); gap: 8px; align-items: baseline; }
-      .gtm-context-row span { color: #7f8d94; font-size: 9px; text-transform: uppercase; }
-      .gtm-context-row strong { min-width: 0; color: #e7eeeb; font-size: 11px; font-weight: 590; overflow-wrap: anywhere; }
-      .gtm-context-body small { margin-top: 3px; color: #89969e; font-size: 9px; line-height: 1.4; }
-      .message { max-width: 88%; padding: 9px 11px; border-radius: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
-      .message.bot { align-self: flex-start; color: #e5ebef; background: rgba(41,50,57,.72); border: 1px solid rgba(255,255,255,.06); border-radius: 4px 14px 14px 14px; }
-      .message.user { align-self: flex-end; color: #f5fff9; background: #28483d; border-radius: 13px 13px 4px 13px; }
-      .message.streaming:empty { width: 64px; height: 16px; background: linear-gradient(100deg, rgba(52,63,71,.6) 20%, rgba(167,243,208,.18) 45%, rgba(52,63,71,.6) 70%); background-size: 220% 100%; animation: shimmer 1.15s linear infinite; }
-      .quick-actions { display: flex; flex-wrap: wrap; gap: 7px; }
-      .quick { padding: 7px 10px; border: 1px solid rgba(167,243,208,.22); border-radius: 10px; color: #dff9ec; background: rgba(40,72,61,.58); font-size: 12px; text-decoration: none; }
-      .quick:hover { border-color: rgba(167,243,208,.42); background: rgba(47,88,73,.72); }
-      .gtm-action { justify-self: start; margin-top: 3px; }
-      .gtm-write-note { color: #89969e; font-size: 10px; }
-      .primary-quick { margin-top: 3px; justify-self: start; }
-      .picker { display: grid; gap: 6px; padding: 9px; border: 1px solid rgba(255,255,255,.09); border-radius: 13px; background: rgba(22,29,34,.62); }
-      .pick { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; padding: 6px; border-radius: 8px; color: #e3eaee; }
-      .pick:hover { background: rgba(255,255,255,.04); }
-      .pick input { accent-color: #8de8bd; }
-      .pick small { color: #87949d; font-size: 10px; text-transform: uppercase; }
-      .evidence-path { display: grid; gap: 0; padding: 11px; border: 1px solid rgba(255,255,255,.1); border-radius: 14px; background: rgba(13,19,23,.66); box-shadow: inset 0 1px 0 rgba(255,255,255,.035); }
-      .evidence-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 0 1px 9px; }
-      .evidence-heading span { color: #f2f7f4; font-weight: 650; }
-      .evidence-heading small { color: #7f8c94; font-size: 10px; }
-      .evidence-stage { position: relative; display: grid; grid-template-columns: 22px 1fr; gap: 7px; min-height: 38px; }
-      .evidence-stage:not(:last-child)::after { content: ""; position: absolute; top: 21px; bottom: -1px; left: 9px; width: 1px; background: rgba(255,255,255,.12); }
-      .evidence-stage i { position: relative; z-index: 1; display: grid; place-items: center; width: 19px; height: 19px; border-radius: 50%; color: #092419; background: #8de8bd; font: 700 11px/1 Inter, sans-serif; }
-      .evidence-stage.pending i { color: #849098; background: #253038; box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
-      .evidence-stage span { display: grid; align-content: start; gap: 1px; padding-bottom: 8px; }
-      .evidence-stage strong { color: #e8efec; font-size: 12px; font-weight: 600; }
-      .evidence-stage small { color: #89969e; font-size: 10px; }
-      .evidence-note { margin: 4px 0 0; color: #bfd0ca; font-size: 10px; line-height: 1.45; }
-      .composer { margin: 0 12px 12px; padding: 6px 6px 6px 12px; display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 8px; border: 1px solid rgba(255,255,255,.14); border-radius: 15px; background: rgba(31,39,45,.72); box-shadow: inset 0 1px 0 rgba(255,255,255,.035); transition: border-color .16s ease, background .16s ease, box-shadow .16s ease; }
-      .composer:focus-within { border-color: rgba(167,243,208,.38); background: rgba(34,43,49,.88); box-shadow: 0 0 0 3px rgba(167,243,208,.06), inset 0 1px 0 rgba(255,255,255,.05); }
-      textarea { resize: none; min-height: 38px; max-height: 120px; padding: 8px 0; border: 0; outline: 0; color: white; background: transparent; font: inherit; }
-      textarea::placeholder { color: #87939c; }
-      .send { width: 38px; height: 38px; border-radius: 12px; color: #0c1b15; background: linear-gradient(145deg, #c4fae0, #8de8bd); box-shadow: 0 5px 16px rgba(86,220,157,.16), inset 0 1px 0 rgba(255,255,255,.5); font-size: 20px; transition: transform .15s ease, box-shadow .15s ease; }
-      .send:hover { transform: translateY(-1px); box-shadow: 0 7px 20px rgba(86,220,157,.24), inset 0 1px 0 rgba(255,255,255,.55); }
-      .assistant.collapsed { width: 48px !important; height: 48px !important; min-width: 48px; min-height: 48px; resize: none; display: grid; place-items: center; border-radius: 16px; border-color: rgba(255,255,255,.24); background: linear-gradient(145deg, rgba(48,58,67,.76), rgba(17,23,28,.7)); box-shadow: 0 12px 34px rgba(0,0,0,.3), 0 0 0 1px rgba(167,243,208,.05), inset 0 1px 0 rgba(255,255,255,.14); backdrop-filter: blur(18px) saturate(150%); -webkit-backdrop-filter: blur(18px) saturate(150%); }
-      .collapsed .drag, .collapsed .messages, .collapsed .composer { display: none; }
-      .orb { display: none; position: relative; width: 100%; height: 100%; border-radius: 16px; color: transparent; background: transparent; }
-      .orb::before { content: ""; position: absolute; inset: 13px; border-radius: 7px; background: conic-gradient(from 210deg, #8de8bd, #8bbcf6, #bd9af8, #8de8bd); filter: saturate(.78); box-shadow: 0 0 16px rgba(141,232,189,.22); }
-      .orb::after { content: ""; position: absolute; inset: 17px; border-radius: 5px; background: rgba(17,23,28,.9); box-shadow: inset 0 1px 0 rgba(255,255,255,.2); }
-      .collapsed .orb { display: block; }
-      .collapsed:hover { transform: translateY(-2px); border-color: rgba(167,243,208,.32); box-shadow: 0 16px 42px rgba(0,0,0,.34), 0 0 24px rgba(141,232,189,.1), inset 0 1px 0 rgba(255,255,255,.16); }
-      @keyframes shimmer { to { background-position: -120% 0; } }
-      @media (prefers-reduced-motion: reduce) { .assistant, .send { transition: none; } .message.streaming:empty { animation: none; } }
-    </style>
+  registerPanelFonts();
+  const style = document.createElement("style");
+  style.textContent = panelStyles;
+  const template = document.createElement("template");
+  template.innerHTML = `
     <section class="assistant collapsed" aria-label="Tracking assistant">
-      <div class="drag" aria-label="Drag assistant"><button class="icon collapse" aria-label="Collapse assistant">−</button></div>
+      <div class="drag" aria-label="Drag assistant"><span class="product">Trimtale</span><button class="icon collapse" type="button" aria-label="Collapse assistant">−</button></div>
       <div class="messages" aria-live="polite"><section class="gtm-context" role="region" aria-label="GTM connection"></section><div class="message bot">What do you want to track on this page?</div></div>
-      <div class="composer"><textarea aria-label="Tracking request" placeholder="Describe an action or outcome…"></textarea><button class="send" aria-label="Send request">↑</button></div>
-      <button class="orb" aria-label="Open tracking assistant">G</button>
+      <div class="composer"><textarea aria-label="Tracking request" placeholder="Describe an action or outcome…"></textarea><button class="send" type="button" aria-label="Send request">↑</button></div>
+      <button class="orb" type="button" aria-label="Open tracking assistant">T</button>
     </section>`;
+  shadow.append(style, template.content);
   frame = shadow.querySelector<HTMLElement>(".assistant")!;
   responseList = shadow.querySelector<HTMLElement>(".messages")!;
   composer = shadow.querySelector<HTMLTextAreaElement>("textarea")!;

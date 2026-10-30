@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { evaluateInExtensionWorld, openExtensionJourney } from "./helpers/extension-journey.js";
+import { expectVerdictFinding } from "./helpers/verdict.js";
 
 // Slice 1 regression contract: the extension's form verdict comes from real browser
 // signals (submit/invalid events, the success signal, a dataLayer observer, GA4 request
@@ -69,6 +70,8 @@ for (const item of cases) {
     try {
       const { page, root } = journey;
       expect(await verdictFlagAttributes(page)).toEqual([]);
+      // Dynamic and embedded fixtures render their form after load; ask once it exists.
+      await page.locator(item.form.selector).waitFor();
       await journey.send("Track leads from this form");
       await root.getByRole("button", { name: item.form.label, exact: true }).click();
       await root.getByRole("button", { name: "Review setup" }).click();
@@ -82,8 +85,7 @@ for (const item of cases) {
       await form.locator("button[type='submit']").click();
       if (item.navigatesTo) await page.waitForURL(item.navigatesTo);
 
-      await expect(root.getByText(`Verdict: ${item.verdict}`, { exact: false })).toBeVisible({ timeout: 10_000 });
-      await expect(root.getByText("Platform confirmation: unverified", { exact: false })).toBeVisible();
+      await expectVerdictFinding(root, { code: item.verdict, platformConfirmation: "unverified" }, { timeout: 10_000 });
       if (item.nextAction) await expect(root.getByText(item.nextAction).first()).toBeVisible();
       expect(await verdictFlagAttributes(page)).toEqual([]);
 
@@ -104,7 +106,7 @@ test("real signals: a cross-origin iframe form is reported as not inspectable", 
     expect(await verdictFlagAttributes(page)).toEqual([]);
     await journey.send("Track leads from this form");
     await expect(root.getByRole("button", { name: "Start verification" })).toHaveCount(0);
-    await expect(root.getByText(/Verdict:/)).toHaveCount(0);
+    await expect(root.locator("article.finding")).toHaveCount(0);
   } finally {
     await journey.close();
   }
