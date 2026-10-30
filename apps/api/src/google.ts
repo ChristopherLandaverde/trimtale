@@ -26,7 +26,7 @@ import {
   type TrackingChangePlan,
   type TrackingChangeAction,
   type TrackingSetupOperationV1,
-} from "@gtm-observability/core";
+} from "@trimtale/core";
 
 export const GTM_READONLY_SCOPE = "https://www.googleapis.com/auth/tagmanager.readonly";
 export const GTM_EDIT_CONTAINERS_SCOPE = "https://www.googleapis.com/auth/tagmanager.edit.containers";
@@ -843,7 +843,7 @@ export class GtmDiscoveryClient {
     const created = await this.post<WorkspaceCreateVersionResponse>(
       `/${operation.workspace.path}:create_version`,
       {
-        name: `GTM Observability - ${operation.specification.id}`,
+        name: `Trimtale - ${operation.specification.id}`,
         notes: `Tracking setup operation ${operation.id}`,
       },
     );

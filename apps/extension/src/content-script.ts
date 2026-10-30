@@ -16,7 +16,7 @@ import {
   type TrackingRunEvidenceV1,
   type TrackingSetupOperationV1,
   type TrackingSpecificationV1,
-} from "@gtm-observability/core";
+} from "@trimtale/core";
 import {
   FormEvidenceController,
   NavigationEvidenceController,
@@ -189,7 +189,7 @@ function formSetupRequest(result: ConversationIntakeResult): FormSetupRequest | 
   return {
     specification,
     measurementId,
-    container: { accountId: "0", containerId: "0", publicId, name: "GTM Observability import" },
+    container: { accountId: "0", containerId: "0", publicId, name: "Trimtale import" },
   };
 }
 
@@ -210,7 +210,7 @@ function navigationSetupRequest(navigation: NavigationElement[]): SetupRequest |
     pageUrl: location.href,
     measurementId,
     navigation,
-    container: { accountId: "0", containerId: "0", publicId, name: "GTM Observability import" },
+    container: { accountId: "0", containerId: "0", publicId, name: "Trimtale import" },
   };
 }
 
@@ -1016,7 +1016,7 @@ function highlightTargets(targets: PageTarget[], tone: "candidate" | "confirmed"
   highlightTone = tone;
   if (!targetHost) {
     targetHost = document.createElement("div");
-    targetHost.id = "gtm-observability-targets";
+    targetHost.id = "trimtale-targets";
     const shadow = targetHost.attachShadow({ mode: "open" });
     shadow.innerHTML = `<style>
       :host { all: initial; pointer-events: none; }
@@ -1169,7 +1169,7 @@ function renderNavigationSetupDownload(proposal: SetupProposal): void {
   download.className = "quick";
   download.textContent = "Download GTM setup";
   download.href = containerFileDownloadHref(proposal.containerFile);
-  download.download = "gtm-observability-navigation-click.json";
+  download.download = "trimtale-navigation-click.json";
   download.setAttribute("role", "button");
   download.addEventListener("click", () => {
     row.remove();
@@ -1329,7 +1329,7 @@ function renderQuickActions(
     control.textContent = action.label;
     if (control instanceof HTMLAnchorElement) {
       control.href = downloadHref!;
-      control.download = "gtm-observability-generate-lead.json";
+      control.download = "trimtale-generate-lead.json";
       control.setAttribute("role", "button");
     }
     control.addEventListener("click", () => {
@@ -1449,7 +1449,7 @@ async function mountOverlay(): Promise<void> {
   const stored = await chrome.storage.local.get("overlayPreferences");
   preferences = { ...preferences, ...(stored.overlayPreferences as Partial<OverlayPreferences> | undefined) };
   host = document.createElement("div");
-  host.id = "gtm-observability-root";
+  host.id = "trimtale-root";
   const shadow = host.attachShadow({ mode: "open" });
   shadow.innerHTML = `
     <style>

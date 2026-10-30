@@ -21,7 +21,7 @@ export default defineConfig({
   webServer: [
     {
       name: "api",
-      command: "npm run start --workspace @gtm-observability/api",
+      command: "npm run start --workspace @trimtale/api",
       url: "http://127.0.0.1:18787/health",
       env: {
         EXTENSION_ORIGIN: "chrome-extension://gtm-observability-e2e",
@@ -33,7 +33,7 @@ export default defineConfig({
     },
     {
       name: "fixture",
-      command: "npm run start --workspace @gtm-observability/fixture-site",
+      command: "npm run start --workspace @trimtale/fixture-site",
       url: "http://127.0.0.1:14173/health",
       reuseExistingServer,
       stdout: "pipe",
@@ -41,7 +41,7 @@ export default defineConfig({
     },
     {
       name: "verification-target",
-      command: "npm run start --workspace @gtm-observability/verification-target",
+      command: "npm run start --workspace @trimtale/verification-target",
       url: "http://127.0.0.1:4175/health",
       reuseExistingServer,
       stdout: "pipe",

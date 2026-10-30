@@ -1,6 +1,6 @@
 # Tracking Proof Product Concept
 
-Tracking Proof is a future product direction for GTM Observability: an owner-only, AI-powered overlay that sits on a website and proves whether each important conversion event works end to end, from the real user interaction through the data layer, GTM, server-side routing, and destination receipt.
+Tracking Proof is a future product direction for Trimtale: an owner-only, AI-powered overlay that sits on a website and proves whether each important conversion event works end to end, from the real user interaction through the data layer, GTM, server-side routing, and destination receipt.
 
 This document captures product notes for future build sessions. It is directional, not a committed implementation spec.
 

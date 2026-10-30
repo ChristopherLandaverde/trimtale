@@ -65,7 +65,7 @@ test("shows authenticated account, container, and read-only access before chat",
     });
 
     await page.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
-    const root = page.locator("#gtm-observability-root");
+    const root = page.locator("#trimtale-root");
     await expect(root).toBeAttached();
     await page.waitForTimeout(150);
     expect(statusRequests).toBe(0);
@@ -93,7 +93,7 @@ test("shows a local-service diagnostic without disabling chat", async () => {
   await withExtension("offline", async (context, page) => {
     await context.route("http://127.0.0.1:18787/api/google/status", (route) => route.abort("connectionrefused"));
     await page.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
-    const root = page.locator("#gtm-observability-root");
+    const root = page.locator("#trimtale-root");
     await root.getByRole("button", { name: "Open tracking assistant" }).click();
     const card = root.getByRole("region", { name: "GTM connection" });
     await expect(card.getByText("Service offline", { exact: true })).toBeVisible();
@@ -120,7 +120,7 @@ test("distinguishes unconfigured and disconnected Google authorization", async (
         await route.abort();
       });
       await page.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
-      const root = page.locator("#gtm-observability-root");
+      const root = page.locator("#trimtale-root");
       await root.getByRole("button", { name: "Open tracking assistant" }).click();
       await expect(root.getByRole("region", { name: "GTM connection" }).getByText(scenario.copy, { exact: true })).toBeVisible();
       expect(recognitionRequests).toBe(0);
@@ -141,7 +141,7 @@ test("shows connected access even when the page has no GTM container", async () 
       await route.abort();
     });
     await page.goto("http://127.0.0.1:14173/");
-    const root = page.locator("#gtm-observability-root");
+    const root = page.locator("#trimtale-root");
     await root.getByRole("button", { name: "Open tracking assistant" }).click();
     const card = root.getByRole("region", { name: "GTM connection" });
     await expect(card.getByText("Read-only", { exact: true })).toBeVisible();
@@ -167,7 +167,7 @@ test("fails closed for inaccessible, ambiguous, and multiple page containers", a
         body: JSON.stringify({ containerWritesEnabled: false, result: scenario.result }),
       }));
       await page.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
-      const root = page.locator("#gtm-observability-root");
+      const root = page.locator("#trimtale-root");
       await root.getByRole("button", { name: "Open tracking assistant" }).click();
       await expect(root.getByRole("region", { name: "GTM connection" }).getByText(scenario.copy, { exact: true })).toBeVisible();
     });
@@ -190,7 +190,7 @@ test("fails closed for inaccessible, ambiguous, and multiple page containers", a
       second.src = "https://www.googletagmanager.com/gtm.js?id=GTM-TWO456";
       document.head.append(second);
     });
-    const root = page.locator("#gtm-observability-root");
+    const root = page.locator("#trimtale-root");
     await root.getByRole("button", { name: "Open tracking assistant" }).click();
     const card = root.getByRole("region", { name: "GTM connection" });
     await expect(card.getByText("Multiple page containers", { exact: true })).toBeVisible();

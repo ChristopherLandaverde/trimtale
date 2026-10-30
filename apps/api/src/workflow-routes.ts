@@ -1,4 +1,4 @@
-import { assertTrackingRunEvidence, type TrackingRunEvidenceV1 } from "@gtm-observability/core";
+import { assertTrackingRunEvidence, type TrackingRunEvidenceV1 } from "@trimtale/core";
 import { GoogleIntegrationError } from "./google.js";
 import { type TrackingWorkflowRequest, type TrackingWorkflowRunner } from "./workflow-runner.js";
 import type { IncomingMessage, ServerResponse } from "node:http";

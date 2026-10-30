@@ -29,7 +29,7 @@ The page should sell the problem and collect conversations:
 - Agencies lose trust when client tracking breaks silently.
 - GTM Preview helps during setup, but it does not monitor after handoff.
 - Website, campaign, consent, and GTM changes break events without warning.
-- GTM Observability runs evidence-backed checks and sends a weekly tracking health report.
+- Trimtale runs evidence-backed checks and sends a weekly tracking health report.
 
 Call to action:
 

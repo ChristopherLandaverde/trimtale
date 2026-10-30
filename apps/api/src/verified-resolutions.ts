@@ -9,7 +9,7 @@ import {
   type VerifiedResolutionAction,
   type VerifiedResolutionCause,
   type VerifiedResolutionV1,
-} from "@gtm-observability/core";
+} from "@trimtale/core";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";

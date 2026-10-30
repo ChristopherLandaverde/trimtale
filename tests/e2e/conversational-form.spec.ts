@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { evaluateExplanation } from "@gtm-observability/core";
+import { evaluateExplanation } from "@trimtale/core";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { openExtensionJourney } from "./helpers/extension-journey.js";
@@ -31,7 +31,7 @@ for (const acceptance of contract.journeys) {
       const { page, root } = journey;
       await journey.send(acceptance.intent);
 
-      const targets = page.locator("#gtm-observability-targets");
+      const targets = page.locator("#trimtale-targets");
       await expect(targets.locator(".target.candidate")).toHaveCount(2);
       await root.getByRole("button", { name: "Contact sales" }).click();
       await expect(targets.locator(".target.confirmed[data-target-id='contact']")).toHaveCount(1);
@@ -48,7 +48,7 @@ for (const acceptance of contract.journeys) {
       await root.getByRole("button", { name: "Download GTM setup" }).click();
       const download = await downloadPromise;
       await expect(root.getByText(/nothing was published/)).toBeVisible();
-      expect(download.suggestedFilename()).toBe("gtm-observability-generate-lead.json");
+      expect(download.suggestedFilename()).toBe("trimtale-generate-lead.json");
       const downloadPath = await download.path();
       if (!downloadPath) throw new Error("The GTM setup download did not produce a local artifact.");
       const artifactText = readFileSync(downloadPath, "utf8");

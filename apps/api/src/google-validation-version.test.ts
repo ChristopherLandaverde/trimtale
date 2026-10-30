@@ -6,7 +6,7 @@ import {
   GTM_MANAGED_WORKSPACE_NAME,
   type GtmEntitySet,
   type TrackingSetupOperationV1,
-} from "@gtm-observability/core";
+} from "@trimtale/core";
 import { describe, expect, it, vi } from "vitest";
 import { GtmDiscoveryClient } from "./google.js";
 
@@ -166,7 +166,7 @@ describe("managed workspace validation and version creation", () => {
     });
     const create = fetcher.mock.calls.find(([input]) => input.toString().includes(":create_version"));
     expect(JSON.parse(String(create?.[1]?.body))).toEqual({
-      name: `GTM Observability - ${operation("validated").specification.id}`,
+      name: `Trimtale - ${operation("validated").specification.id}`,
       notes: "Tracking setup operation operation_navigation",
     });
     expect(fetcher.mock.calls.some(([input]) => input.toString().includes(":publish"))).toBe(false);

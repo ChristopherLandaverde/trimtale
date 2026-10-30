@@ -3,7 +3,7 @@ import {
   type BrowserEvidence,
   type NavigationElement,
   type SetupProposal,
-} from "@gtm-observability/core";
+} from "@trimtale/core";
 
 declare const __GTM_OBSERVABILITY_API_BASE__: string;
 declare const __GTM_OBSERVABILITY_EXTENSION_TOKEN__: string;
@@ -232,7 +232,7 @@ async function resolveSiteConfigFromGtm(): Promise<boolean> {
 
 async function activeTab(): Promise<chrome.tabs.Tab> {
   if (!Number.isFinite(targetTabId)) {
-    throw new Error("Open GTM Observability from the toolbar on the site you want to inspect.");
+    throw new Error("Open Trimtale from the toolbar on the site you want to inspect.");
   }
   const tab = await chrome.tabs.get(targetTabId);
   if (!tab.url?.startsWith("http")) throw new Error("Open a public HTTP or HTTPS website first.");
@@ -466,7 +466,7 @@ byId<HTMLButtonElement>("generate").addEventListener("click", async () => {
           accountId: "0",
           containerId: "0",
           publicId: containerId,
-          name: "GTM Observability navigation setup",
+          name: "Trimtale navigation setup",
         },
       }),
     });

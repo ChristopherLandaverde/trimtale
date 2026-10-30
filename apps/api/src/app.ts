@@ -1,4 +1,4 @@
-import { createSetupProposal, type SetupRequest } from "@gtm-observability/core";
+import { createSetupProposal, type SetupRequest } from "@trimtale/core";
 
 export interface ApiRouteRequest {
   method?: string | undefined;

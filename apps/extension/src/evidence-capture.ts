@@ -10,7 +10,7 @@ import {
   type SuccessEvidence,
   type TrackingRunEvidenceV1,
   type TrackingSpecificationV1,
-} from "@gtm-observability/core";
+} from "@trimtale/core";
 
 export type AnalyticsRequest = { url: string; observedAt: string };
 
