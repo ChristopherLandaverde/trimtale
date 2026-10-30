@@ -53,8 +53,10 @@ observer's guard flag. Trimtale's verdicts must reflect what the page and browse
 
 ## Verification
 
-`npm run check` passed; `npx vitest run` 41 files / 323 tests passed; `npm run build` passed;
-`npx playwright test` — see the PR for the full run.
+`npm run verify` on macOS: preflight, change-docs, `npm run check` and `npm test` (41 files /
+323 tests) passed; its Playwright step collided with another worktree's servers on the shared
+ports, so `npm run build` + `npx playwright test` were rerun once the ports were free: 71 passed.
+The four forgery tests failed on the pre-fix build.
 
 ## Exploratory review
 
