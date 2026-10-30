@@ -8,6 +8,8 @@ export interface RawFormRunObservation {
   targetId: string;
   submitAttempted: boolean;
   submissionResult: "success" | "validation_error" | "server_error" | "unknown";
+  /** HTTP status of the form endpoint response behind a `server_error` or `validation_error` result. */
+  responseStatus?: number;
   outcomeObserved: boolean;
   outcomeObservable: boolean;
   outcomeEvidenceType?: SuccessEvidence["type"];
@@ -69,7 +71,13 @@ export function normalizeFormRunEvidence(
     specificationId: raw.specificationId,
     startedAt: raw.startedAt,
     observations: {
-      interaction: { type: "form_submission", targetId: raw.targetId, attempted: raw.submitAttempted, submissionResult: raw.submissionResult },
+      interaction: {
+        type: "form_submission",
+        targetId: raw.targetId,
+        attempted: raw.submitAttempted,
+        submissionResult: raw.submissionResult,
+        ...(raw.responseStatus !== undefined ? { responseStatus: raw.responseStatus } : {}),
+      },
       outcome: {
         observed: raw.outcomeObserved,
         observable: raw.outcomeObservable,

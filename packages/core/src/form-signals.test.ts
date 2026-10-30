@@ -5,6 +5,7 @@ import {
   FormRun,
   classifyFormResponseStatus,
   consentFromCollectUrl,
+  isFormEndpointRequest,
   matchesSuccessUrl,
   pageSignalFromValue,
   parsePageSignal,
@@ -208,7 +209,7 @@ describe("form run from real browser signals", () => {
     expect(verdictFor(attemptOnly).verdict.code).toBe("expected_non_conversion");
   });
 
-  it("lets an observed success outrank an earlier validation failure in the same run", () => {
+  it("lets an observed success outrank an earlier client-side validation failure in the same run", () => {
     const run = deliveredRun([fullLead]);
     run.recordValidationFailure();
     expect(verdictFor(run).verdict.code).toBe("browser_verified");
@@ -248,11 +249,145 @@ describe("form run from real browser signals", () => {
     expect(FormRun.restore({ eventName: 3 })).toBeUndefined();
   });
 
+  it("keeps endpoint paths out of the serialized run", () => {
+    const run = new FormRun("generate_lead", startedAt, "granted");
+    run.recordAttempt();
+    run.recordResponseStatus(503, { endpoint: `https://example.test/api/${encodeURIComponent(sentinel)}?email=${encodeURIComponent(sentinel)}` });
+    expect(JSON.stringify(run.toJSON())).not.toContain("private-sentinel");
+    expect(verdictFor(FormRun.restore(run.toJSON())!).raw.responseStatus).toBe(503);
+  });
+
   it("keeps form values out of the serialized run and the evidence", () => {
     const run = deliveredRun([`${fullLead}&ep.email=${encodeURIComponent(sentinel)}&uid=${encodeURIComponent(sentinel)}`]);
     for (const signal of signalsFromDataLayerPush({ event: "generate_lead", email: sentinel, form_name: sentinel }, startedAtMs + 20)) run.recordPageSignal(signal);
     const { evidence } = verdictFor(run);
     expect(JSON.stringify(evidence)).not.toContain("private-sentinel");
     expect(JSON.stringify(run.toJSON())).not.toContain("private-sentinel");
+  });
+});
+
+describe("verdict precedence: network evidence outranks page-reported success", () => {
+  const leadEndpoint = "https://example.test/api/lead?formScenario=x";
+  const dataLayerSuccess = { type: "data_layer_event", eventName: "generate_lead" } as const;
+
+  /** A run in which the page reported success: the success signal, the dataLayer event and one delivered GA4 request. */
+  function pageReportedSuccess(): FormRun {
+    return deliveredRun([fullLead]);
+  }
+
+  it("lets a 5xx from the form endpoint outrank a dataLayer success event, keeping the success signal in evidence", () => {
+    const run = pageReportedSuccess();
+    run.recordResponseStatus(503, { endpoint: leadEndpoint });
+    const { raw, evidence, verdict } = verdictFor(run, dataLayerSuccess);
+    expect(raw).toMatchObject({ submissionResult: "server_error", responseStatus: 503, outcomeObserved: true });
+    expect(evidence.observations.interaction).toMatchObject({ submissionResult: "server_error", responseStatus: 503 });
+    expect(evidence.observations.outcome).toMatchObject({ observed: true, evidenceType: "data_layer_event" });
+    expect(evidence.observations.dataLayer.matchingEvents).toHaveLength(1);
+    expect(evidence.observations.network.ga4Requests).toHaveLength(1);
+    expect(verdict.code).toBe("submission_failed");
+    expect(verdict.browserVerification).toBe("failed");
+    expect(verdict.nextAction).toMatch(/reported success/);
+    expect(verdict.nextAction).toContain("HTTP 503");
+    expect(verdict.nextAction).toMatch(/GA4 may count a lead/);
+  });
+
+  it("does not depend on whether the server error arrives before or after the success signal", () => {
+    const run = new FormRun("generate_lead", startedAt, "granted");
+    run.recordAttempt();
+    run.recordResponseStatus(500, { endpoint: leadEndpoint });
+    run.recordOutcome();
+    run.recordPageSignal(leadEvent());
+    expect(verdictFor(run, dataLayerSuccess).verdict.code).toBe("submission_failed");
+  });
+
+  it("fails a native POST whose response was a 5xx even though the thank-you URL was reached", () => {
+    const run = new FormRun("generate_lead", startedAt, "granted");
+    run.recordAttempt();
+    const restored = FormRun.restore(JSON.parse(JSON.stringify(run.toJSON())))!;
+    restored.recordTransport("redirect");
+    restored.recordResponseStatus(503);
+    restored.recordOutcome();
+    restored.recordPageSignal(leadEvent());
+    const result = verdictFor(restored, { type: "thank_you_url", urlPattern: thankYouUrlPattern("https://example.test/thank-you") });
+    expect(result.raw).toMatchObject({ transport: "redirect", submissionResult: "server_error", responseStatus: 503, outcomeObserved: true });
+    expect(result.verdict.code).toBe("submission_failed");
+  });
+
+  it("keeps a server error recorded before a navigation when the next page shows success", () => {
+    const run = new FormRun("generate_lead", startedAt, "granted");
+    run.recordAttempt();
+    run.recordResponseStatus(502, { endpoint: leadEndpoint });
+    const restored = FormRun.restore(JSON.parse(JSON.stringify(run.toJSON())))!;
+    restored.recordTransport("redirect");
+    restored.recordResponseStatus(200);
+    restored.recordOutcome();
+    expect(verdictFor(restored).raw).toMatchObject({ submissionResult: "server_error", responseStatus: 502 });
+  });
+
+  it("lets a 400/422 rejection from the form endpoint outrank a page-reported success", () => {
+    const run = pageReportedSuccess();
+    run.recordResponseStatus(422, { endpoint: leadEndpoint });
+    const { raw, verdict } = verdictFor(run);
+    expect(raw).toMatchObject({ submissionResult: "validation_error", responseStatus: 422, outcomeObserved: true });
+    expect(verdict.code).toBe("expected_non_conversion");
+    expect(verdict.nextAction).toMatch(/reported success/);
+    expect(verdict.nextAction).toContain("HTTP 422");
+  });
+
+  it("lets a server error outrank an endpoint rejection and client-side validation", () => {
+    const run = new FormRun("generate_lead", startedAt, "granted");
+    run.recordValidationFailure();
+    run.recordResponseStatus(422, { endpoint: "https://example.test/api/validate" });
+    run.recordResponseStatus(500, { endpoint: leadEndpoint });
+    expect(verdictFor(run).raw).toMatchObject({ submissionResult: "server_error", responseStatus: 500 });
+  });
+
+  it("clears an endpoint failure when a retry to the same endpoint succeeds", () => {
+    const run = pageReportedSuccess();
+    run.recordResponseStatus(503, { endpoint: "https://example.test/api/lead?attempt=1" });
+    run.recordResponseStatus(200, { endpoint: "https://example.test/api/lead?attempt=2" });
+    const { raw, verdict } = verdictFor(run);
+    expect(raw.submissionResult).toBe("success");
+    expect(raw.responseStatus).toBeUndefined();
+    expect(verdict.code).toBe("browser_verified");
+  });
+
+  it("does not let a success from another endpoint clear the form endpoint's failure", () => {
+    const run = pageReportedSuccess();
+    run.recordResponseStatus(503, { endpoint: leadEndpoint });
+    run.recordResponseStatus(200, { endpoint: "https://example.test/api/session" });
+    expect(verdictFor(run).verdict.code).toBe("submission_failed");
+  });
+
+  it("does not let an unattributable third-party error outrank an observed success", () => {
+    const run = pageReportedSuccess();
+    run.recordResponseStatus(500, { endpoint: "https://third-party.example/collect", attributable: false });
+    const { raw, verdict } = verdictFor(run);
+    expect(raw.submissionResult).toBe("success");
+    expect(verdict.code).toBe("browser_verified");
+  });
+
+  it("still reports an unattributable error when the page showed no success", () => {
+    const run = new FormRun("generate_lead", startedAt, "granted");
+    run.recordAttempt();
+    run.recordResponseStatus(500, { endpoint: "https://api.example.test/lead", attributable: false });
+    expect(verdictFor(run).verdict.code).toBe("submission_failed");
+  });
+
+  it("keeps the plain next action when no success was reported", () => {
+    const run = new FormRun("generate_lead", startedAt, "granted");
+    run.recordAttempt();
+    run.recordResponseStatus(500, { endpoint: leadEndpoint });
+    expect(verdictFor(run).verdict.nextAction).toBe("Fix the form or server error, then rerun browser verification.");
+  });
+});
+
+describe("form endpoint attribution", () => {
+  it("attributes responses on the form action's origin to the form", () => {
+    expect(isFormEndpointRequest("https://example.test/api/lead", "https://example.test/contact")).toBe(true);
+    expect(isFormEndpointRequest("https://forms.example.net/submit", "https://forms.example.net/f/abc")).toBe(true);
+    expect(isFormEndpointRequest("https://third-party.example/collect", "https://example.test/contact")).toBe(false);
+    expect(isFormEndpointRequest("http://example.test/api/lead", "https://example.test/contact")).toBe(false);
+    expect(isFormEndpointRequest("not a url", "https://example.test/contact")).toBe(false);
   });
 });
