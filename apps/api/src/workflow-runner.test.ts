@@ -55,6 +55,14 @@ const generated = createSetupProposal(request);
 const readyPlan = createTrackingChangePlan(generated.containerFile, {});
 const completed = readyPlan.actions.map(({ entitySignature }) => entitySignature);
 
+const approver = "practitioner@example.test";
+
+async function approveThenPublish(runner: TrackingWorkflowRunner, id: string) {
+  const approved = runner.approvePublication(id, "version-8", "GTM-ABC123", approver);
+  if (approved.status !== "approved") throw new Error(approved.reason);
+  return runner.publishApproved(id, "version-8", approver);
+}
+
 async function repository() {
   const directory = await mkdtemp(join(tmpdir(), "workflow-runner-"));
   directories.push(directory);
@@ -187,7 +195,7 @@ describe("resumable non-publishing tracking workflow", () => {
     expect(client.publishApprovedVersion).not.toHaveBeenCalled();
   });
 
-  it("publishes only after exact current fingerprint approval", async () => {
+  it("approves and publishes in separate requests, recording the verified approver", async () => {
     const store = await repository();
     const client = google({
       publishApprovedVersion: vi.fn().mockResolvedValue({
@@ -201,17 +209,24 @@ describe("resumable non-publishing tracking workflow", () => {
     const versioned = await runner.resume(planned.operation.id);
     if (versioned.status !== "versioned") throw new Error(versioned.status);
 
-    const published = await runner.approveAndPublish(
-      planned.operation.id,
-      "version-8",
-      "practitioner@example.test",
-    );
+    const approved = runner.approvePublication(planned.operation.id, "version-8", " GTM-ABC123 ", approver);
+    expect(approved).toMatchObject({
+      status: "approved",
+      nextStep: "publish",
+      operation: { status: "approved", approval: { versionFingerprint: "version-8", approvedBy: approver } },
+    });
+    if (approved.status !== "approved") throw new Error(approved.reason);
+    expect(Date.parse(approved.approvalExpiresAt) - Date.parse(approved.operation.approval!.approvedAt)).toBe(30 * 60 * 1_000);
+    expect(client.publishApprovedVersion).not.toHaveBeenCalled();
+    expect(new TrackingOperationRepository(store.filePath).get(planned.operation.id)?.status).toBe("approved");
+
+    const published = await runner.publishApproved(planned.operation.id, "version-8", approver);
     expect(published).toMatchObject({
       status: "published",
       nextStep: "verify_publication",
       operation: {
         status: "published",
-        approval: { versionFingerprint: "version-8", approvedBy: "practitioner@example.test" },
+        approval: { versionFingerprint: "version-8", approvedBy: approver },
         publication: { versionFingerprint: "version-8" },
       },
     });
@@ -219,44 +234,69 @@ describe("resumable non-publishing tracking workflow", () => {
     expect(new TrackingOperationRepository(store.filePath).get(planned.operation.id)?.status).toBe("published");
   });
 
-  it("blocks stale or repeated publication before any Google publish call", async () => {
-    const publishApprovedVersion = vi.fn();
-    const client = google({ publishApprovedVersion });
-    const runner = new TrackingWorkflowRunner(await repository(), client);
+  it("refuses approval for a mismatched fingerprint or container confirmation", async () => {
+    const runner = new TrackingWorkflowRunner(await repository(), google());
     const planned = await runner.plan(request);
     if (planned.status === "blocked") throw new Error(planned.reason);
-    const versioned = await runner.resume(planned.operation.id);
-    if (versioned.status !== "versioned") throw new Error(versioned.status);
+    await runner.resume(planned.operation.id);
 
-    await expect(runner.approveAndPublish(
-      planned.operation.id,
-      "wrong-version",
-      "practitioner@example.test",
-    )).resolves.toMatchObject({
-      status: "blocked",
-      stage: "approval",
-      reason: "fingerprint_mismatch",
-    });
+    expect(runner.approvePublication(planned.operation.id, "wrong-version", "GTM-ABC123", approver))
+      .toMatchObject({ status: "blocked", stage: "approval", reason: "fingerprint_mismatch" });
+    expect(runner.approvePublication(planned.operation.id, "version-8", "GTM-OTHER", approver))
+      .toMatchObject({ status: "blocked", stage: "approval", reason: "confirmation_mismatch" });
+    expect(runner.approvePublication(planned.operation.id, "version-8", "gtm-abc123", approver))
+      .toMatchObject({ status: "blocked", reason: "confirmation_mismatch" });
+    expect(runner.get(planned.operation.id)?.status).toBe("versioned");
+    expect(runner.get(planned.operation.id)?.approval).toBeUndefined();
+  });
+
+  it("refuses to publish without approval, with a mismatched fingerprint or for another account", async () => {
+    const publishApprovedVersion = vi.fn();
+    const runner = new TrackingWorkflowRunner(await repository(), google({ publishApprovedVersion }));
+    const planned = await runner.plan(request);
+    if (planned.status === "blocked") throw new Error(planned.reason);
+    await runner.resume(planned.operation.id);
+
+    await expect(runner.publishApproved(planned.operation.id, "version-8", approver))
+      .resolves.toMatchObject({ status: "blocked", stage: "approval", reason: "approval_required" });
+    runner.approvePublication(planned.operation.id, "version-8", "GTM-ABC123", approver);
+    await expect(runner.publishApproved(planned.operation.id, "wrong-version", approver))
+      .resolves.toMatchObject({ status: "blocked", reason: "fingerprint_mismatch" });
+    await expect(runner.publishApproved(planned.operation.id, "version-8", "someone-else@example.test"))
+      .resolves.toMatchObject({ status: "blocked", reason: "approver_changed" });
     expect(publishApprovedVersion).not.toHaveBeenCalled();
+    expect(runner.get(planned.operation.id)?.status).toBe("approved");
+  });
 
-    publishApprovedVersion.mockResolvedValue({
-      publishedAt: "2026-08-22T12:07:00.000Z",
+  it("refuses a stale approval before any Google call, and a renewed approval publishes", async () => {
+    let now = new Date("2026-08-22T12:00:00.000Z");
+    const publishApprovedVersion = vi.fn().mockResolvedValue({
+      publishedAt: "2026-08-22T12:40:00.000Z",
       versionFingerprint: "version-8",
     });
-    await runner.approveAndPublish(planned.operation.id, "version-8", "practitioner@example.test");
-    await expect(runner.approveAndPublish(
-      planned.operation.id,
-      "version-8",
-      "practitioner@example.test",
-    )).resolves.toMatchObject({
-      status: "blocked",
-      stage: "approval",
-      reason: "operation_not_versioned",
-    });
+    const runner = new TrackingWorkflowRunner(await repository(), google({ publishApprovedVersion }), () => now);
+    const planned = await runner.plan(request);
+    if (planned.status === "blocked") throw new Error(planned.reason);
+    await runner.resume(planned.operation.id);
+    runner.approvePublication(planned.operation.id, "version-8", "GTM-ABC123", approver);
+
+    now = new Date("2026-08-22T12:31:00.000Z");
+    await expect(runner.publishApproved(planned.operation.id, "version-8", approver))
+      .resolves.toMatchObject({ status: "blocked", stage: "approval", reason: "approval_expired" });
+    expect(publishApprovedVersion).not.toHaveBeenCalled();
+
+    expect(runner.approvePublication(planned.operation.id, "version-8", "GTM-ABC123", approver))
+      .toMatchObject({ status: "approved" });
+    await expect(runner.publishApproved(planned.operation.id, "version-8", approver))
+      .resolves.toMatchObject({ status: "published" });
+    await expect(runner.publishApproved(planned.operation.id, "version-8", approver))
+      .resolves.toMatchObject({ status: "blocked", reason: "operation_not_approved" });
+    expect(runner.approvePublication(planned.operation.id, "version-8", "GTM-ABC123", approver))
+      .toMatchObject({ status: "blocked", reason: "operation_not_versioned" });
     expect(publishApprovedVersion).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps the operation versioned when Google publication fails", async () => {
+  it("keeps the operation approved and unpublished when Google publication fails", async () => {
     const store = await repository();
     const client = google({
       publishApprovedVersion: vi.fn().mockRejectedValue(new Error("publication disabled")),
@@ -267,14 +307,10 @@ describe("resumable non-publishing tracking workflow", () => {
     const versioned = await runner.resume(planned.operation.id);
     if (versioned.status !== "versioned") throw new Error(versioned.status);
 
-    await expect(runner.approveAndPublish(
-      planned.operation.id,
-      "version-8",
-      "practitioner@example.test",
-    )).rejects.toThrow("publication disabled");
+    await expect(approveThenPublish(runner, planned.operation.id)).rejects.toThrow("publication disabled");
     const persisted = store.get(planned.operation.id);
-    expect(persisted?.status).toBe("versioned");
-    expect(persisted?.approval).toBeUndefined();
+    expect(persisted?.status).toBe("approved");
+    expect(persisted?.approval?.approvedBy).toBe(approver);
     expect(persisted?.publication).toBeUndefined();
   });
 
@@ -291,7 +327,7 @@ describe("resumable non-publishing tracking workflow", () => {
     if (planned.status === "blocked") throw new Error(planned.reason);
     const versioned = await runner.resume(planned.operation.id);
     if (versioned.status !== "versioned") throw new Error(versioned.status);
-    const published = await runner.approveAndPublish(planned.operation.id, "version-8", "practitioner@example.test");
+    const published = await approveThenPublish(runner, planned.operation.id);
     if (published.status !== "published") throw new Error(published.status);
 
     await expect(runner.recordBrowserVerification(
@@ -323,7 +359,7 @@ describe("resumable non-publishing tracking workflow", () => {
     const planned = await runner.plan(request);
     if (planned.status === "blocked") throw new Error(planned.reason);
     await runner.resume(planned.operation.id);
-    const published = await runner.approveAndPublish(planned.operation.id, "version-8", "practitioner@example.test");
+    const published = await approveThenPublish(runner, planned.operation.id);
     if (published.status !== "published") throw new Error(published.status);
 
     await expect(runner.recordBrowserVerification(
@@ -356,7 +392,7 @@ describe("resumable non-publishing tracking workflow", () => {
     const planned = await runner.plan(request);
     if (planned.status === "blocked") throw new Error(planned.reason);
     await runner.resume(planned.operation.id);
-    const published = await runner.approveAndPublish(planned.operation.id, "version-8", "practitioner@example.test");
+    const published = await approveThenPublish(runner, planned.operation.id);
     if (published.status !== "published") throw new Error(published.status);
     await runner.recordBrowserVerification(
       planned.operation.id,
@@ -408,7 +444,7 @@ describe("resumable non-publishing tracking workflow", () => {
     const second = await publishedRunner.plan(request);
     if (second.status === "blocked") throw new Error(second.reason);
     await publishedRunner.resume(second.operation.id);
-    const published = await publishedRunner.approveAndPublish(second.operation.id, "version-8", "practitioner@example.test");
+    const published = await approveThenPublish(publishedRunner, second.operation.id);
     if (published.status !== "published") throw new Error(published.status);
     await expect(publishedRunner.recordBrowserVerification(
       second.operation.id,

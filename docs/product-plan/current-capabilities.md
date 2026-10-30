@@ -47,8 +47,10 @@ The assistant currently supports:
 - A durable setup-operation timeline that separates planning, owned entity
   application, workspace validation, immutable version creation, and publication
   approval.
-- A publication action that appears only from a versioned operation card and submits
-  the exact immutable version fingerprint to the backend approval/publish route.
+- A **Review and approve** step from a versioned operation card that shows exactly what
+  would publish and requires typing the container ID. Approval is recorded under the
+  signed-in Google account, and **Publish** is a separate request that must follow within
+  30 minutes.
 - A post-publication **Start browser verification** action that records whether the
   confirmed interaction produced exactly one expected Google collection request.
 - A rollback action that appears only from a `rollback_required` operation and submits
@@ -196,11 +198,13 @@ container, validation failure, and publication-disabled responses. These states 
 not create versions, publish, roll back, or claim platform confirmation.
 
 The setup runner stops at the `versioned` state and returns `await_approval`. The
-assistant displays the immutable version fingerprint and prior live fingerprint before
-rendering a fingerprint-specific publish action. The publish route approves and
-publishes only that exact fingerprint and remains behind its separate backend flag,
-OAuth scope, approval lifetime, live-version drift check, and Google publish
-confirmation.
+assistant then offers a review of the container, workspace, version fingerprint, the
+live version it replaces and the change list, and enables approval only once the
+practitioner types the container ID. The approve route records the Google-verified
+email of the signed-in account. The publish route is a separate request: it publishes
+only that exact approved fingerprint, refuses a stale approval or a changed account, and
+remains behind its separate backend flag, OAuth scope, live-version drift check, and
+Google publish confirmation.
 
 After publication, the assistant can run browser verification for the confirmed
 navigation or lead-form interaction. Passing evidence marks the operation completed

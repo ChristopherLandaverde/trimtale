@@ -76,9 +76,12 @@ operate them.
 
 A publication approval:
 
-- can be created only from a `versioned` operation;
-- records the approver, approval time, and exact immutable fingerprint;
-- expires after 30 minutes; and
+- can be created only from a `versioned` (or still unpublished `approved`) operation,
+  in its own request, after the practitioner types the container ID;
+- records the Google-verified email of the signed-in account, the approval time, and
+  the exact immutable fingerprint; a client-supplied approver is ignored;
+- expires after 30 minutes, and publication is a separate request that is refused once
+  it has expired or when another account is signed in; and
 - becomes unusable if the immutable version or current live version differs from the
   stored evidence.
 

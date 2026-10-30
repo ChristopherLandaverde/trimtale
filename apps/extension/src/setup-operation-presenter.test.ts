@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TrackingSetupOperationV1 } from "@trimtale/core";
-import { presentSetupOperation } from "./setup-operation-presenter.js";
+import { presentPublicationReview, presentSetupOperation } from "./setup-operation-presenter.js";
 import type { WorkflowResult } from "./workflow-bridge.js";
 
 function operation(status: TrackingSetupOperationV1["status"]): TrackingSetupOperationV1 {
@@ -93,12 +93,14 @@ function operation(status: TrackingSetupOperationV1["status"]): TrackingSetupOpe
       priorLiveVersionFingerprint: "live-7",
     };
   }
-  if (["published", "verification_failed", "rollback_required", "rolled_back", "completed"].includes(status)) {
+  if (["approved", "published", "verification_failed", "rollback_required", "rolled_back", "completed"].includes(status)) {
     base.approval = {
       approvedAt: "2026-08-30T20:02:00.000Z",
-      approvedBy: "website assistant",
+      approvedBy: "practitioner@example.test",
       versionFingerprint: "version-8",
     };
+  }
+  if (["published", "verification_failed", "rollback_required", "rolled_back", "completed"].includes(status)) {
     base.publication = {
       publishedAt: "2026-08-30T20:03:00.000Z",
       versionFingerprint: "version-8",
@@ -116,9 +118,10 @@ function operation(status: TrackingSetupOperationV1["status"]): TrackingSetupOpe
   return base;
 }
 
-function terminalResult(status: "versioned" | "published" | "completed" | "rollback_required" | "rolled_back"): WorkflowResult {
+function terminalResult(status: "versioned" | "approved" | "published" | "completed" | "rollback_required" | "rolled_back"): WorkflowResult {
   const nextStep = {
     versioned: "await_approval",
+    approved: "publish",
     published: "verify_publication",
     completed: "platform_unavailable",
     rollback_required: "rollback_approval",
@@ -142,16 +145,81 @@ describe("presentSetupOperation", () => {
     }
   });
 
-  it("shows only publish approval for a versioned operation", () => {
+  it("offers review, never a direct publish, for a versioned operation", () => {
     const presentation = presentSetupOperation(terminalResult("versioned"));
 
     expect(presentation.label).toBe("Awaiting approval");
+    expect(presentation.actions).toEqual([{
+      kind: "review",
+      label: "Review and approve",
+      operationId: "operation_spec_navigation",
+      versionFingerprint: "version-8",
+    }]);
+    expect(presentation.assistantMessage).toBe("Version version-8 is ready and nothing is published. Review exactly what will change, then approve it.");
+    expect(presentation.assistantMessage).not.toMatch(/await_approval/);
+    expect(stage(terminalResult("versioned"), "approval")).toMatchObject({
+      passed: false,
+      detail: "Separate approval is required; nothing was published",
+    });
+  });
+
+  it("offers publish only after a recorded approval, naming the approver", () => {
+    const presentation = presentSetupOperation(terminalResult("approved"));
+
+    expect(presentation.label).toBe("Approved, not published");
     expect(presentation.actions).toEqual([{
       kind: "publish",
       label: "Publish version-8",
       operationId: "operation_spec_navigation",
       versionFingerprint: "version-8",
     }]);
+    expect(presentation.assistantMessage).toMatch(/^Approved by practitioner@example\.test\. Nothing is published yet\. Publish before .+, or approve again\.$/);
+    expect(stage(terminalResult("approved"), "approval")).toMatchObject({
+      passed: true,
+      detail: "Approved fingerprint version-8 by practitioner@example.test",
+    });
+    expect(stage(terminalResult("approved"), "publication").passed).toBe(false);
+  });
+
+  it.each([
+    ["approval_expired", "approved", /older than 30 minutes/],
+    ["approver_changed", "approved", /different Google account/],
+    ["approval_required", "versioned", /separate approval first/],
+    ["fingerprint_mismatch", "approved", /did not match/],
+  ] as const)("routes a blocked %s publish back to review", (reason, status, guidance) => {
+    const presentation = presentSetupOperation({
+      status: "blocked",
+      stage: "approval",
+      reason,
+      operation: operation(status),
+    } as WorkflowResult);
+    expect(presentation.guidance).toMatch(guidance);
+    expect(presentation.assistantMessage).toMatch(/^Setup stopped\. .* Nothing was published\.$/);
+    expect(presentation.actions).toEqual([expect.objectContaining({ kind: "review", versionFingerprint: "version-8" })]);
+    const approval = presentation.stages.find((item) => item.key === "approval");
+    if (reason === "approval_expired" || reason === "approver_changed") expect(approval?.passed).toBe(false);
+    expect(presentation.stages.find((item) => item.key === "publication")?.passed).toBe(false);
+  });
+
+  it("presents exactly what one publish would change", () => {
+    expect(presentPublicationReview(operation("versioned") as never)).toEqual({
+      title: "Publish version-8 to GTM-TEST123?",
+      consequence: "Publishing makes version-8 the live version of GTM-TEST123, replacing live-7. Every page that loads this container gets the change.",
+      rows: [
+        { label: "Container", value: "GTM-TEST123 · accounts/1/containers/10" },
+        { label: "Workspace", value: "99 · accounts/1/containers/10/workspaces/99" },
+        { label: "Version", value: "version-8" },
+        { label: "Replaces", value: "live-7" },
+      ],
+      changes: [
+        "Create tag “GA4 Event - navigation_click”",
+        "Create trigger “Navigation Click Trigger”",
+      ],
+      approvalNote: expect.stringContaining("connected Google account as the approver"),
+      confirmation: "GTM-TEST123",
+      approveLabel: "Approve version-8",
+    });
+    expect(presentPublicationReview(operation("published") as never)).toBeUndefined();
   });
 
   it("shows browser verification only for a published operation", () => {

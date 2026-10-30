@@ -107,7 +107,9 @@ explicit container-write switch; it does not contact Google or prove live access
 
 Container edits require `GOOGLE_GTM_CONTAINER_WRITES_ENABLED=true` before consent.
 Request publish consent separately with
-`GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED=true`; this does not enable publication.
+`GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED=true`; this also requests `openid email` so
+approvals record the signed-in account, and it does not enable publication. A backend
+authorized before this change must reconnect Google before it can approve.
 For an explicitly approved publication session, also set
 `GOOGLE_GTM_PUBLICATION_ENABLED=true` and run `npm run preflight:publication`.
 Ordinary Google preflight, CI, and `npm run verify` never enable or call publication.

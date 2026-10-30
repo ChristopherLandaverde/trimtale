@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { createTrackingChangePlan } from "./change-plan.js";
 import { createSetupProposal } from "./generator.js";
-import { approveTrackingVersion, publicationApprovalCurrent, recordPostPublicationEvidence } from "./publication.js";
+import {
+  approveTrackingVersion,
+  publicationApprovalCurrent,
+  publicationApprovalExpiresAt,
+  recordPostPublicationEvidence,
+} from "./publication.js";
 import type { TrackingRunEvidenceV1 } from "./contracts.js";
 import type { TrackingSetupOperationV1 } from "./tracking-operation.js";
 
@@ -53,6 +58,19 @@ describe("publication approval and post-publication evidence", () => {
     expect(publicationApprovalCurrent(approved, Date.parse("2026-08-22T12:45:01.000Z"))).toBe(false);
     if (approved.approval) approved.approval.versionFingerprint = "wrong";
     expect(publicationApprovalCurrent(approved, Date.parse("2026-08-22T12:20:00.000Z"))).toBe(false);
+  });
+
+  it("renews an unpublished approval and refuses to approve a published version", () => {
+    const first = approveTrackingVersion(versioned(), "practitioner@example.test", "2026-08-22T12:15:00.000Z");
+    expect(publicationApprovalExpiresAt(first)).toBe("2026-08-22T12:45:00.000Z");
+    const renewed = approveTrackingVersion(first, "practitioner@example.test", "2026-08-22T13:00:00.000Z");
+    expect(renewed.approval?.approvedAt).toBe("2026-08-22T13:00:00.000Z");
+    expect(publicationApprovalCurrent(renewed, Date.parse("2026-08-22T13:10:00.000Z"))).toBe(true);
+    const published = structuredClone(renewed);
+    published.status = "published";
+    published.publication = { publishedAt: "2026-08-22T13:05:00.000Z", versionFingerprint: "version-8" };
+    expect(() => approveTrackingVersion(published, "practitioner@example.test")).toThrow("Only a versioned operation");
+    expect(() => approveTrackingVersion(versioned(), "  ")).toThrow("requires an approver");
   });
 
   it("completes passing evidence and requires rollback for failing evidence", () => {

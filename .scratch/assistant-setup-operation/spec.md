@@ -45,8 +45,10 @@ to the practitioner.
   workspace preparation, entity application, validation, versioning, publication
   approval, publication, browser verification, and platform confirmation as separate
   evidence stages.
-- The assistant may publish only from `await_approval` by submitting the exact
-  immutable version fingerprint to the backend approval/publish route.
+- The assistant may approve only from `await_approval`, after showing exactly what will
+  publish and receiving the typed container ID, and may publish only an `approved`
+  operation in a separate request with the exact approved fingerprint. The approver is
+  the Google-verified email of the backend's signed-in account, never a client value.
 - The assistant must not request publication scope, publish a mismatched or stale
   fingerprint, roll back, or imply that browser verification or platform confirmation
   passed.
@@ -72,13 +74,18 @@ to the practitioner.
 6. When the backend reaches a versioned state, the assistant displays the immutable
    version fingerprint, prior-live fingerprint, validation evidence, and a disabled
    publication step labelled as requiring separate approval.
-7. The practitioner can choose **Publish `<fingerprint>`** only from the versioned
-   operation card.
-8. The backend approves and publishes only that exact fingerprint, then returns the
-   published operation.
-9. The assistant displays publication separately from browser verification and
+7. The practitioner can choose **Review and approve** only from the versioned
+   operation card. The review shows the container, workspace, version fingerprint, the
+   live version it replaces and the change list; **Approve `<fingerprint>`** stays
+   disabled until the container ID is typed exactly.
+8. The backend records the approval under the signed-in Google account and returns an
+   `approved` operation. Nothing is published.
+9. **Publish `<fingerprint>`** sends a separate request. The backend refuses a missing,
+   stale (over 30 minutes), mismatched or other-account approval, then publishes only
+   that exact fingerprint and returns the published operation.
+10. The assistant displays publication separately from browser verification and
    platform confirmation.
-10. Blocked states show the blocking reason and the safest next practitioner action.
+11. Blocked states show the blocking reason and the safest next practitioner action.
 
 ## Acceptance criteria
 
@@ -93,6 +100,9 @@ to the practitioner.
       already versioned.
 - [x] Publication requires exact immutable version fingerprint approval and does not
       run from non-versioned, stale, or mismatched operation state.
+- [x] Approval and publication are separate requests; a stale approval is refused, a
+      mismatched fingerprint returns 409, and a client-supplied approver is ignored
+      (`.scratch/assistant-setup-operation/issues/06-publish-confirmation.md`).
 - [x] Read-only, disconnected, inaccessible, ambiguous, and multiple-container states
       do not render an operation-start action.
 - [x] Capacity, ownership, synchronization, stale-workspace, stale-plan, validation,

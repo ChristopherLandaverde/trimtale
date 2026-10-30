@@ -32,9 +32,12 @@ export const GTM_READONLY_SCOPE = "https://www.googleapis.com/auth/tagmanager.re
 export const GTM_EDIT_CONTAINERS_SCOPE = "https://www.googleapis.com/auth/tagmanager.edit.containers";
 export const GTM_EDIT_CONTAINER_VERSIONS_SCOPE = "https://www.googleapis.com/auth/tagmanager.edit.containerversions";
 export const GTM_PUBLISH_SCOPE = "https://www.googleapis.com/auth/tagmanager.publish";
+/** Requested with publish access so an approval names the signed-in account, verified by Google. */
+export const OPENID_EMAIL_SCOPES = "openid email";
 
 const authorizationEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
 const tokenEndpoint = "https://oauth2.googleapis.com/token";
+const userInfoEndpoint = "https://openidconnect.googleapis.com/v1/userinfo";
 const tagManagerEndpoint = "https://tagmanager.googleapis.com/tagmanager/v2";
 const stateLifetimeMs = 10 * 60 * 1_000;
 
@@ -324,7 +327,7 @@ export class GoogleOAuthSession {
       redirect_uri: this.config.redirectUri,
       response_type: "code",
       scope: this.containerWritesEnabled
-        ? `${GTM_READONLY_SCOPE} ${GTM_EDIT_CONTAINERS_SCOPE} ${GTM_EDIT_CONTAINER_VERSIONS_SCOPE}${this.publicationScopeRequested ? ` ${GTM_PUBLISH_SCOPE}` : ""}`
+        ? `${GTM_READONLY_SCOPE} ${GTM_EDIT_CONTAINERS_SCOPE} ${GTM_EDIT_CONTAINER_VERSIONS_SCOPE}${this.publicationScopeRequested ? ` ${GTM_PUBLISH_SCOPE} ${OPENID_EMAIL_SCOPES}` : ""}`
         : GTM_READONLY_SCOPE,
       access_type: "offline",
       include_granted_scopes: "true",
@@ -383,6 +386,26 @@ export class GoogleOAuthSession {
       }
       throw error;
     }
+  }
+
+  /**
+   * The email of the Google account behind this session, as Google reports it now.
+   * Publication approvals record this value; a client can never supply its own approver.
+   */
+  async verifiedAccountEmail(): Promise<string> {
+    const accessToken = await this.accessToken();
+    const response = await this.fetcher(userInfoEndpoint, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const profile = await responseJson<{ email?: unknown; email_verified?: unknown }>(response);
+    const email = typeof profile.email === "string" ? profile.email.trim().toLowerCase() : "";
+    if (!email || email.length > 320 || !email.includes("@") || profile.email_verified !== true) {
+      throw new GoogleIntegrationError(
+        "The connected Google account has no verified email for this app. Reconnect Google with publication access to approve.",
+        403,
+      );
+    }
+    return email;
   }
 
   private store(result: GoogleTokenResponse, existingRefreshToken?: string): StoredTokens {

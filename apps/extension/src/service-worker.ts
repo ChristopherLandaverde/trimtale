@@ -261,23 +261,37 @@ chrome.runtime.onMessage.addListener(
           return;
         }
 
-        if (message.action === "publish") {
-          if (!operationId || !message.versionFingerprint || !message.approvedBy) {
-            sendResponse({ ok: false, error: "Publication requires an operation ID, version fingerprint, and approver." });
+        if (message.action === "approve" || message.action === "publish") {
+          if (!operationId || !message.versionFingerprint
+            || (message.action === "approve" && !message.confirmation)) {
+            sendResponse({
+              ok: false,
+              error: message.action === "approve"
+                ? "Approval requires an operation ID, version fingerprint, and typed container confirmation."
+                : "Publication requires an operation ID and the approved version fingerprint.",
+            });
             return;
           }
-          const published = await fetch(`http://127.0.0.1:18787/api/google/workflows/${encodeURIComponent(operationId)}/publish`, {
+          // No approver is sent: the backend records the signed-in Google account itself.
+          const response = await fetch(`http://127.0.0.1:18787/api/google/workflows/${encodeURIComponent(operationId)}/${message.action}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              versionFingerprint: message.versionFingerprint,
-              approvedBy: message.approvedBy,
-            }),
+            body: JSON.stringify(message.action === "approve"
+              ? { versionFingerprint: message.versionFingerprint, confirmation: message.confirmation }
+              : { versionFingerprint: message.versionFingerprint }),
           });
-          const publishedBody = await readJsonResponse(published);
-          sendResponse(published.ok
-            ? { ok: true, result: publishedBody.result }
-            : { ok: false, error: workflowError(published.status, "publish") });
+          const responseBody = await readJsonResponse(response);
+          const blockedResult = response.status === 409 && isRecord(responseBody.result) && responseBody.result.status === "blocked";
+          const identityRefused = response.status === 403 && typeof responseBody.error === "string"
+            && responseBody.error.includes("verified email");
+          sendResponse(response.ok || blockedResult
+            ? { ok: true, result: responseBody.result }
+            : {
+              ok: false,
+              error: identityRefused
+                ? "Google did not confirm a verified email for the connected account. Reconnect Google with publication access, then approve again."
+                : workflowError(response.status, "publish"),
+            });
           return;
         }
 

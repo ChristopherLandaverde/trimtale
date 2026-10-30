@@ -5,7 +5,7 @@ import type {
   TrackingSetupOperationV1,
 } from "@trimtale/core";
 
-export type GtmWorkflowAction = "start" | "resume" | "get" | "publish" | "browserVerification" | "rollback";
+export type GtmWorkflowAction = "start" | "resume" | "get" | "approve" | "publish" | "browserVerification" | "rollback";
 export type TrackingWorkflowRequest = SetupRequest | FormSetupRequest;
 
 export type WorkflowResult<Operation = TrackingSetupOperationV1> =
@@ -13,6 +13,12 @@ export type WorkflowResult<Operation = TrackingSetupOperationV1> =
     status: "versioned";
     operation: Operation;
     nextStep: "await_approval";
+  }
+  | {
+    status: "approved";
+    operation: Operation;
+    nextStep: "publish";
+    approvalExpiresAt?: string;
   }
   | {
     status: "published";
@@ -52,6 +58,9 @@ export interface GtmWorkflowRequestMessage {
   request?: TrackingWorkflowRequest;
   operationId?: string;
   versionFingerprint?: string;
+  /** The container ID the practitioner typed to confirm publication. */
+  confirmation?: string;
+  /** Rollback only. Publication approvers come from the backend's Google session. */
   approvedBy?: string;
   evidence?: TrackingRunEvidenceV1;
   targetVersionFingerprint?: string;
@@ -63,6 +72,9 @@ export function workflowResultFromStoredOperation(
   const status = typeof operation.status === "string" ? operation.status : "unknown";
   if (status === "versioned") {
     return { status: "versioned", operation, nextStep: "await_approval" };
+  }
+  if (status === "approved") {
+    return { status: "approved", operation, nextStep: "publish" };
   }
   if (status === "published") {
     return { status: "published", operation, nextStep: "verify_publication" };

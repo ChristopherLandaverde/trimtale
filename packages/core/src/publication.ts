@@ -9,7 +9,10 @@ export function approveTrackingVersion(
   approvedAt = new Date().toISOString(),
 ): TrackingSetupOperationV1 {
   assertTrackingOperation(operation);
-  if (operation.status !== "versioned" || !operation.version) throw new Error("Only a versioned operation can be approved.");
+  // An approved but unpublished version may be approved again; that is how a stale approval is renewed.
+  if ((operation.status !== "versioned" && operation.status !== "approved") || !operation.version) {
+    throw new Error("Only a versioned operation can be approved.");
+  }
   if (!approvedBy.trim()) throw new Error("Publication approval requires an approver.");
   const approved = structuredClone(operation);
   approved.status = "approved";
@@ -26,6 +29,12 @@ export function publicationApprovalCurrent(operation: TrackingSetupOperationV1, 
     && Number.isFinite(approvedAt)
     && now >= approvedAt
     && now - approvedAt <= PUBLICATION_APPROVAL_LIFETIME_MS;
+}
+
+/** When the recorded approval stops authorizing publication, or undefined without one. */
+export function publicationApprovalExpiresAt(operation: TrackingSetupOperationV1): string | undefined {
+  const approvedAt = operation.approval ? Date.parse(operation.approval.approvedAt) : Number.NaN;
+  return Number.isFinite(approvedAt) ? new Date(approvedAt + PUBLICATION_APPROVAL_LIFETIME_MS).toISOString() : undefined;
 }
 
 export function recordPostPublicationEvidence(

@@ -115,6 +115,17 @@ export const panelStyles = `
   .evidence dt { text-transform: none; letter-spacing: 0; overflow-wrap: normal; }
   .evidence dd { margin: 0; font-family: var(--font-mono); font-size: var(--text-data); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 
+  /* Publication review: what will publish, then a typed confirmation */
+  .review-copy { margin: 0; font-size: var(--text-small); line-height: 1.45; }
+  .review-rows { grid-template-columns: fit-content(40%) minmax(0, 1fr); }
+  .review-rows dd { overflow-wrap: break-word; }
+  .review-heading { margin: var(--space-1) 0 0; font-size: var(--text-small); font-weight: 600; }
+  .review-changes { display: grid; gap: 2px; margin: 0; padding-left: var(--space-4); font-size: var(--text-small); line-height: 1.45; }
+  .review-confirm { font-size: var(--text-small); font-weight: 500; }
+  .review-input { width: 100%; min-height: 36px; padding: var(--space-1) var(--space-2); border: var(--rule) solid var(--ink-secondary); border-radius: var(--radius-sm); color: var(--ink-primary); background: var(--surface-paper); font: 500 var(--text-data)/1.3 var(--font-mono); }
+  .review-input:focus-visible { outline: var(--rule-strong) solid var(--focus-ring); outline-offset: 0; box-shadow: 0 0 0 6px var(--focus-ring-field); }
+  .primary-quick:disabled { color: var(--ink-secondary); background: var(--surface-raised); border-color: var(--ink-secondary); text-decoration: none; }
+
   /* Navigation picker */
   .picker { display: grid; gap: var(--space-1); padding: var(--space-2); border: var(--rule) solid var(--line-subtle); border-radius: var(--radius-md); }
   .pick { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: var(--space-2); min-height: 32px; padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); }
