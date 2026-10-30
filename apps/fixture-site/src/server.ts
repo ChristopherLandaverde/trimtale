@@ -26,6 +26,7 @@ function page(pathname: string, fixture: FormFixtureScenario, gtmContainerId?: s
       form { display: grid; gap: 10px; padding: 18px; border: 1px solid #ddd; border-radius: 12px; }
       label { display: grid; gap: 5px; }
       input { padding: 9px; }
+      .lead-form { display: contents; }
     </style>
   </head>
   <body>
@@ -40,18 +41,24 @@ function page(pathname: string, fixture: FormFixtureScenario, gtmContainerId?: s
     <main>
       <h1>Lead-generation websites for growing teams.</h1>
       <p>This deterministic fixture represents a small agency website.</p>
-      <section class="fixture-forms" aria-label="Lead forms" data-presentation="${fixture.presentation}">
+      <section class="fixture-forms" aria-label="Lead forms">
         ${fixture.presentation === "cross_origin_iframe" ? '<iframe title="External lead form" src="http://127.0.0.1:4174/external-form"></iframe>' : `
-        <form id="contact" aria-label="Contact sales" data-success-selector="#contact-success">
-          <label>Work email <input name="email" type="email" /></label>
-          <button type="submit">Contact sales</button>
-        </form>
-        <form id="newsletter" aria-label="Newsletter signup" data-success-selector="#newsletter-success">
-          <label>Email <input name="email" type="email" /></label>
-          <button type="submit">Join newsletter</button>
-        </form>
-        <p id="contact-success" hidden>Thanks, we'll be in touch.</p>
-        <p id="newsletter-success" hidden>Thanks for subscribing.</p>
+        <section class="lead-form" aria-label="Contact sales form">
+          <form id="contact" aria-label="Contact sales"${fixture.transport === "redirect" ? ` action="/thank-you?formScenario=${encodeURIComponent(fixture.id)}" method="post"` : ""}>
+            <label>Work email <input name="email" type="email"${fixture.validation === "html5" ? " required" : ""} /></label>
+            <button type="submit">Contact sales</button>
+          </form>
+          ${fixture.transport === "redirect" ? "" : '<p role="status" id="contact-success" hidden></p>'}
+          <p role="alert" class="form-error" hidden></p>
+        </section>
+        <section class="lead-form" aria-label="Newsletter form">
+          <form id="newsletter" aria-label="Newsletter signup">
+            <label>Email <input name="email" type="email" /></label>
+            <button type="submit">Join newsletter</button>
+          </form>
+          <p role="status" id="newsletter-success" hidden></p>
+          <p role="alert" class="form-error" hidden></p>
+        </section>
         `}
       </section>
     </main>
@@ -61,13 +68,16 @@ function page(pathname: string, fixture: FormFixtureScenario, gtmContainerId?: s
       </nav>
     </footer>
     <script>
+      // This fixture behaves like a real lead-gen site. It sets no verdict flags: the
+      // extension must read the submit, the visible outcome, the dataLayer, consent and
+      // GA4 delivery from the browser itself.
       const formFixture = ${JSON.stringify(fixture)};
       window.__formFixture = formFixture;
       window.dataLayer = window.dataLayer || [];
-      document.documentElement.dataset.fixtureScenario = formFixture.id;
-      document.documentElement.dataset.consent = formFixture.consent;
-      document.documentElement.dataset.transport = formFixture.transport;
-      document.documentElement.dataset.outcomeObservable = String(formFixture.presentation !== 'cross_origin_iframe');
+      function gtag() { window.dataLayer.push(arguments); }
+      if (formFixture.consent !== 'unknown') {
+        gtag('consent', 'default', { analytics_storage: formFixture.consent, ad_storage: formFixture.consent });
+      }
       const duplicate = new URLSearchParams(location.search).get('scenario') === 'duplicate';
       document.addEventListener('click', (event) => {
         const link = event.target.closest('a[href]');
@@ -80,51 +90,98 @@ function page(pathname: string, fixture: FormFixtureScenario, gtmContainerId?: s
         setTimeout(() => { location.href = link.href; }, 250);
       }, true);
 
-      function attachFixtureForm(form) {
+      // Deterministic stand-in for GTM: a generate_lead trigger fires the GA4 event tag.
+      function fireLeadTag(formId, formName) {
+        if (!formFixture.tagFired) return;
+        const parameters = formFixture.includeRequiredParameters
+          ? '&ep.form_id=' + encodeURIComponent(formId) + '&ep.form_name=' + encodeURIComponent(formName) + '&ep.page_location=' + encodeURIComponent(location.origin + location.pathname)
+          : '';
+        const request = '/g/collect?v=2&tid=G-TEST123456&en=generate_lead' + parameters;
+        if (formFixture.ga4RequestCount === 0) {
+          navigator.sendBeacon(request + '&fixture_drop=1');
+          return;
+        }
+        for (let index = 0; index < formFixture.ga4RequestCount; index += 1) navigator.sendBeacon(request);
+      }
+
+      function trackLead(formId, formName, email) {
+        if (!formFixture.dataLayerEvent) return;
+        // Adversarial on purpose: real sites sometimes push the typed email into the dataLayer.
+        window.dataLayer.push({ event: 'generate_lead', form_id: formId, form_name: formName, lead_email: email });
+        fireLeadTag(formId, formName);
+      }
+
+      function postLead(form, onDone) {
+        const body = new FormData(form);
+        const url = '/api/lead?formScenario=' + encodeURIComponent(formFixture.id);
+        if (formFixture.presentation === 'embedded') {
+          const request = new XMLHttpRequest();
+          request.open('POST', url);
+          request.onload = () => onDone(request.status >= 200 && request.status < 300);
+          request.send(body);
+          return;
+        }
+        fetch(url, { method: 'POST', body })
+          .then((response) => response.json().then(() => onDone(response.ok)), () => onDone(false));
+      }
+
+      function attachFixtureForm(form, status) {
+        const error = form.parentElement.querySelector('[role="alert"]');
         form.addEventListener('submit', (event) => {
+          if (formFixture.transport === 'redirect') return;
           event.preventDefault();
-          document.documentElement.dataset.submitAttempted = 'true';
-          document.documentElement.dataset.submissionResult = formFixture.submissionResult;
-          document.documentElement.dataset.tagFired = String(formFixture.tagFired);
-          document.documentElement.dataset.dataLayerEvent = String(formFixture.dataLayerEvent);
-          if (formFixture.submissionResult !== 'success' || !formFixture.outcomeObserved) {
-            document.documentElement.dataset.submissionResult = formFixture.submissionResult;
+          const email = form.querySelector('input[type="email"]');
+          if (formFixture.submissionResult === 'validation_error') {
+            email.setAttribute('aria-invalid', 'true');
+            if (error) { error.hidden = false; error.textContent = 'Enter a work email address.'; }
             return;
           }
-          if (formFixture.dataLayerEvent) {
-            window.dataLayer.push({ event: 'generate_lead', form_id: form.id, form_name: form.getAttribute('aria-label') });
-          }
-          const parameters = formFixture.includeRequiredParameters
-            ? '&ep.form_id=' + encodeURIComponent(form.id) + '&ep.form_name=' + encodeURIComponent(form.getAttribute('aria-label')) + '&ep.page_location=' + encodeURIComponent(location.origin + location.pathname)
-            : '';
-          for (let index = 0; index < formFixture.ga4RequestCount; index += 1) {
-            navigator.sendBeacon('/g/collect?v=2&tid=G-TEST123456&en=generate_lead' + parameters);
-          }
-          if (formFixture.transport === 'redirect') {
-            location.href = '/thank-you?scenario=' + encodeURIComponent(formFixture.id);
-            return;
-          }
-          if (formFixture.transport === 'spa') history.pushState({}, '', '/lead-complete?scenario=' + encodeURIComponent(formFixture.id));
-          const success = document.querySelector(form.dataset.successSelector || '');
-          if (success) success.hidden = false;
-          document.documentElement.dataset.outcomeObserved = 'true';
+          postLead(form, (ok) => {
+            if (!ok) {
+              if (error) { error.hidden = false; error.textContent = 'Something went wrong. Try again.'; }
+              return;
+            }
+            if (!formFixture.outcomeObserved) return;
+            if (formFixture.transport === 'spa') history.pushState({}, '', '/lead-complete?formScenario=' + encodeURIComponent(formFixture.id));
+            if (status) { status.hidden = false; status.textContent = "Thanks, we'll be in touch."; }
+            trackLead(form.id, form.getAttribute('aria-label'), email.value);
+          });
         });
       }
 
+      if (location.pathname === '/thank-you' && formFixture.transport === 'redirect' && formFixture.outcomeObserved) {
+        document.querySelector('h1').textContent = "Thanks, we'll be in touch.";
+        trackLead('contact', 'Contact sales', '');
+      }
+
       if (formFixture.presentation === 'dynamic') {
-        const contact = document.querySelector('#contact');
-        contact?.remove();
+        document.querySelector('#contact')?.remove();
         setTimeout(() => {
           const dynamic = document.createElement('form');
           dynamic.id = 'dynamic-contact';
           dynamic.setAttribute('aria-label', 'Dynamic contact');
-          dynamic.dataset.successSelector = '#contact-success';
           dynamic.innerHTML = '<label>Work email <input name="email" type="email"></label><button type="submit">Contact sales</button>';
-          document.querySelector('.fixture-forms')?.prepend(dynamic);
-          attachFixtureForm(dynamic);
+          document.querySelector('#contact-success')?.before(dynamic);
+          attachFixtureForm(dynamic, document.querySelector('#contact-success'));
         }, 150);
       }
-      document.querySelectorAll('form').forEach(attachFixtureForm);
+
+      if (formFixture.presentation === 'embedded') {
+        // A third-party embed script that renders its form into the page without an iframe.
+        document.querySelector('#contact')?.closest('.lead-form')?.remove();
+        setTimeout(() => {
+          const embed = document.createElement('div');
+          embed.setAttribute('role', 'region');
+          embed.setAttribute('aria-label', 'Partner demo request');
+          embed.innerHTML = '<form id="hsForm_8f3a2c" class="hs-form" aria-label="Request a demo"><label>Work email <input name="email" type="email"></label><button type="submit">Request a demo</button></form><p role="status" id="hsForm_8f3a2c_status" hidden></p><p role="alert" hidden></p>';
+          document.querySelector('.fixture-forms')?.prepend(embed);
+          attachFixtureForm(embed.querySelector('form'), embed.querySelector('[role="status"]'));
+        }, 100);
+      }
+
+      document.querySelectorAll('form').forEach((form) => {
+        attachFixtureForm(form, form.parentElement.querySelector('[role="status"]'));
+      });
     </script>
   </body>
 </html>`;
@@ -137,6 +194,19 @@ const server = createServer((request, response) => {
     response.end(JSON.stringify({ status: "ok", service: "fixture-site" }));
     return;
   }
+  if (url.pathname === "/api/lead" && request.method === "POST") {
+    const fixture = getFormFixtureScenario(url.searchParams.get("formScenario"));
+    const failed = fixture.submissionResult === "server_error";
+    request.resume();
+    response.writeHead(failed ? 500 : 200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+    response.end(JSON.stringify(failed ? { error: "unavailable" } : { ok: true }));
+    return;
+  }
+  if (url.pathname === "/g/collect" && url.searchParams.get("fixture_drop") === "1") {
+    // Simulates a GA4 request that never reaches Google (blocked or dropped connection).
+    request.socket.destroy();
+    return;
+  }
   if (url.pathname === "/g/collect") {
     response.writeHead(204, { "Cache-Control": "no-store" });
     response.end();
@@ -147,6 +217,7 @@ const server = createServer((request, response) => {
     response.end("// Deterministic local GTM runtime marker.");
     return;
   }
+  request.resume();
   response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
   response.end(page(
     url.pathname,

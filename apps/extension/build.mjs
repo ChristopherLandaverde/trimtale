@@ -25,6 +25,7 @@ async function buildExtension() {
       entryPoints: {
         "service-worker": "src/service-worker.ts",
         "content-script": "src/content-script.ts",
+        "page-observer": "src/page-observer.ts",
         "workbench": "src/workbench.ts",
       },
       bundle: true,
@@ -67,6 +68,7 @@ if (shouldWatch) {
   let timeout;
   const watchedFiles = [
     "src/content-script.ts",
+    "src/page-observer.ts",
     "src/manifest.json",
     "src/service-worker.ts",
     "src/workbench.css",

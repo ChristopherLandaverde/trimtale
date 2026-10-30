@@ -8,6 +8,7 @@ import type {
   TrackingSpecificationV1,
 } from "@trimtale/core";
 import { createSetupProposal } from "@trimtale/core";
+import { FormRun } from "@trimtale/core";
 import {
   buildFormRunEvidence,
   FormEvidenceController,
@@ -107,26 +108,29 @@ describe("NavigationEvidenceController", () => {
   });
 });
 
+function leadRun(requests: Array<{ url: string; observedAt: string; delivered?: boolean }>, startedAt = "2026-08-30T20:00:00.000Z"): FormRun {
+  const run = new FormRun("generate_lead", startedAt, "granted");
+  run.recordAttempt();
+  run.recordTransport("ajax");
+  run.recordOutcome();
+  run.recordPageSignal({ kind: "datalayer_event", event: "generate_lead", formId: "contact", at: Date.parse(startedAt) + 50 });
+  requests.forEach((request, index) => {
+    run.recordAnalyticsRequest({ id: `request_${index}`, url: request.url, observedAt: request.observedAt });
+    run.recordAnalyticsDelivery(`request_${index}`, request.delivered ?? true);
+  });
+  return run;
+}
+
 describe("FormEvidenceController", () => {
   it("builds private-value-filtered form run evidence", () => {
     const evidence = buildFormRunEvidence({
       specification: formSpecification,
       target: formSpecification.targets[0]!,
       success: formSuccess,
-      startedAt: "2026-08-30T20:00:00.000Z",
-      pageState: {
-        transport: "ajax",
-        submitAttempted: "true",
-        submissionResult: "success",
-        outcomeObserved: "true",
-        dataLayerEvent: "true",
-        tagFired: "true",
-        consent: "granted",
-      },
-      requests: [{
+      run: leadRun([{
         url: "http://127.0.0.1:14173/g/collect?v=2&tid=G-TEST123456&en=generate_lead&ep.form_id=contact&ep.form_name=Contact_sales&ep.email=private@example.com&ep.page_location=http%3A%2F%2F127.0.0.1%3A14173%2F%3Femail%3Dprivate%40example.com",
         observedAt: "2026-08-30T20:00:00.100Z",
-      }],
+      }]),
       now: 1798646400000,
     });
 
@@ -135,81 +139,51 @@ describe("FormEvidenceController", () => {
       browserVerification: "passed",
       platformConfirmation: "unverified",
     });
+    expect(evidence.observations.interaction).toMatchObject({ attempted: true, submissionResult: "success" });
     const serialized = JSON.stringify(evidence);
     expect(serialized).not.toContain("private@example.com");
     expect(serialized).not.toContain("ep.email");
     expect(evidence.observations.network.ga4Requests[0]?.url).toContain("ep.page_location=http%3A%2F%2F127.0.0.1%3A14173%2F");
   });
 
-  it("excludes storage, token-shaped values, hostile page URLs, and raw browser errors", () => {
-    const oauthToken = "ya29.private-oauth-token";
-    const sessionSecret = "session-secret-123";
-    const hostileUrl = "https://attacker.example/collect?token=private-token";
-    const rawBrowserError = "net::ERR_BLOCKED_BY_CLIENT private-token";
-
+  it("strips page URL tokens from collection requests", () => {
     const evidence = buildFormRunEvidence({
       specification: formSpecification,
       target: formSpecification.targets[0]!,
       success: formSuccess,
-      startedAt: "2026-08-30T20:00:00.000Z",
-      pageState: {
-        transport: "ajax",
-        submitAttempted: "true",
-        submissionResult: "success",
-        outcomeObserved: "true",
-        dataLayerEvent: "true",
-        tagFired: "true",
-        consent: "granted",
-        localStorage: oauthToken,
-        sessionStorage: sessionSecret,
-        pageUrl: hostileUrl,
-        browserError: rawBrowserError,
-      } as Record<string, string>,
-      requests: [{
+      run: leadRun([{
         url: "https://www.google-analytics.com/g/collect?v=2&tid=G-TEST123456&en=generate_lead&ep.form_id=contact&ep.form_name=Contact_sales&dl=https%3A%2F%2Fexample.test%2Fcontact%3Ftoken%3Dprivate-token",
         observedAt: "2026-08-30T20:00:00.100Z",
-      }],
+      }]),
       now: 1798646400001,
     });
 
-    expect(evidence.verdict).toMatchObject({
-      code: "browser_verified",
-      browserVerification: "passed",
-      platformConfirmation: "unverified",
-    });
-    const serialized = JSON.stringify(evidence);
-    expect(serialized).not.toContain(oauthToken);
-    expect(serialized).not.toContain(sessionSecret);
-    expect(serialized).not.toContain(hostileUrl);
-    expect(serialized).not.toContain(rawBrowserError);
-    expect(serialized).not.toContain("private-token");
+    expect(evidence.verdict).toMatchObject({ code: "browser_verified", browserVerification: "passed" });
+    expect(JSON.stringify(evidence)).not.toContain("private-token");
     expect(evidence.observations.network.ga4Requests[0]?.url).toContain("dl=https%3A%2F%2Fexample.test%2Fcontact");
   });
 
   it("drops non-Google collection URLs and keeps a bounded missing-request verdict", () => {
+    const run = leadRun([{
+      url: "https://evil.example/g/collect?v=2&tid=G-TEST123456&en=generate_lead&ep.form_id=contact&ep.form_name=Contact_sales&cookie=session-secret",
+      observedAt: "2026-08-30T20:00:00.100Z",
+    }]);
+    run.recordAnalyticsRequest({
+      id: "blocked",
+      url: "https://www.google-analytics.com/g/collect?v=2&tid=G-TEST123456&en=generate_lead&ep.form_id=contact&ep.form_name=Contact_sales&ep.page_location=https%3A%2F%2Fexample.test%2F",
+      observedAt: "2026-08-30T20:00:00.200Z",
+    });
+    run.recordAnalyticsDelivery("blocked", false);
     const evidence = buildFormRunEvidence({
       specification: formSpecification,
       target: formSpecification.targets[0]!,
       success: formSuccess,
-      startedAt: "2026-08-30T20:00:00.000Z",
-      pageState: {
-        transport: "ajax",
-        submitAttempted: "true",
-        submissionResult: "success",
-        outcomeObserved: "true",
-        dataLayerEvent: "true",
-        tagFired: "true",
-        consent: "granted",
-        networkError: "failed to fetch https://evil.example/g/collect?cookie=session-secret",
-      } as Record<string, string>,
-      requests: [{
-        url: "https://evil.example/g/collect?v=2&tid=G-TEST123456&en=generate_lead&ep.form_id=contact&ep.form_name=Contact_sales&ep.page_location=https%3A%2F%2Fexample.test%2Fcontact",
-        observedAt: "2026-08-30T20:00:00.100Z",
-      }],
+      run,
       now: 1798646400002,
     });
 
     expect(evidence.observations.network.ga4Requests).toEqual([]);
+    expect(evidence.observations.tagFired).toBe(true);
     expect(evidence.verdict).toMatchObject({
       code: "tag_fired_request_missing",
       browserVerification: "failed",
@@ -224,20 +198,13 @@ describe("FormEvidenceController", () => {
   it("finishes post-publication form evidence through the active operation", () => {
     const controller = new FormEvidenceController();
     controller.startPostPublication("operation_form", formRequest());
-    controller.recordAnalyticsRequest({
+    expect(controller.postPublicationRequest?.specification.id).toBe("spec_form_contact");
+    const run = leadRun([{
       url: "http://127.0.0.1:14173/g/collect?v=2&tid=G-TEST123456&en=generate_lead&ep.form_id=contact&ep.form_name=Contact_sales&ep.page_location=http%3A%2F%2F127.0.0.1%3A14173%2Fcontact",
       observedAt: "2026-08-30T20:00:00.100Z",
-    });
+    }]);
 
-    const completion = controller.finishPostPublication("2026-08-30T20:00:00.000Z", {
-      transport: "ajax",
-      submitAttempted: "true",
-      submissionResult: "success",
-      outcomeObserved: "true",
-      dataLayerEvent: "true",
-      tagFired: "true",
-      consent: "granted",
-    });
+    const completion = controller.finishPostPublication(run);
 
     expect(completion).toMatchObject({
       operationId: "operation_form",
@@ -246,6 +213,6 @@ describe("FormEvidenceController", () => {
         verdict: { code: "browser_verified" },
       },
     });
-    expect(controller.finishPostPublication("2026-08-30T20:00:01.000Z", {})).toBeUndefined();
+    expect(controller.finishPostPublication(run)).toBeUndefined();
   });
 });

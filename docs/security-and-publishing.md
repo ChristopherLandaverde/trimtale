@@ -25,6 +25,8 @@ The extension stores the inferred or advanced-fallback GA4 Measurement ID and pu
 
 The extension may read current-page DOM markup, script URLs, inline script text, iframe URLs, performance resource URLs, dataLayer entries, and runtime GTM globals to detect visible `GTM-` IDs and valid GA4 Measurement IDs. Only normalized IDs are returned to the workbench. This detection should be treated as page instrumentation evidence only.
 
+During a lead-form verification, a MAIN-world page observer (`page-observer.js`) reads `window.dataLayer` entries without replacing `dataLayer.push`. It stays idle until a verification starts on the page. It forwards only event names, identifier-shaped `form_id`/`form_name` values and Consent Mode `analytics_storage` states to the isolated content script, which re-validates them. Form field values and other dataLayer fields never cross that boundary, and GA4 request URLs are reduced to an allowlist (`v`, `tid`, `en`, `ep.form_id`, `ep.form_name`, `ep.page_location`, `dl`, `gcs`, with query strings stripped from page URLs) before they are stored.
+
 ## Google integration controls
 
 `GET /api/google/status` is public and reports whether Google discovery is configured.

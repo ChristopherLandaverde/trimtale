@@ -19,7 +19,7 @@ export interface RawFormRunObservation {
 
 const safeEventName = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
 const safeIdentifier = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
-const allowedRequestParameters = new Set(["v", "tid", "en", "ep.form_id", "ep.form_name", "ep.page_location", "dl"]);
+const allowedRequestParameters = new Set(["v", "tid", "en", "ep.form_id", "ep.form_name", "ep.page_location", "dl", "gcs"]);
 
 function safeDataLayerEvents(events: unknown[]): unknown[] {
   return events.flatMap((value) => {
@@ -34,7 +34,7 @@ function safeDataLayerEvents(events: unknown[]): unknown[] {
   });
 }
 
-function safeRequestUrl(value: string): string | undefined {
+export function safeRequestUrl(value: string): string | undefined {
   try {
     const source = new URL(value);
     if (!/(?:^|\.)google-analytics\.com$|(?:^|\.)analytics\.google\.com$/.test(source.hostname) && source.hostname !== "127.0.0.1") return undefined;

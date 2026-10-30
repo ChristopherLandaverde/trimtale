@@ -388,6 +388,74 @@ chrome.runtime.onMessage.addListener(
   },
 );
 
+interface FormAnalyticsRequest { id: string; url: string; observedAt: string; delivery: "pending" | "delivered" | "failed" }
+
+// GA4 request attempts per tab, with delivery status, kept briefly so a form run that
+// continues on a thank-you page can still see requests sent before the navigation.
+const formRequests = new Map<number, FormAnalyticsRequest[]>();
+const formRequestLifetimeMs = 30_000;
+const formRunLifetimeMs = 30_000;
+const formRunKey = (tabId: number) => `formRun:${tabId}`;
+
+function recordFormRequest(tabId: number, request: FormAnalyticsRequest): void {
+  const cutoff = Date.now() - formRequestLifetimeMs;
+  const observed = (formRequests.get(tabId) ?? []).filter((item) => Date.parse(item.observedAt) >= cutoff);
+  observed.push(request);
+  formRequests.set(tabId, observed);
+}
+
+function recordFormDelivery(tabId: number, id: string, delivered: boolean): void {
+  const request = formRequests.get(tabId)?.find((item) => item.id === id);
+  if (request) request.delivery = delivered ? "delivered" : "failed";
+  if (tabId >= 0) {
+    void chrome.tabs.sendMessage(tabId, { type: "FORM_ANALYTICS_DELIVERY", id, delivered }).catch(() => undefined);
+  }
+}
+
+chrome.runtime.onMessage.addListener(
+  (message: { type?: string; saved?: unknown }, sender, sendResponse) => {
+    const tabId = sender.tab?.id;
+    if (tabId === undefined) return undefined;
+    if (message.type === "FORM_RUN_SAVE" && message.saved) {
+      void chrome.storage.session.set({ [formRunKey(tabId)]: { saved: message.saved, savedAt: Date.now() } });
+      return undefined;
+    }
+    if (message.type === "FORM_RUN_CLEAR") {
+      void chrome.storage.session.remove(formRunKey(tabId));
+      return undefined;
+    }
+    if (message.type !== "FORM_RUN_RESUME") return undefined;
+    void chrome.storage.session.get(formRunKey(tabId)).then(async (stored) => {
+      const entry = stored[formRunKey(tabId)] as { saved?: unknown; savedAt?: number } | undefined;
+      await chrome.storage.session.remove(formRunKey(tabId));
+      if (!entry?.saved || typeof entry.savedAt !== "number" || Date.now() - entry.savedAt > formRunLifetimeMs) {
+        sendResponse({ saved: undefined, requests: [] });
+        return;
+      }
+      sendResponse({ saved: entry.saved, requests: formRequests.get(tabId) ?? [] });
+    });
+    return true;
+  },
+);
+
+const analyticsFilter = {
+  urls: [
+    "*://*.google-analytics.com/g/collect*",
+    "*://analytics.google.com/g/collect*",
+    "http://127.0.0.1:14173/g/collect*",
+  ],
+};
+
+chrome.webRequest.onCompleted.addListener(
+  (details) => recordFormDelivery(details.tabId, details.requestId, details.statusCode < 400),
+  analyticsFilter,
+);
+
+chrome.webRequest.onErrorOccurred.addListener(
+  (details) => recordFormDelivery(details.tabId, details.requestId, false),
+  analyticsFilter,
+);
+
 chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
     const request = { url: details.url, observedAt: new Date().toISOString() };
@@ -396,8 +464,10 @@ chrome.webRequest.onBeforeRequest.addListener(
       .filter((item) => Date.parse(item.observedAt) >= cutoff);
     observed.push(request);
     recentRequests.set(details.tabId, observed);
+    const formRequest: FormAnalyticsRequest = { id: details.requestId, ...request, delivery: "pending" };
+    recordFormRequest(details.tabId, formRequest);
     if (details.tabId >= 0) {
-      void chrome.tabs.sendMessage(details.tabId, { type: "FORM_ANALYTICS_REQUEST", request }).catch(() => undefined);
+      void chrome.tabs.sendMessage(details.tabId, { type: "FORM_ANALYTICS_REQUEST", request: formRequest }).catch(() => undefined);
     }
 
     if (!pending || details.tabId !== pending.tabId || Date.now() - pending.startedAt > requestLifetimeMs) return undefined;

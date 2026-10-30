@@ -14,6 +14,7 @@ export interface ExtensionJourney {
 export async function openExtensionJourney(
   fixtureState: string,
   gtmContainerId?: string,
+  prepare?: (context: BrowserContext) => Promise<void>,
 ): Promise<ExtensionJourney> {
   const profile = await mkdtemp(join(tmpdir(), "gtm-observability-journey-"));
   const extensionPath = resolve("apps/extension/dist");
@@ -22,6 +23,7 @@ export async function openExtensionJourney(
     headless: true,
     args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
   });
+  if (prepare) await prepare(context);
   const page = await context.newPage();
   const url = new URL("http://127.0.0.1:14173/");
   url.searchParams.set("formScenario", fixtureState);

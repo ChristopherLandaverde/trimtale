@@ -4,6 +4,7 @@ import {
   evaluateEvidence,
   normalizeFormRunEvidence,
   type BrowserEvidence,
+  type FormRun,
   type FormSetupRequest,
   type NavigationElement,
   type SetupRequest,
@@ -11,19 +12,6 @@ import {
   type TrackingRunEvidenceV1,
   type TrackingSpecificationV1,
 } from "@trimtale/core";
-
-export type AnalyticsRequest = { url: string; observedAt: string };
-
-export interface FormPageState {
-  transport?: string;
-  submitAttempted?: string;
-  submissionResult?: string;
-  outcomeObserved?: string;
-  outcomeObservable?: string;
-  dataLayerEvent?: string;
-  tagFired?: string;
-  consent?: string;
-}
 
 interface PostPublicationNavigation {
   operationId: string;
@@ -41,56 +29,27 @@ export interface PostPublicationEvidenceCompletion {
   evidence: TrackingRunEvidenceV1;
 }
 
-function classifySubmissionResult(value: string | undefined): "success" | "validation_error" | "server_error" | "unknown" {
-  return value === "success" || value === "validation_error" || value === "server_error" ? value : "unknown";
-}
-
-function classifyTransport(value: string | undefined): "native" | "redirect" | "ajax" | "spa" | "unobservable" {
-  return value === "native" || value === "redirect" || value === "ajax" || value === "spa" ? value : "unobservable";
-}
-
-function classifyConsent(value: string | undefined): "granted" | "denied" | "unknown" {
-  return value === "granted" || value === "denied" ? value : "unknown";
-}
-
 export function buildFormRunEvidence(
   input: {
     specification: TrackingSpecificationV1;
     target: TrackingSpecificationV1["targets"][number];
     success: SuccessEvidence;
-    startedAt: string;
-    pageState: FormPageState;
-    requests: AnalyticsRequest[];
+    run: FormRun;
     now?: number;
   },
 ): TrackingRunEvidenceV1 {
-  const requestUrls = input.requests
-    .filter((request) => Date.parse(request.observedAt) >= Date.parse(input.startedAt))
-    .map((request) => request.url);
   const provisionalVerdict: TrackingRunEvidenceV1["verdict"] = {
     code: "insufficient_observable_evidence",
     browserVerification: "inconclusive",
     platformConfirmation: "unverified",
     nextAction: "Await deterministic classification.",
   };
-  const provisional = normalizeFormRunEvidence({
+  const provisional = normalizeFormRunEvidence(input.run.observation({
     runId: `run_form_${input.now ?? Date.now()}`,
     specificationId: input.specification.id,
-    startedAt: input.startedAt,
-    transport: classifyTransport(input.pageState.transport),
     targetId: input.target.id,
-    submitAttempted: input.pageState.submitAttempted === "true",
-    submissionResult: classifySubmissionResult(input.pageState.submissionResult),
-    outcomeObserved: input.pageState.outcomeObserved === "true",
-    outcomeObservable: input.pageState.outcomeObservable !== "false",
-    outcomeEvidenceType: input.success.type,
-    dataLayerEvents: input.pageState.dataLayerEvent === "true"
-      ? [{ event: "generate_lead", form_id: input.target.id, form_name: input.target.label.replaceAll(" ", "_") }]
-      : [],
-    tagFired: input.pageState.tagFired === "true" ? true : input.pageState.tagFired === "false" ? false : null,
-    networkUrls: requestUrls,
-    consent: classifyConsent(input.pageState.consent),
-  }, provisionalVerdict);
+    success: input.success,
+  }), provisionalVerdict);
   const verdict = determineFormVerdict(provisional.observations);
   return { ...provisional, verdict };
 }
@@ -148,20 +107,18 @@ export class NavigationEvidenceController {
 }
 
 export class FormEvidenceController {
-  readonly #recentRequests: AnalyticsRequest[] = [];
   #postPublication: PostPublicationForm | undefined;
 
-  startInteractiveVerification(): void {
-    this.#recentRequests.length = 0;
-  }
-
   startPostPublication(operationId: string, request: FormSetupRequest): void {
-    this.#recentRequests.length = 0;
     this.#postPublication = { operationId, request };
   }
 
-  recordAnalyticsRequest(request: AnalyticsRequest): void {
-    this.#recentRequests.push(request);
+  get postPublicationRequest(): FormSetupRequest | undefined {
+    return this.#postPublication?.request;
+  }
+
+  get postPublicationOperationId(): string | undefined {
+    return this.#postPublication?.operationId;
   }
 
   matchesPostPublicationForm(form: HTMLFormElement): boolean {
@@ -169,32 +126,17 @@ export class FormEvidenceController {
     return Boolean(target && form.matches(target.selector));
   }
 
-  buildRunEvidence(
-    specification: TrackingSpecificationV1,
-    target: TrackingSpecificationV1["targets"][number],
-    success: SuccessEvidence,
-    startedAt: string,
-    pageState: FormPageState,
-  ): TrackingRunEvidenceV1 {
-    return buildFormRunEvidence({
-      specification,
-      target,
-      success,
-      startedAt,
-      pageState,
-      requests: this.#recentRequests,
-    });
+  /** Re-attaches a post-publication run after the page navigated during the submission. */
+  resumePostPublication(operationId: string, request: FormSetupRequest): void {
+    this.#postPublication = { operationId, request };
   }
 
-  finishPostPublication(
-    startedAt: string,
-    pageState: FormPageState,
-  ): PostPublicationEvidenceCompletion | undefined {
+  finishPostPublication(run: FormRun): PostPublicationEvidenceCompletion | undefined {
     const active = this.#postPublication;
     const target = active?.request.specification.targets[0];
     const success = active?.request.specification.successEvidence[0];
     if (!active || !target || !success) return undefined;
-    const evidence = this.buildRunEvidence(active.request.specification, target, success, startedAt, pageState);
+    const evidence = buildFormRunEvidence({ specification: active.request.specification, target, success, run });
     this.#postPublication = undefined;
     return { operationId: active.operationId, request: active.request, evidence };
   }

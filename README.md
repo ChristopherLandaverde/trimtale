@@ -49,16 +49,15 @@ Chromium), use `npm run verify`.
 | Generate the setup | Builds a GTM container file: one GA4 event tag (`navigation_click` or `generate_lead` with `form_id`, `form_name`, `page_location`), its trigger and variables. Downloads as `trimtale-navigation-click.json` or `trimtale-generate-lead.json`. |
 | Detect the container | Reads public `GTM-` IDs from the page's script URLs and, with Google connected, matches one to exactly one container your account can access. |
 | Prepare a workspace | With container writes switched on, creates or reuses one managed custom workspace, applies the setup, validates it and creates an immutable GTM version. |
-| Verify in the browser | Watches GA4 collection requests while you click or submit, and classifies the result: verified, expected validation failure, missing event, tag did not fire, missing request, missing parameter, duplicate request, consent-limited, server error, or not enough evidence. |
+| Verify in the browser | Watches what the browser actually does when you click or submit (the submit and validation events, the success message or thank-you page, `dataLayer` events, Consent Mode state, and GA4 requests and whether they were delivered) and classifies the result: verified, expected validation failure, missing event, tag did not fire, missing request, missing parameter, duplicate request, consent-limited, server error, or not enough evidence. |
 | Publish and roll back | Publishing and rollback exist behind an exact version-fingerprint approval and a separate backend switch. They are off by default and are never run by CI or `npm run verify`. |
 
 ## Known limits
 
-- **Lead-form verdicts are only fully observed on the bundled fixture site.** The submit,
-  success, dataLayer and consent inputs to the form verdict are read from page flags that
-  only the fixture sets. On a real site, the GA4 request is the only real evidence, so most
-  verdicts fall back to "not enough evidence". Replacing those flags
-  with real browser signals is the next slice.
+- **Lead-form verdicts come from real browser signals**, but they've only been exercised
+  on the bundled fixture site, not on a live production site yet. Signals Trimtale can't see:
+  GA4 events batched into a POST body (only the request URL's event name is read), a form
+  endpoint response whose body the page never reads, and forms inside cross-origin iframes.
 - **Verification is tied to setup.** You can't yet point Trimtale at tracking that already
   exists and get a verdict without generating a setup first. A read-only check mode is planned.
 - **Only GA4 collection requests are captured**, from `*.google-analytics.com` and
@@ -72,8 +71,10 @@ Chromium), use `npm run verify`.
 
 ## Privacy and permissions
 
-Trimtale never sends form field values, cookies, local storage or page HTML anywhere. What
-does leave the browser:
+Trimtale never sends form field values, cookies, local storage or page HTML anywhere. Once
+you start a form verification, a small observer inside the page reads `window.dataLayer` and
+passes only event names, `form_id`/`form_name` identifiers and consent states to the
+extension; it never reads form field values. What does leave the browser:
 
 - **To the Trimtale API** (local `127.0.0.1:18787` by default, or the hosted API you build
   against): the tracking intent, page URL, detected public GTM and GA4 IDs, and the confirmed
@@ -99,7 +100,7 @@ More detail: [Security and publishing notes](docs/security-and-publishing.md).
 | `apps/extension` | Chrome MV3 extension: the on-page assistant, target discovery, evidence capture. |
 | `apps/api` | Node API: setup generation, Google OAuth, GTM reads and writes, the durable setup operation. |
 | `packages/core` | Domain logic: tracking specs, the GTM generator, the deterministic form verdict engine, change planning. |
-| `apps/fixture-site` | The sample "Northstar" lead-gen site with 16 form scenarios used by the browser tests. |
+| `apps/fixture-site` | The sample "Northstar" lead-gen site with 18 form scenarios used by the browser tests. |
 | `apps/verification-target` | A disposable smoke-test page for credentialed runs. |
 
 The product plan and current status live in [`docs/product-plan/`](docs/product-plan/), starting
