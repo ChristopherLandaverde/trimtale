@@ -64,12 +64,18 @@ dataLayer signals.
 
 ## Verification
 
-See the pull request for the final run: `npm run check`, `npx vitest run`, `npm run build`,
-`npx playwright test`.
+On macOS: `npm run check` passed; `npx vitest run` 41 files / 346 tests passed (323 on main,
+23 new); `npm run build` passed; `npx playwright test` 81 passed (71 on main, 10 new). The new core tests failed before the fix. A mutation that attributes every
+response to the form makes the `third_party_error_after_success` E2E fail, so that case really
+exercises attribution. Change docs valid. Visual baselines unchanged.
 
 ## Exploratory review
 
-`docs/reviews/2026-10-30-server-error-precedence.md`.
+`docs/reviews/2026-10-30-server-error-precedence.md`: happy (AJAX success, retry after 503,
+third-party 500), negative (AJAX 503, native POST 503 onto the thank-you page, 422, each with
+page-reported success), adversarial (forged `generate_lead` on a 500). No blocker or high
+findings; one medium (explanation and presenter copy do not yet name the conflict) is follow-up
+issue 02, left to the assistant presenter work.
 
 ## Documentation
 

@@ -194,7 +194,8 @@ function page(pathname: string, fixture: FormFixtureScenario, gtmContainerId?: s
       // A third-party widget on another origin whose own endpoint is failing.
       function callThirdPartyWidget() {
         if (!formFixture.thirdPartyErrorAfterSubmit) return;
-        fetch('http://localhost:' + location.port + '/widget/collect', { method: 'POST', mode: 'cors' }).catch(() => undefined);
+        fetch('http://localhost:' + location.port + '/widget/collect', { method: 'POST', mode: 'cors' })
+          .then((response) => response.text(), () => undefined);
       }
 
       function attachFixtureForm(form, status) {
