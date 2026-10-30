@@ -56,6 +56,8 @@ test("mounts and streams through the floating tracking assistant", async () => {
     await expect(root.getByText(/I found 5 navigation links/)).toBeVisible();
     await root.getByRole("button", { name: "Choose links" }).click();
     await expect(root.locator(".pick")).toHaveCount(5);
+    // The picker renders under the pointer; take the baseline without a hover state.
+    await site.mouse.move(0, 0);
     await expect(assistant).toHaveScreenshot("assistant-navigation-scope.png", screenshotOptions);
     await root.getByRole("button", { name: "Confirm selection" }).click();
     await expect(root.getByText("5 navigation links selected and highlighted on the page.")).toBeVisible();
