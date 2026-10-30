@@ -1538,13 +1538,30 @@ async function mountOverlay(): Promise<void> {
     if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submitPrompt(); }
   });
   enableDragging(shadow.querySelector<HTMLElement>(".drag")!);
-  new ResizeObserver(() => {
+  // Only settled sizes are preferences. Recording intermediate sizes while the
+  // open/resize transition runs let a later applyPreferences() freeze the panel
+  // part-way open (e.g. when a prompt is submitted within the 180ms transition).
+  // Sizes are read in the same content-box terms applyPreferences() writes, so
+  // re-applying a remembered size does not grow the panel by its border width.
+  const rememberSettledSize = (): void => {
     if (!frame || preferences.collapsed) return;
-    const bounds = frame.getBoundingClientRect();
-    preferences.width = Math.round(bounds.width);
-    preferences.height = Math.round(bounds.height);
+    const style = getComputedStyle(frame);
+    preferences.width = Math.round(Number.parseFloat(style.width));
+    preferences.height = Math.round(Number.parseFloat(style.height));
     persistPreferences();
+  };
+  const sizeTransitionRunning = (): boolean => frame?.getAnimations().some((animation) =>
+    animation instanceof CSSTransition
+    && (animation.transitionProperty === "width" || animation.transitionProperty === "height")) ?? false;
+  new ResizeObserver(() => {
+    if (sizeTransitionRunning()) return;
+    rememberSettledSize();
   }).observe(frame);
+  frame.addEventListener("transitionend", (event) => {
+    if (event.target === frame && (event.propertyName === "width" || event.propertyName === "height")) {
+      rememberSettledSize();
+    }
+  });
   document.documentElement.append(host);
   applyPreferences();
   if (!preferences.collapsed) void loadGtmConnectionContext();
