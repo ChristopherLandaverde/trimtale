@@ -42,7 +42,7 @@ Required invariants:
 ## Done when
 
 - The deterministic and Chromium regression contracts pass in `npm run verify`.
-- The disposable page is deployed with container `GTM-PCJ3Q5RK`.
+- The disposable page is deployed with container `GTM-XXXXXXX`.
 - A real valid submission produces one normalized `browser_verified` run with platform
   confirmation still `unverified`.
 - The published operation advances to `completed` only from that passing evidence.

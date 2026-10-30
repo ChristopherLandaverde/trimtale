@@ -5,7 +5,7 @@ Date: 2026-08-23
 Build: `fix/ga4-page-location-wire-alias` working tree before final commit.
 
 Environment: Playwright Chromium 1234 against the published disposable container
-`GTM-PCJ3Q5RK` on `https://consentflow-psi.vercel.app/`, plus deterministic core
+`GTM-XXXXXXX` on `https://consentflow-psi.vercel.app/`, plus deterministic core
 regressions. No production container was used.
 
 ## Scenarios exercised
@@ -14,7 +14,7 @@ regressions. No production container was used.
 
 Loaded the disposable page, waited for the exact GTM container runtime, and pushed the
 confirmed `gtm_observability_smoke_success` data-layer signal. Chromium observed
-exactly one GA4 `generate_lead` request for `G-YV879ECLRV`. It contained the expected
+exactly one GA4 `generate_lead` request for `G-XXXXXXXXXX`. It contained the expected
 `form_id` and `form_name`, and transmitted the page URL through GA4's standard `dl`
 wire parameter. The corrected semantic assertion passed.
 

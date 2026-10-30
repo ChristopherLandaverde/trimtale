@@ -187,7 +187,7 @@ before considering any reviewed baseline update. The follow-up is tracked in
 
 ## First live operation handoff
 
-The disposable exercise used container `GTM-PCJ3Q5RK` only:
+The disposable exercise used container `GTM-XXXXXXX` only:
 
 - Managed trigger: `6`, `Form success - data_layer_event`.
 - Managed tag: `7`, `GA4 Event - generate_lead`.

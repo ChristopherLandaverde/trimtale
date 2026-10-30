@@ -314,7 +314,7 @@ all 45 Chromium workflows.
 
 ## Credentialed disposable-container evidence
 
-Credentialed Phase 1 evidence uses only disposable container `GTM-PCJ3Q5RK`
+Credentialed Phase 1 evidence uses only disposable container `GTM-XXXXXXX`
 (`ConsentFlow Verification`) and disposable page `https://consentflow-psi.vercel.app/`.
 No ordinary verification or CI path consumes real Google credentials.
 
@@ -328,7 +328,7 @@ The current real-Google lane evidence is recorded in
 - Approved publication smoke published only exact fingerprint `1788183353134`, then
   browser evidence run
   `run_spec_disposable_form_smoke_2026_08_31_dry_run_1788184399167` observed exactly
-  one sanitized GA4 `generate_lead` request for `G-YV879ECLRV` with `form_id`,
+  one sanitized GA4 `generate_lead` request for `G-XXXXXXXXXX` with `form_id`,
   `form_name`, and page location transported through GA4's `dl` wire parameter.
 - Rollback drill published distinct disposable version `8`, fingerprint
   `1788185422573`, then controlled failed browser evidence

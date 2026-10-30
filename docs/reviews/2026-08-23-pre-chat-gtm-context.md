@@ -20,8 +20,8 @@ Build: `feat/pre-chat-gtm-context` production extension before final commit.
 Opened the assistant on the live ConsentFlow page without entering a prompt. The card
 settled to:
 
-- page `GTM-PCJ3Q5RK`;
-- account `Premium Carpet Company Test`;
+- page `GTM-XXXXXXX`;
+- account `Example Test Account`;
 - container `ConsentFlow Verification`;
 - effective capability `READ-ONLY`;
 - `GTM API authorization connected` rather than a browser-login claim;

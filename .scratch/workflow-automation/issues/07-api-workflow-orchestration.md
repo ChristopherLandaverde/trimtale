@@ -32,7 +32,7 @@ boundary.
 ## Comments
 
 - 2026-08-22: Claimed after credentialed discovery and managed-workspace smoke checks
-  passed against the explicitly disposable `GTM-PCJ3Q5RK` container. The orchestration
+  passed against the explicitly disposable `GTM-XXXXXXX` container. The orchestration
   endpoint will stop at `versioned`; approval and publication remain separate.
 - 2026-08-22: Expanded the operational slice to support a one-time full-scope consent
   with opt-in owner-only refresh-token persistence. This removes restart prompts while

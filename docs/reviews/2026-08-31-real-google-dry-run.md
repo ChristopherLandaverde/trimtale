@@ -28,15 +28,15 @@ verification evidence.
 - `publicationEnabled: false`
 - `tokenPersistenceEnabled: true`
 
-Accessible-container discovery found exactly one match for `GTM-PCJ3Q5RK`:
+Accessible-container discovery found exactly one match for `GTM-XXXXXXX`:
 
-- Account: `Premium Carpet Company Test`
+- Account: `Example Test Account`
 - Container: `ConsentFlow Verification`
-- Path: `accounts/6305900974/containers/261236292`
+- Path: `accounts/1234567890/containers/123456789`
 
 The prior live version before this dry run was:
 
-- Path: `accounts/6305900974/containers/261236292/versions/6`
+- Path: `accounts/1234567890/containers/123456789/versions/6`
 - Fingerprint: `1787798811643`
 
 ## Operation
@@ -45,7 +45,7 @@ Planned and resumed form setup operation:
 
 - Operation: `operation_spec_disposable_form_smoke_2026_08_31_dry_run`
 - Specification: `spec_disposable_form_smoke_2026_08_31_dry_run`
-- Measurement ID: `G-YV879ECLRV`
+- Measurement ID: `G-XXXXXXXXXX`
 - Target page: `https://consentflow-psi.vercel.app/`
 - Target selector: `#workflow-smoke-form`
 - Success evidence: `gtm_observability_smoke_success`
@@ -53,14 +53,14 @@ Planned and resumed form setup operation:
 
 The operation used managed workspace:
 
-- Path: `accounts/6305900974/containers/261236292/workspaces/9`
+- Path: `accounts/1234567890/containers/123456789/workspaces/9`
 - Fingerprint: `1788183087898`
 
 Resume reached the approval gate:
 
 - Status: `versioned`
 - Validation: `passed`
-- Immutable version path: `accounts/6305900974/containers/261236292/versions/7`
+- Immutable version path: `accounts/1234567890/containers/123456789/versions/7`
 - Immutable version fingerprint: `1788183353134`
 - Next step: `await_approval`
 
@@ -102,7 +102,7 @@ sanitized evidence:
 - Raw matching GA4 requests observed: `1`
 - Sanitized request host/path: `https://www.google-analytics.com/g/collect`
 - Event: `generate_lead`
-- Measurement ID: `G-YV879ECLRV`
+- Measurement ID: `G-XXXXXXXXXX`
 - `form_id`: `workflow-smoke-form`
 - `form_name`: `Disposable workflow smoke form`
 - Page location was transported through GA4's `dl` parameter and normalized to
@@ -131,16 +131,16 @@ Rollback drill operation:
 
 The operation used managed workspace:
 
-- Path: `accounts/6305900974/containers/261236292/workspaces/10`
+- Path: `accounts/1234567890/containers/123456789/workspaces/10`
 - Fingerprint: `1788185157115`
 
 Resume reached the approval gate:
 
 - Status: `versioned`
 - Validation: `passed`
-- Immutable version path: `accounts/6305900974/containers/261236292/versions/8`
+- Immutable version path: `accounts/1234567890/containers/123456789/versions/8`
 - Immutable version fingerprint: `1788185422573`
-- Prior live version path: `accounts/6305900974/containers/261236292/versions/7`
+- Prior live version path: `accounts/1234567890/containers/123456789/versions/7`
 - Prior live fingerprint: `1788183353134`
 
 After exact-fingerprint approval, the product published version `8`:
@@ -165,7 +165,7 @@ completed:
 
 - Rollback status: `completed`
 - Rollback completed at: `2026-08-31T14:11:59.540Z`
-- Restored live version path: `accounts/6305900974/containers/261236292/versions/7`
+- Restored live version path: `accounts/1234567890/containers/123456789/versions/7`
 - Restored live fingerprint: `1788183353134`
 
 Live container readback after rollback confirmed version `7`, fingerprint
