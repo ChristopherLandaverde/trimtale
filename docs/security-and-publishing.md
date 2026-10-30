@@ -89,8 +89,10 @@ Google and intake-evaluation routes answer cross-origin requests only from the o
 ## Extension permissions
 
 The extension requests `activeTab`, `scripting`, `storage` and `webRequest`. Its content
-scripts, including the page observer, load on every `http` and `https` page and stay idle
-until the practitioner starts a check there. Its host
+scripts load on every `http` and `https` page. On each page they add the collapsed assistant
+panel and resume a form check left in progress. If the panel was left open, they also send
+the page's detected GTM container IDs to the local API (`127.0.0.1:18787`) to recognise the
+matching container. The page observer stays idle until a check starts on the page. Its host
 permissions are the configured API origin from `GTM_OBSERVABILITY_API_BASE`, the local
 fixture origin for deterministic checks, and the Google Analytics collection hosts it
 observes for browser evidence. Generated files are saved through a download link in the panel, so
