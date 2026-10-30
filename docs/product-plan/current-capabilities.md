@@ -92,7 +92,7 @@ flag is read:
 |---|---|
 | Submit attempt | The confirmed form's `submit` event, or `invalid` events from the browser's constraint validation |
 | Validation failure | `invalid` events, a field with `aria-invalid="true"` after the submit, or a 400/422 response from the form endpoint |
-| Server error | A 5xx response from the form endpoint (Resource Timing `responseStatus` of the page's fetch/XHR, or of the navigation after a native POST) |
+| Server error | A 5xx response from the form endpoint (Resource Timing `responseStatus` of the page's fetch/XHR to the form's action origin, or of the navigation after a native POST); a later response from the same endpoint (a retry) replaces it |
 | Success outcome | The confirmed success element becoming visible, the page URL matching the confirmed thank-you pattern (also after a full redirect), or the confirmed dataLayer event |
 | dataLayer event | A MAIN-world observer that reads `window.dataLayer` entries (object pushes and `gtag()` commands) without replacing `push`; it runs only after verification starts |
 | Tag fired / request delivered | GA4 `/g/collect` request attempts from `webRequest`, and their completion or network error |
@@ -100,6 +100,23 @@ flag is read:
 
 Only event names, identifier-shaped `form_id`/`form_name` values and consent states cross
 from the page into the extension. Form field values are never read into the run.
+
+When signals conflict, the submission result follows one order (2026-10-30). Network evidence
+for the form's own submission outranks page-reported evidence, because the success element,
+thank-you URL and dataLayer event are all set by page code:
+
+1. A 5xx from the form endpoint → `server_error` → `submission_failed`.
+2. A 400/422 from the form endpoint → `validation_error` → `expected_non_conversion`.
+3. The confirmed success signal (element, thank-you URL or dataLayer event) → `success`.
+4. Client-side validation (`invalid` events, `aria-invalid`) → `validation_error`.
+5. A 5xx, then a 400/422, from another origin that the form does not submit to → only when
+   nothing above applies.
+
+So a page that says "Thanks" or pushes `generate_lead` after its endpoint returned 503 gets
+`submission_failed`. The success signal stays in the evidence (`outcome.observed`, dataLayer
+events, GA4 requests), the evidence carries `interaction.responseStatus`, and the next action
+reads, for example, "The page reported success, but the form endpoint returned HTTP 503", adding
+that GA4 may count a lead that does not exist when a `generate_lead` request was sent.
 
 The deterministic verdict engine covers successful browser verification, expected validation failures, missing events, tags that did not fire, missing requests, missing parameters, duplicate requests, consent limitations, server errors, and insufficient observable evidence.
 

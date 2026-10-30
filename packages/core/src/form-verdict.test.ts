@@ -55,6 +55,11 @@ describe("deterministic form verdict engine", () => {
     ["dynamic_form", "browser_verified", observations()],
     ["multiple_forms", "browser_verified", observations()],
     ["cross_origin_iframe", "insufficient_observable_evidence", corpus.find((item) => item.code === "insufficient_observable_evidence")!.evidence],
+    ["server_error_with_success_event", "submission_failed", observations({ interaction: { type: "form_submission", targetId: "contact", attempted: true, submissionResult: "server_error", responseStatus: 503 } })],
+    ["redirect_server_error", "submission_failed", observations({ interaction: { type: "form_submission", targetId: "contact", attempted: true, submissionResult: "server_error", responseStatus: 503 }, outcome: { observed: true, observable: true, evidenceType: "thank_you_url" } })],
+    ["endpoint_rejection_with_success_event", "expected_non_conversion", observations({ interaction: { type: "form_submission", targetId: "contact", attempted: true, submissionResult: "validation_error", responseStatus: 422 } })],
+    ["server_error_retry_success", "browser_verified", observations()],
+    ["third_party_error_after_success", "browser_verified", observations()],
   ] as const)("maps fixture %s to %s", (_id, expected, evidence) => {
     expect(determineFormVerdict(evidence).code).toBe(expected);
   });
@@ -88,5 +93,28 @@ describe("deterministic form verdict engine", () => {
       }] },
     });
     expect(determineFormVerdict(noPageLocation).code).toBe("missing_parameter");
+  });
+
+  it("names the conflicting success signal and the HTTP status when a failed submission reported success", () => {
+    const failed = determineFormVerdict(observations({ interaction: { type: "form_submission", targetId: "contact", attempted: true, submissionResult: "server_error", responseStatus: 503 } }));
+    expect(failed.code).toBe("submission_failed");
+    expect(failed.browserVerification).toBe("failed");
+    expect(failed.nextAction).toMatch(/^The page reported success, but the form endpoint returned HTTP 503\./);
+    expect(failed.nextAction).toMatch(/GA4 may count a lead/);
+
+    const noRequest = determineFormVerdict(observations({ interaction: { type: "form_submission", targetId: "contact", attempted: true, submissionResult: "server_error" }, tagFired: false, network: { ga4Requests: [] } }));
+    expect(noRequest.nextAction).toMatch(/^The page reported success, but the form endpoint returned a server error\./);
+    expect(noRequest.nextAction).not.toMatch(/GA4 may count/);
+
+    const rejected = determineFormVerdict(observations({ interaction: { type: "form_submission", targetId: "contact", attempted: true, submissionResult: "validation_error", responseStatus: 422 } }));
+    expect(rejected.code).toBe("expected_non_conversion");
+    expect(rejected.nextAction).toMatch(/^The page reported success, but the form endpoint rejected the submission with HTTP 422\./);
+  });
+
+  it("keeps the standard next action for failures without a conflicting success signal", () => {
+    expect(determineFormVerdict(corpus.find((item) => item.code === "submission_failed")!.evidence).nextAction)
+      .toBe("Fix the form or server error, then rerun browser verification.");
+    expect(determineFormVerdict(corpus.find((item) => item.code === "expected_non_conversion")!.evidence).nextAction)
+      .toBe("Correct the form input and submit again; do not count this attempt as a lead.");
   });
 });

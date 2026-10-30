@@ -15,6 +15,8 @@ interface RealSignalCase {
   form: { label: string; selector: string };
   fill: boolean;
   navigatesTo?: RegExp;
+  /** The visible next action, for runs where the page reported success over a failed endpoint. */
+  nextAction?: RegExp;
 }
 
 const contact = { label: "Contact sales", selector: "form#contact" };
@@ -37,6 +39,12 @@ const cases: RealSignalCase[] = [
   { scenario: "dynamic_form", verdict: "browser_verified", form: { label: "Dynamic contact", selector: "form#dynamic-contact" }, fill: true },
   { scenario: "multiple_forms", verdict: "browser_verified", form: contact, fill: true },
   { scenario: "embedded_form", verdict: "browser_verified", form: { label: "Request a demo", selector: "form[aria-label='Request a demo']" }, fill: true },
+  // Verdict precedence: the form endpoint's answer outranks the page's own success signal.
+  { scenario: "server_error_with_success_event", verdict: "submission_failed", form: contact, fill: true, nextAction: /page reported success, but the form endpoint returned HTTP 503.*GA4 may count a lead/ },
+  { scenario: "redirect_server_error", verdict: "submission_failed", form: contact, fill: true, navigatesTo: /\/thank-you/, nextAction: /page reported success, but the form endpoint returned HTTP 503/ },
+  { scenario: "endpoint_rejection_with_success_event", verdict: "expected_non_conversion", form: contact, fill: true, nextAction: /page reported success, but the form endpoint rejected the submission with HTTP 422/ },
+  { scenario: "server_error_retry_success", verdict: "browser_verified", form: contact, fill: true },
+  { scenario: "third_party_error_after_success", verdict: "browser_verified", form: contact, fill: true },
 ];
 
 /** Signals the extension actually received from the page observer, read in its isolated world. */
@@ -76,6 +84,7 @@ for (const item of cases) {
 
       await expect(root.getByText(`Verdict: ${item.verdict}`, { exact: false })).toBeVisible({ timeout: 10_000 });
       await expect(root.getByText("Platform confirmation: unverified", { exact: false })).toBeVisible();
+      if (item.nextAction) await expect(root.getByText(item.nextAction).first()).toBeVisible();
       expect(await verdictFlagAttributes(page)).toEqual([]);
 
       const crossed = `${signalLog}\n${await receivedSignals(page)}`;

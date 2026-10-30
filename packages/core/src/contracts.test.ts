@@ -87,4 +87,28 @@ describe("tracking specification contract", () => {
       },
     })).toEqual([]);
   });
+
+  it("accepts an optional HTTP status behind a form submission result and rejects malformed ones", () => {
+    const evidence = (responseStatus: unknown) => ({
+      schemaVersion: 1,
+      runId: "run_1",
+      specificationId: "spec_1",
+      startedAt: "2026-10-30T12:00:00.000Z",
+      observations: {
+        interaction: { submissionResult: "server_error", responseStatus },
+        outcome: { observable: true },
+        tagFired: true,
+      },
+      verdict: {
+        code: "submission_failed",
+        browserVerification: "failed",
+        platformConfirmation: "unverified",
+        nextAction: "Fix the form or server error, then rerun browser verification.",
+      },
+    });
+    expect(validateTrackingRunEvidence(evidence(503))).toEqual([]);
+    for (const value of [0, 99, 600, 503.5, "503", null]) {
+      expect(validateTrackingRunEvidence(evidence(value))).toContain("observations.interaction.responseStatus is invalid");
+    }
+  });
 });
