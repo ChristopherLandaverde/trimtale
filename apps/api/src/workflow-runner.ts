@@ -2,6 +2,8 @@ import {
   approveTrackingVersion,
   createFormSetupProposal,
   createSetupProposal,
+  publicationApprovalCurrent,
+  publicationApprovalExpiresAt,
   recordPostPublicationEvidence,
   type FormSetupRequest,
   type SetupRequest,
@@ -36,6 +38,10 @@ export type WorkflowResumeResult =
     reason: string;
     details?: unknown;
   };
+
+export type WorkflowApprovalResult =
+  | { status: "approved"; operation: TrackingSetupOperationV1; nextStep: "publish"; approvalExpiresAt: string }
+  | { status: "blocked"; operation: TrackingSetupOperationV1; stage: "approval"; reason: string };
 
 export type WorkflowPublishResult =
   | { status: "published"; operation: TrackingSetupOperationV1; nextStep: "verify_publication" }
@@ -235,40 +241,69 @@ export class TrackingWorkflowRunner {
     return { status: "versioned", operation, nextStep: "await_approval" };
   }
 
-  async approveAndPublish(
+  /**
+   * Records an explicit publication approval for one immutable version. The approver is
+   * the identity the route verified with Google; the confirmation must name the container
+   * that will change. Nothing is published here.
+   */
+  approvePublication(
     id: string,
     approvedFingerprint: string,
+    confirmation: string,
     approvedBy: string,
-  ): Promise<WorkflowPublishResult> {
+  ): WorkflowApprovalResult {
     const operation = this.requiredOperation(id);
-    if (operation.status !== "versioned" || !operation.version) {
-      return {
-        status: "blocked",
-        operation,
-        stage: "approval",
-        reason: "operation_not_versioned",
-      };
+    if ((operation.status !== "versioned" && operation.status !== "approved") || !operation.version) {
+      return { status: "blocked", operation, stage: "approval", reason: "operation_not_versioned" };
     }
     if (approvedFingerprint !== operation.version.fingerprint) {
-      return {
-        status: "blocked",
-        operation,
-        stage: "approval",
-        reason: "fingerprint_mismatch",
-      };
+      return { status: "blocked", operation, stage: "approval", reason: "fingerprint_mismatch" };
     }
-    const approved = approveTrackingVersion(
-      operation,
-      approvedBy,
-      nextTimestamp(operation.updatedAt, this.now),
-    );
+    if (confirmation.trim() !== operation.container.publicId) {
+      return { status: "blocked", operation, stage: "approval", reason: "confirmation_mismatch" };
+    }
+    const approved = approveTrackingVersion(operation, approvedBy, nextTimestamp(operation.updatedAt, this.now));
     if (!approved.approval) throw new Error("Publication approval was not recorded.");
-    const publication = await this.google.publishApprovedVersion(approved);
-    const published = this.save(operation, {
-      status: "published",
-      approval: approved.approval,
-      publication,
-    });
+    const saved = this.save(operation, { status: "approved", approval: approved.approval });
+    return {
+      status: "approved",
+      operation: saved,
+      nextStep: "publish",
+      approvalExpiresAt: publicationApprovalExpiresAt(saved)!,
+    };
+  }
+
+  /**
+   * Publishes a version approved in an earlier request. The approval must still be
+   * current, name this exact fingerprint, and belong to the account publishing now.
+   */
+  async publishApproved(
+    id: string,
+    approvedFingerprint: string,
+    currentAccount: string,
+  ): Promise<WorkflowPublishResult> {
+    const operation = this.requiredOperation(id);
+    if (operation.status === "versioned") {
+      return { status: "blocked", operation, stage: "approval", reason: "approval_required" };
+    }
+    if (operation.status !== "approved" || !operation.version || !operation.approval) {
+      return { status: "blocked", operation, stage: "approval", reason: "operation_not_approved" };
+    }
+    if (approvedFingerprint !== operation.version.fingerprint
+      || approvedFingerprint !== operation.approval.versionFingerprint) {
+      return { status: "blocked", operation, stage: "approval", reason: "fingerprint_mismatch" };
+    }
+    // The runner stamped approvedAt itself, at most a few ms past its own clock, so that
+    // lower bound is trusted here; the 30-minute upper bound is what this check enforces.
+    const checkedAt = Math.max(this.now().getTime(), Date.parse(operation.approval.approvedAt));
+    if (!publicationApprovalCurrent(operation, checkedAt)) {
+      return { status: "blocked", operation, stage: "approval", reason: "approval_expired" };
+    }
+    if (currentAccount !== operation.approval.approvedBy) {
+      return { status: "blocked", operation, stage: "approval", reason: "approver_changed" };
+    }
+    const publication = await this.google.publishApprovedVersion(operation);
+    const published = this.save(operation, { status: "published", publication });
     return { status: "published", operation: published, nextStep: "verify_publication" };
   }
 

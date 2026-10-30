@@ -1,10 +1,14 @@
-import type { BrowserContext } from "@playwright/test";
+import { expect, type BrowserContext, type Locator } from "@playwright/test";
+
+/** The verified Google account the mocked backend reports as the approver. */
+export const sessionApprover = "practitioner@example.test";
 
 type WorkflowOperationStatus =
   | "planned"
   | "applying"
   | "validation_failed"
   | "versioned"
+  | "approved"
   | "published"
   | "completed"
   | "rollback_required"
@@ -92,7 +96,7 @@ export function operation(status: WorkflowOperationStatus = "versioned"): Record
       }],
     },
     completedActionSignatures,
-    ...((status === "validation_failed" || status === "versioned" || status === "published" || status === "completed" || status === "rollback_required" || status === "rolled_back") ? {
+    ...((status === "validation_failed" || status === "versioned" || status === "approved" || status === "published" || status === "completed" || status === "rollback_required" || status === "rolled_back") ? {
       validation: {
         status: status === "validation_failed" ? "failed" : "passed",
         checkedAt: "2026-08-30T20:01:00.000Z",
@@ -100,7 +104,7 @@ export function operation(status: WorkflowOperationStatus = "versioned"): Record
         errors: status === "validation_failed" ? ["The preview compiler rejected the generated trigger."] : [],
       },
     } : {}),
-    ...((status === "versioned" || status === "published" || status === "completed" || status === "rollback_required" || status === "rolled_back") ? {
+    ...((status === "versioned" || status === "approved" || status === "published" || status === "completed" || status === "rollback_required" || status === "rolled_back") ? {
       version: {
         path: "accounts/1/containers/10/versions/8",
         fingerprint: "version-8",
@@ -108,12 +112,14 @@ export function operation(status: WorkflowOperationStatus = "versioned"): Record
         priorLiveVersionFingerprint: "live-7",
       },
     } : {}),
-    ...((status === "published" || status === "completed" || status === "rollback_required" || status === "rolled_back") ? {
+    ...((status === "approved" || status === "published" || status === "completed" || status === "rollback_required" || status === "rolled_back") ? {
       approval: {
         approvedAt: "2026-08-30T20:02:00.000Z",
-        approvedBy: "website assistant",
+        approvedBy: sessionApprover,
         versionFingerprint: "version-8",
       },
+    } : {}),
+    ...((status === "published" || status === "completed" || status === "rollback_required" || status === "rolled_back") ? {
       publication: {
         publishedAt: "2026-08-30T20:03:00.000Z",
         versionFingerprint: "version-8",
@@ -210,7 +216,7 @@ export function formOperation(status: WorkflowOperationStatus = "versioned"): Re
       }],
     },
     completedActionSignatures,
-    ...((status === "validation_failed" || status === "versioned" || status === "published" || status === "completed" || status === "rollback_required" || status === "rolled_back") ? {
+    ...((status === "validation_failed" || status === "versioned" || status === "approved" || status === "published" || status === "completed" || status === "rollback_required" || status === "rolled_back") ? {
       validation: {
         status: status === "validation_failed" ? "failed" : "passed",
         checkedAt: "2026-08-30T20:01:00.000Z",
@@ -218,7 +224,7 @@ export function formOperation(status: WorkflowOperationStatus = "versioned"): Re
         errors: status === "validation_failed" ? ["The preview compiler rejected the generated trigger."] : [],
       },
     } : {}),
-    ...((status === "versioned" || status === "published" || status === "completed" || status === "rollback_required" || status === "rolled_back") ? {
+    ...((status === "versioned" || status === "approved" || status === "published" || status === "completed" || status === "rollback_required" || status === "rolled_back") ? {
       version: {
         path: "accounts/1/containers/10/versions/8",
         fingerprint: "version-8",
@@ -226,12 +232,14 @@ export function formOperation(status: WorkflowOperationStatus = "versioned"): Re
         priorLiveVersionFingerprint: "live-7",
       },
     } : {}),
-    ...((status === "published" || status === "completed" || status === "rollback_required" || status === "rolled_back") ? {
+    ...((status === "approved" || status === "published" || status === "completed" || status === "rollback_required" || status === "rolled_back") ? {
       approval: {
         approvedAt: "2026-08-30T20:02:00.000Z",
-        approvedBy: "website assistant",
+        approvedBy: sessionApprover,
         versionFingerprint: "version-8",
       },
+    } : {}),
+    ...((status === "published" || status === "completed" || status === "rollback_required" || status === "rolled_back") ? {
       publication: {
         publishedAt: "2026-08-30T20:03:00.000Z",
         versionFingerprint: "version-8",
@@ -255,6 +263,9 @@ export async function mockWritableContainerAndWorkflow(
   context: BrowserContext,
   options: {
     resumeResults?: Array<Record<string, unknown>>;
+    approveResult?: Record<string, unknown>;
+    approveStatus?: number;
+    onApprove?: (body: Record<string, unknown>) => void;
     publishResult?: Record<string, unknown>;
     publishStatus?: number;
     publishError?: string;
@@ -267,7 +278,7 @@ export async function mockWritableContainerAndWorkflow(
     storedOperation?: Record<string, unknown>;
     workflowOperation?: WorkflowOperationFactory;
     onResume?: () => void;
-    onPublish?: () => void;
+    onPublish?: (body: Record<string, unknown>) => void;
   } = {},
 ): Promise<void> {
   const workflowOperation = options.workflowOperation ?? operation;
@@ -326,13 +337,33 @@ export async function mockWritableContainerAndWorkflow(
       body: JSON.stringify({ operation: options.storedOperation ?? workflowOperation("versioned") }),
     });
   });
+  await context.route("http://127.0.0.1:18787/api/google/workflows/*/approve", async (route) => {
+    options.onApprove?.(postedJson(route.request().postData()));
+    const status = options.approveStatus ?? 200;
+    await route.fulfill({
+      status,
+      contentType: "application/json",
+      body: JSON.stringify(status >= 400 && !options.approveResult
+        ? { error: "Approval blocked." }
+        : {
+          result: options.approveResult ?? {
+            status: "approved",
+            nextStep: "publish",
+            approvalExpiresAt: "2026-08-30T20:32:00.000Z",
+            operation: workflowOperation("approved"),
+          },
+        }),
+    });
+  });
   await context.route("http://127.0.0.1:18787/api/google/workflows/*/publish", async (route) => {
-    options.onPublish?.();
+    options.onPublish?.(postedJson(route.request().postData()));
     if (options.publishStatus && options.publishStatus >= 400) {
       await route.fulfill({
         status: options.publishStatus,
         contentType: "application/json",
-        body: JSON.stringify({ error: options.publishError ?? "Publication blocked." }),
+        body: JSON.stringify(options.publishResult
+          ? { result: options.publishResult }
+          : { error: options.publishError ?? "Publication blocked." }),
       });
       return;
     }
@@ -396,4 +427,24 @@ export async function mockWritableContainerAndWorkflow(
       }),
     });
   });
+}
+
+function postedJson(data: string | null): Record<string, unknown> {
+  try {
+    const value: unknown = JSON.parse(data ?? "{}");
+    return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Review what will publish, type the container ID, approve; then publish in a separate step. */
+export async function approveThenPublish(root: Locator, containerId = "GTM-TEST123", fingerprint = "version-8"): Promise<void> {
+  await root.getByRole("region", { name: "Setup operation" }).getByRole("button", { name: "Review and approve" }).click();
+  const review = root.getByRole("region", { name: "Publication review" });
+  await review.getByLabel(`Type ${containerId} to confirm`).fill(containerId);
+  await review.getByRole("button", { name: `Approve ${fingerprint}` }).click();
+  const operationRegion = root.getByRole("region", { name: "Setup operation" });
+  await expect(operationRegion.getByText(`Approved fingerprint ${fingerprint} by ${sessionApprover}`)).toBeVisible();
+  await operationRegion.getByRole("button", { name: `Publish ${fingerprint}` }).click();
 }

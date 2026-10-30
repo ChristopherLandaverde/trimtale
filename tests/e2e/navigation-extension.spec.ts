@@ -4,10 +4,12 @@ import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
+  approveThenPublish,
   formOperation,
   mockWritableContainerAndWorkflow,
   navigationSpecId,
   operation,
+  sessionApprover,
 } from "./helpers/workflow-fixtures.js";
 
 const screenshotOptions = {
@@ -353,7 +355,7 @@ test("starts a lead-form setup operation and stops at approval", async () => {
 
     await root.getByRole("button", { name: "Prepare GTM version" }).click();
     await expect(root.getByRole("region", { name: "Setup operation" })).toBeVisible();
-    await expect(root.getByText("GTM setup operation reached await_approval")).toBeVisible();
+    await expect(root.getByText("Version version-8 is ready and nothing is published. Review exactly what will change, then approve it.")).toBeVisible();
     await expect(root.getByText("Prior live version: live-7")).toBeVisible();
     await expect(root.getByText(/platform-confirmed/i)).toHaveCount(0);
   } finally {
@@ -558,7 +560,7 @@ test("renders stale and conflict resume blocks with bounded guidance", async () 
   }
 });
 
-test("publishes only from an approved immutable version and keeps verification pending", async () => {
+test("publishes only after a typed confirmation and a separate approval request", async () => {
   const profile = await mkdtemp(join(tmpdir(), "gtm-observability-operation-publish-"));
   const extensionPath = resolve("apps/extension/dist");
   const context = await chromium.launchPersistentContext(profile, {
@@ -566,11 +568,11 @@ test("publishes only from an approved immutable version and keeps verification p
     headless: true,
     args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
   });
-  let publishCount = 0;
+  const approvals: Array<Record<string, unknown>> = [];
+  const publications: Array<Record<string, unknown>> = [];
   await mockWritableContainerAndWorkflow(context, {
-    onPublish: () => {
-      publishCount += 1;
-    },
+    onApprove: (body) => approvals.push(body),
+    onPublish: (body) => publications.push(body),
   });
   try {
     const site = await context.newPage();
@@ -585,18 +587,92 @@ test("publishes only from an approved immutable version and keeps verification p
 
     let operationRegion = root.getByRole("region", { name: "Setup operation" });
     await expect(operationRegion.getByText("Version fingerprint version-8")).toBeVisible();
-    await expect(operationRegion.getByRole("button", { name: "Publish version-8" })).toBeVisible();
-    expect(publishCount).toBe(0);
+    await expect(operationRegion.getByRole("button", { name: /^Publish/ })).toHaveCount(0);
+    await operationRegion.getByRole("button", { name: "Review and approve" }).click();
+
+    // (a) The confirmation shows exactly what will publish.
+    const review = root.getByRole("region", { name: "Publication review" });
+    await expect(review.getByRole("heading", { name: "Publish version-8 to GTM-TEST123?" })).toBeVisible();
+    await expect(review.getByText("GTM-TEST123 · accounts/1/containers/10")).toBeVisible();
+    await expect(review.getByText("99 · accounts/1/containers/10/workspaces/99")).toBeVisible();
+    await expect(review.locator("dd", { hasText: /^version-8$/ })).toBeVisible();
+    await expect(review.locator("dd", { hasText: /^live-7$/ })).toBeVisible();
+    await expect(review.getByRole("listitem")).toHaveText([
+      "Create tag “GA4 Event - navigation_click”",
+      "Create trigger “Navigation Click Trigger”",
+    ]);
+    const confirm = review.getByLabel("Type GTM-TEST123 to confirm");
+    await expect(confirm).toBeFocused();
+    const approve = review.getByRole("button", { name: "Approve version-8" });
+    await expect(approve).toBeDisabled();
+    await confirm.fill("GTM-TEST12");
+    await expect(approve).toBeDisabled();
+    await confirm.fill("gtm-test123");
+    await expect(approve).toBeDisabled();
+    await confirm.fill("GTM-TEST123");
+    await expect(approve).toBeEnabled();
+    expect(approvals).toHaveLength(0);
+    expect(publications).toHaveLength(0);
+    await approve.click();
+
+    // (b) Approval is its own request and publishes nothing; (c) no approver is sent.
+    await expect.poll(() => approvals).toEqual([{ versionFingerprint: "version-8", confirmation: "GTM-TEST123" }]);
+    operationRegion = root.getByRole("region", { name: "Setup operation" });
+    await expect(operationRegion.getByText(`Approved fingerprint version-8 by ${sessionApprover}`)).toBeVisible();
+    await expect(operationRegion.getByText("No version was published")).toBeVisible();
+    await expect(root.getByRole("region", { name: "Publication review" })).toHaveCount(0);
+    expect(publications).toHaveLength(0);
 
     await operationRegion.getByRole("button", { name: "Publish version-8" }).click();
+    await expect.poll(() => publications).toEqual([{ versionFingerprint: "version-8" }]);
     operationRegion = root.getByRole("region", { name: "Setup operation" });
-    await expect(operationRegion.getByText("Approved fingerprint version-8")).toBeVisible();
     await expect(operationRegion.getByText("Published version version-8")).toBeVisible();
     await expect(operationRegion.getByText("Run browser verification after publication")).toBeVisible();
     await expect(operationRegion.getByText(/Platform confirmation unavailable/)).toBeVisible();
     await expect(operationRegion.getByRole("button", { name: "Publish version-8" })).toHaveCount(0);
     await expect(root.getByText(/platform-confirmed/i)).toHaveCount(0);
-    expect(publishCount).toBe(1);
+    expect(JSON.stringify([...approvals, ...publications])).not.toContain("approvedBy");
+  } finally {
+    await context.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});
+
+test("sends a stale approval back to review instead of publishing", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "gtm-observability-stale-approval-"));
+  const extensionPath = resolve("apps/extension/dist");
+  const context = await chromium.launchPersistentContext(profile, {
+    channel: "chromium",
+    headless: true,
+    args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+  });
+  let approvals = 0;
+  await mockWritableContainerAndWorkflow(context, {
+    onApprove: () => {
+      approvals += 1;
+    },
+    publishStatus: 409,
+    publishResult: { status: "blocked", stage: "approval", reason: "approval_expired", operation: operation("approved") },
+  });
+  try {
+    const site = await context.newPage();
+    await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
+    const root = site.locator("#trimtale-root");
+    await root.getByRole("button", { name: "Open tracking assistant" }).click();
+    await root.getByLabel("Tracking request").fill("navigation");
+    await root.getByRole("button", { name: "Send request" }).click();
+    await root.getByRole("button", { name: "Track all" }).click();
+    await root.getByRole("button", { name: "Check GTM access" }).click();
+    await root.getByRole("button", { name: "Prepare GTM version" }).click();
+    await approveThenPublish(root);
+
+    const operationRegion = root.getByRole("region", { name: "Setup operation" });
+    await expect(operationRegion.getByText(/approval is older than 30 minutes, so nothing was published/i)).toBeVisible();
+    await expect(operationRegion.getByText("No version was published")).toBeVisible();
+    await expect(operationRegion.getByRole("button", { name: "Start browser verification" })).toHaveCount(0);
+    await operationRegion.getByRole("button", { name: "Review and approve" }).click();
+    await expect(root.getByRole("region", { name: "Publication review" })).toBeVisible();
+    expect(approvals).toBe(1);
   } finally {
     await context.close();
     await rm(profile, { recursive: true, force: true });
@@ -628,8 +704,8 @@ test("records post-publication navigation browser verification without platform 
     await root.getByRole("button", { name: "Check GTM access" }).click();
     await root.getByRole("button", { name: "Prepare GTM version" }).click();
 
+    await approveThenPublish(root);
     let operationRegion = root.getByRole("region", { name: "Setup operation" });
-    await operationRegion.getByRole("button", { name: "Publish version-8" }).click();
     operationRegion = root.getByRole("region", { name: "Setup operation" });
     await operationRegion.getByRole("button", { name: "Start browser verification" }).click();
     await site.getByRole("link", { name: "Services" }).click();
@@ -679,8 +755,8 @@ test("records post-publication lead-form browser verification without leaking fo
     await root.getByRole("button", { name: "Check GTM access" }).click();
     await root.getByRole("button", { name: "Prepare GTM version" }).click();
 
+    await approveThenPublish(root);
     let operationRegion = root.getByRole("region", { name: "Setup operation" });
-    await operationRegion.getByRole("button", { name: "Publish version-8" }).click();
     operationRegion = root.getByRole("region", { name: "Setup operation" });
     await operationRegion.getByRole("button", { name: "Start browser verification" }).click();
     await site.locator("form#contact input[name='email']").fill("private@example.com");
@@ -735,8 +811,8 @@ test("rolls back a failed publication only after exact target approval", async (
     await root.getByRole("button", { name: "Check GTM access" }).click();
     await root.getByRole("button", { name: "Prepare GTM version" }).click();
 
+    await approveThenPublish(root);
     let operationRegion = root.getByRole("region", { name: "Setup operation" });
-    await operationRegion.getByRole("button", { name: "Publish version-8" }).click();
     operationRegion = root.getByRole("region", { name: "Setup operation" });
     await operationRegion.getByRole("button", { name: "Start browser verification" }).click();
     await site.getByRole("link", { name: "Services" }).click();
@@ -785,8 +861,8 @@ test("keeps publication failures bounded without advancing verification", async 
     await root.getByRole("button", { name: "Check GTM access" }).click();
     await root.getByRole("button", { name: "Prepare GTM version" }).click();
 
+    await approveThenPublish(root);
     const operationRegion = root.getByRole("region", { name: "Setup operation" });
-    await operationRegion.getByRole("button", { name: "Publish version-8" }).click();
     await expect(root.getByText(/GTM publication is disabled for this backend/)).toBeVisible();
     await expect(operationRegion.getByText(/Published version version-8/)).toHaveCount(0);
     await expect(operationRegion.getByText(/Run browser verification after publication/)).toBeVisible();

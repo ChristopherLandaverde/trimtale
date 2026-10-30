@@ -77,7 +77,44 @@ describe("Google OAuth configuration", () => {
     expect(googleGtmPublicationScopeRequested({ GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED: "TRUE" })).toBe(false);
     expect(googleGtmPublicationScopeRequested({ GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED: "true" })).toBe(true);
     const session = new GoogleOAuthSession(config, vi.fn<typeof fetch>(), Date.now, true, true);
-    expect(new URL(session.authorizationUrl()).searchParams.get("scope")?.split(" ")).toContain(GTM_PUBLISH_SCOPE);
+    const scopes = new URL(session.authorizationUrl()).searchParams.get("scope")?.split(" ");
+    expect(scopes).toEqual(expect.arrayContaining([GTM_PUBLISH_SCOPE, "openid", "email"]));
+    const editOnly = new GoogleOAuthSession(config, vi.fn<typeof fetch>(), Date.now, true, false);
+    expect(new URL(editOnly.authorizationUrl()).searchParams.get("scope")?.split(" ")).not.toContain("email");
+  });
+
+  it("reads the approver from Google's userinfo for the session token, never from the caller", async () => {
+    const fetcher = vi.fn<typeof fetch>(async (input, init) => {
+      if (String(input).includes("/token")) {
+        return Response.json({ access_token: "session-token", expires_in: 3600, refresh_token: "r", token_type: "Bearer" });
+      }
+      expect(String(input)).toBe("https://openidconnect.googleapis.com/v1/userinfo");
+      expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer session-token");
+      return Response.json({ sub: "1", email: "Practitioner@Example.test", email_verified: true });
+    });
+    const session = new GoogleOAuthSession(config, fetcher, Date.now, true, true);
+    const state = new URL(session.authorizationUrl()).searchParams.get("state") ?? "";
+    await session.authorize("code", state);
+    await expect(session.verifiedAccountEmail()).resolves.toBe("practitioner@example.test");
+  });
+
+  it.each([
+    ["an unverified email", { email: "someone@example.test", email_verified: false }],
+    ["no email scope", { sub: "1" }],
+    ["a malformed email", { email: "not-an-email", email_verified: true }],
+  ])("refuses an approver identity with %s", async (_name, profile) => {
+    const fetcher = vi.fn<typeof fetch>(async (input) => String(input).includes("/token")
+      ? Response.json({ access_token: "session-token", expires_in: 3600, token_type: "Bearer" })
+      : Response.json(profile));
+    const session = new GoogleOAuthSession(config, fetcher, Date.now, true, true);
+    const state = new URL(session.authorizationUrl()).searchParams.get("state") ?? "";
+    await session.authorize("code", state);
+    await expect(session.verifiedAccountEmail()).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("has no approver identity before Google is connected", async () => {
+    const session = new GoogleOAuthSession(config, vi.fn<typeof fetch>(), Date.now, true, true);
+    await expect(session.verifiedAccountEmail()).rejects.toMatchObject({ status: 401 });
   });
 });
 

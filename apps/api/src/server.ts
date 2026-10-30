@@ -240,7 +240,16 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (await handleGoogleWorkflowRoute({ request, response, requestUrl, workflowRunner, readJson, sendJson })) {
+  if (await handleGoogleWorkflowRoute({
+    request,
+    response,
+    requestUrl,
+    workflowRunner,
+    publicationEnabled,
+    ...(oauthSession ? { approverIdentity: () => oauthSession.verifiedAccountEmail() } : {}),
+    readJson,
+    sendJson,
+  })) {
     return;
   }
 

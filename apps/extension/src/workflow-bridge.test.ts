@@ -3,6 +3,7 @@ import { workflowResultFromStoredOperation } from "./workflow-bridge.js";
 
 describe("workflowResultFromStoredOperation", () => {
   it.each([
+    ["approved", "publish"],
     ["published", "verify_publication"],
     ["completed", "platform_unavailable"],
     ["rollback_required", "rollback_approval"],
@@ -31,11 +32,12 @@ describe("workflowResultFromStoredOperation", () => {
   });
 
   it("fails closed for unsupported stored operation states", () => {
-    expect(workflowResultFromStoredOperation({ id: "operation_1", status: "approved" })).toEqual({
+    // "approved" is now a durable state between the approve and publish requests (mapped above).
+    expect(workflowResultFromStoredOperation({ id: "operation_1", status: "verification_failed" })).toEqual({
       status: "blocked",
-      operation: { id: "operation_1", status: "approved" },
+      operation: { id: "operation_1", status: "verification_failed" },
       stage: "version",
-      reason: "operation_approved",
+      reason: "operation_verification_failed",
     });
     expect(workflowResultFromStoredOperation({ id: "operation_2" })).toEqual({
       status: "blocked",

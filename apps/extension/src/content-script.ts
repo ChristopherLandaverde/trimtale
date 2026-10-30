@@ -28,7 +28,11 @@ import {
 import { FormSignalCapture, type FormAnalyticsRequest, type FormRunContext } from "./form-signal-capture.js";
 import { registerPanelFonts } from "./panel-fonts.js";
 import { panelStyles, targetHighlightStyles } from "./panel-styles.js";
-import { presentSetupOperation, type SetupOperationAction } from "./setup-operation-presenter.js";
+import {
+  presentPublicationReview,
+  presentSetupOperation,
+  type SetupOperationAction,
+} from "./setup-operation-presenter.js";
 import { presentVerdict } from "./verdict-presenter.js";
 import type { TrackingWorkflowRequest, WorkflowBridgeResponse, WorkflowResult } from "./workflow-bridge.js";
 
@@ -491,9 +495,9 @@ async function requestGtmContainer(
 }
 
 async function requestSetupOperation(
-  action: "start" | "resume" | "get" | "publish",
+  action: "start" | "resume" | "get" | "approve" | "publish",
   value: TrackingWorkflowRequest | string,
-  approval?: { versionFingerprint: string; approvedBy: string },
+  approval?: { versionFingerprint: string; confirmation?: string },
 ): Promise<WorkflowBridgeResponse> {
   return chrome.runtime.sendMessage({
     type: "GTM_WORKFLOW_REQUEST",
@@ -932,6 +936,9 @@ function appendSetupOperationAction(
   appendInlineAction(parent, action.label, () => {
     if (action.kind === "resume") {
       void runSetupOperation("resume", action.operationId, request);
+    } else if (action.kind === "review") {
+      const operation = result.operation;
+      if (operation) renderPublicationReview(operation, request);
     } else if (action.kind === "publish") {
       void runPublishOperation(action.operationId, action.versionFingerprint, request);
     } else if (action.kind === "browserVerification" && result.status === "published") {
@@ -970,16 +977,134 @@ async function runSetupOperation(
   renderSetupOperation(response.result, request);
 }
 
+/**
+ * The explicit confirmation step before any approval: exactly what would publish, and a
+ * typed container ID. Approving records approval only; publishing is a later request.
+ */
+function renderPublicationReview(operation: TrackingSetupOperationV1, request?: TrackingWorkflowRequest): void {
+  const review = presentPublicationReview(operation);
+  responseList?.querySelectorAll("section[aria-label=\"Publication review\"]").forEach((element) => element.remove());
+  if (!review) {
+    addMessage("This version can no longer be approved. Reload the setup operation.", "assistant");
+    return;
+  }
+  const id = `trimtale-review-${++findingSequence}`;
+  const section = document.createElement("section");
+  section.className = "finding publication-review";
+  section.setAttribute("aria-label", "Publication review");
+
+  const tag = document.createElement("span");
+  tag.className = "tag review";
+  const symbol = document.createElement("span");
+  symbol.setAttribute("aria-hidden", "true");
+  symbol.textContent = "!";
+  tag.append(symbol, document.createTextNode("Changes the live container"));
+
+  const title = document.createElement("h2");
+  title.className = "finding-title";
+  title.textContent = review.title;
+  const consequence = document.createElement("p");
+  consequence.className = "review-copy";
+  consequence.textContent = review.consequence;
+
+  const rows = document.createElement("dl");
+  rows.className = "evidence review-rows";
+  for (const row of review.rows) {
+    const term = document.createElement("dt");
+    term.textContent = row.label;
+    const detail = document.createElement("dd");
+    // GTM paths may wrap only after a slash.
+    row.value.split("/").forEach((part, index) => {
+      if (index > 0) detail.append("/", document.createElement("wbr"));
+      detail.append(part);
+    });
+    rows.append(term, detail);
+  }
+
+  const changesHeading = document.createElement("h3");
+  changesHeading.className = "review-heading";
+  changesHeading.textContent = `${review.changes.length} change${review.changes.length === 1 ? "" : "s"} in this version`;
+  const changes = document.createElement("ul");
+  changes.className = "review-changes";
+  for (const change of review.changes) {
+    const item = document.createElement("li");
+    item.textContent = change;
+    changes.append(item);
+  }
+
+  const note = document.createElement("p");
+  note.className = "evidence-note";
+  note.textContent = review.approvalNote;
+
+  const label = document.createElement("label");
+  label.className = "review-confirm";
+  label.htmlFor = `${id}-confirm`;
+  label.textContent = `Type ${review.confirmation} to confirm`;
+  const input = document.createElement("input");
+  input.id = `${id}-confirm`;
+  input.type = "text";
+  input.autocomplete = "off";
+  input.spellcheck = false;
+  input.className = "review-input";
+
+  const actions = document.createElement("div");
+  actions.className = "quick-actions";
+  const approve = document.createElement("button");
+  approve.type = "button";
+  approve.className = "quick primary-quick";
+  approve.textContent = review.approveLabel;
+  approve.disabled = true;
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "quick";
+  cancel.textContent = "Cancel";
+  actions.append(approve, cancel);
+
+  input.addEventListener("input", () => {
+    approve.disabled = input.value.trim() !== review.confirmation;
+  });
+  cancel.addEventListener("click", () => {
+    section.remove();
+    addMessage("Approval cancelled. Nothing was approved or published.", "assistant");
+  });
+  approve.addEventListener("click", () => {
+    if (input.value.trim() !== review.confirmation || !operation.version) return;
+    approve.disabled = true;
+    input.disabled = true;
+    void runApproveOperation(operation.id, operation.version.fingerprint, input.value.trim(), request)
+      .finally(() => section.remove());
+  });
+
+  section.append(tag, title, consequence, rows, changesHeading, changes, note, label, input, actions);
+  responseList?.append(section);
+  window.requestAnimationFrame(() => {
+    section.scrollIntoView({ block: "start" });
+    input.focus();
+  });
+}
+
+async function runApproveOperation(
+  operationId: string,
+  versionFingerprint: string,
+  confirmation: string,
+  request?: TrackingWorkflowRequest,
+): Promise<void> {
+  addMessage(`Recording approval for ${versionFingerprint}. Nothing is published in this step.`, "assistant");
+  const response = await requestSetupOperation("approve", operationId, { versionFingerprint, confirmation });
+  if (!response.ok) {
+    addMessage(`${response.error} Nothing was approved or published.`, "assistant");
+    return;
+  }
+  renderSetupOperation(response.result, request);
+}
+
 async function runPublishOperation(
   operationId: string,
   versionFingerprint: string,
   request?: TrackingWorkflowRequest,
 ): Promise<void> {
-  addMessage(`Approving and publishing immutable version ${versionFingerprint}…`, "assistant");
-  const response = await requestSetupOperation("publish", operationId, {
-    versionFingerprint,
-    approvedBy: "website assistant",
-  });
+  addMessage(`Publishing approved version ${versionFingerprint}…`, "assistant");
+  const response = await requestSetupOperation("publish", operationId, { versionFingerprint });
   if (!response.ok) {
     addMessage(`${response.error} Browser verification and platform confirmation remain pending.`, "assistant");
     return;

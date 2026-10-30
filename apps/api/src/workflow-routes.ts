@@ -11,6 +11,10 @@ interface WorkflowRouteContext {
   response: ServerResponse;
   requestUrl: URL;
   workflowRunner: TrackingWorkflowRunner | undefined;
+  /** False unless the backend explicitly enables GTM publication. Approval and publish fail closed. */
+  publicationEnabled?: boolean;
+  /** The signed-in Google account's verified email, read server-side from the OAuth session. */
+  approverIdentity?: () => Promise<string>;
   readJson: ReadJson;
   sendJson: SendJson;
 }
@@ -30,6 +34,8 @@ export async function handleGoogleWorkflowRoute({
   response,
   requestUrl,
   workflowRunner,
+  publicationEnabled = false,
+  approverIdentity,
   readJson,
   sendJson,
 }: WorkflowRouteContext): Promise<boolean> {
@@ -90,33 +96,52 @@ export async function handleGoogleWorkflowRoute({
     return true;
   }
 
+  const approveMatch = requestUrl.pathname.match(
+    /^\/api\/google\/workflows\/([A-Za-z0-9_-]+)\/approve$/,
+  );
   const publishMatch = requestUrl.pathname.match(
     /^\/api\/google\/workflows\/([A-Za-z0-9_-]+)\/publish$/,
   );
-  if (request.method === "POST" && publishMatch) {
-    if (!workflowRunner) {
+  if (request.method === "POST" && (approveMatch || publishMatch)) {
+    if (!workflowRunner || !approverIdentity) {
       workflowUnavailable(sendJson, response);
+      return true;
+    }
+    if (!publicationEnabled) {
+      sendJson(response, 403, { error: "GTM publication is disabled on this backend." });
       return true;
     }
     try {
       const body = await readJson(request);
-      const approvedFingerprint = objectField(body, "versionFingerprint");
-      const approvedBy = objectField(body, "approvedBy");
-      if (typeof approvedFingerprint !== "string" || typeof approvedBy !== "string") {
-        sendJson(response, 400, { error: "Publication approval requires a version fingerprint and approver." });
+      const versionFingerprint = objectField(body, "versionFingerprint");
+      const confirmation = objectField(body, "confirmation");
+      if (typeof versionFingerprint !== "string" || !versionFingerprint.trim()
+        || (approveMatch && typeof confirmation !== "string")) {
+        sendJson(response, 400, {
+          error: approveMatch
+            ? "Publication approval requires a version fingerprint and the typed container confirmation."
+            : "Publication requires the approved version fingerprint.",
+        });
         return true;
       }
-      const result = await workflowRunner.approveAndPublish(publishMatch[1] ?? "", approvedFingerprint, approvedBy);
+      // Any approver the client sends is ignored: the approver is whoever Google says
+      // holds this backend's session right now.
+      const account = await approverIdentity();
+      const result = approveMatch
+        ? workflowRunner.approvePublication(approveMatch[1] ?? "", versionFingerprint, confirmation as string, account)
+        : await workflowRunner.publishApproved(publishMatch![1] ?? "", versionFingerprint, account);
       sendJson(response, result.status === "blocked" ? 409 : 200, { result });
     } catch (workflowError) {
       const status = workflowError instanceof GoogleIntegrationError
         ? workflowError.status
         : workflowError instanceof Error && workflowError.message.includes("not found")
           ? 404
-          : 409;
+          : workflowError instanceof SyntaxError
+            ? 400
+            : 409;
       const message = workflowError instanceof Error
         ? workflowError.message
-        : "Unable to publish the tracking workflow.";
+        : "Unable to approve or publish the tracking workflow.";
       sendJson(response, status, { error: message });
     }
     return true;
