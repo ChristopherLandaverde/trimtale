@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   commandNames,
@@ -8,7 +9,10 @@ import {
 } from "./agent-harness.mjs";
 
 type CommandExecutor = NonNullable<Parameters<typeof dispatchAgentCommand>[1]>;
-const commitMessagePath = resolve(".scratch/commit-message.md");
+// The harness runs from the repository root derived from its own file location,
+// not from the checkout folder name, so worktrees and renamed clones behave the same.
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const commitMessagePath = resolve(repositoryRoot, ".scratch/commit-message.md");
 
 let originalCommitMessage: string | undefined;
 
@@ -56,7 +60,7 @@ describe("agent command harness", () => {
     expect(result).toBe(7);
     expect(executor).toHaveBeenCalledOnce();
     expect(executor).toHaveBeenCalledWith("npm", ["run", "check"], {
-      cwd: expect.stringMatching(/gtm-observability$/),
+      cwd: repositoryRoot,
       stdio: "inherit",
       env: process.env,
     });
@@ -94,18 +98,18 @@ describe("agent command harness", () => {
 
     expect(dispatchAgentCommand(["commit"], executor)).toBe(0);
     expect(executor).toHaveBeenNthCalledWith(1, "git", ["branch", "--show-current"], {
-      cwd: expect.stringMatching(/gtm-observability$/),
+      cwd: repositoryRoot,
       stdio: ["ignore", "pipe", "inherit"],
       env: process.env,
       encoding: "utf8",
     });
     expect(executor).toHaveBeenNthCalledWith(2, "git", ["diff", "--cached", "--quiet"], {
-      cwd: expect.stringMatching(/gtm-observability$/),
+      cwd: repositoryRoot,
       stdio: "inherit",
       env: process.env,
     });
     expect(executor).toHaveBeenNthCalledWith(3, "git", ["commit", "--file", ".scratch/commit-message.md"], {
-      cwd: expect.stringMatching(/gtm-observability$/),
+      cwd: repositoryRoot,
       stdio: "inherit",
       env: process.env,
     });
