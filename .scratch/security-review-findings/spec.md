@@ -20,6 +20,7 @@ Both findings are fixed with permanent regression coverage under the ordinary
 - [x] `.scratch/security-review-findings/issues/01-api-cors-wildcard-default.md` resolved.
 - [x] `.scratch/security-review-findings/issues/02-content-script-innerhtml-xss.md` resolved.
 - [x] `.scratch/security-review-findings/issues/03-harness-missing-boundary-and-adversarial-tiers.md` resolved.
+- [x] `.scratch/security-review-findings/issues/04-forgeable-page-signals.md` resolved (found 2026-10-30 in the Slice 1 page observer).
 
 ## Out of scope
 

@@ -6,6 +6,7 @@ import {
   classifyFormResponseStatus,
   consentFromCollectUrl,
   matchesSuccessUrl,
+  pageSignalFromValue,
   parsePageSignal,
   signalsFromDataLayerPush,
   thankYouUrlPattern,
@@ -88,6 +89,23 @@ describe("dataLayer signal extraction", () => {
     expect(parsePageSignal(JSON.stringify({ kind: "consent", analyticsStorage: "denied", at: 2 }))).toEqual({ kind: "consent", analyticsStorage: "denied", at: 2 });
     for (const value of ["", "{", "null", JSON.stringify({ kind: "datalayer_event", event: sentinel, at: 1 }), JSON.stringify({ kind: "datalayer_event", event: "generate_lead", formId: sentinel, at: 1 }), JSON.stringify({ kind: "other", at: 1 })]) {
       expect(parsePageSignal(value)).toBeUndefined();
+    }
+  });
+
+  it("rebuilds structured-cloned signals from the page observer and keeps only allowlisted fields", () => {
+    expect(pageSignalFromValue({ ...leadEvent(3), lead_email: sentinel, extra: { nested: sentinel } })).toEqual(leadEvent(3));
+    expect(pageSignalFromValue({ kind: "consent", analyticsStorage: "granted", at: 4, ad_storage: sentinel })).toEqual({ kind: "consent", analyticsStorage: "granted", at: 4 });
+    for (const value of [
+      undefined,
+      "start",
+      [leadEvent(3)],
+      { ...leadEvent(3), at: Number.POSITIVE_INFINITY },
+      { ...leadEvent(3), at: "3" },
+      { ...leadEvent(3), event: `generate_lead ${sentinel}` },
+      { ...leadEvent(3), formName: "Contact sales" },
+      { kind: "consent", analyticsStorage: "maybe", at: 1 },
+    ]) {
+      expect(pageSignalFromValue(value)).toBeUndefined();
     }
   });
 });

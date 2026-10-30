@@ -60,6 +60,15 @@ export function parsePageSignal(serialized: string): PageSignal | undefined {
   } catch {
     return undefined;
   }
+  return pageSignalFromValue(value);
+}
+
+/**
+ * Strictly re-validates a structured-cloned signal received from the page world and rebuilds
+ * it from scratch. The MAIN-world observer runs alongside page scripts that can rewrite the
+ * built-ins it uses, so the isolated world never trusts its sanitizing: only this check counts.
+ */
+export function pageSignalFromValue(value: unknown): PageSignal | undefined {
   if (!isRecord(value) || typeof value.at !== "number" || !Number.isFinite(value.at)) return undefined;
   if (value.kind === "consent") {
     const analyticsStorage = consentState(value.analyticsStorage);

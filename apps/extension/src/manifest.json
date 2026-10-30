@@ -41,6 +41,16 @@
         "https://*/*"
       ],
       "js": [
+        "page-bridge.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
         "content-script.js"
       ],
       "run_at": "document_idle"

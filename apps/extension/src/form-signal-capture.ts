@@ -1,13 +1,13 @@
 import {
   FormRun,
   matchesSuccessUrl,
-  parsePageSignal,
   type FormRunState,
   type FormSetupRequest,
   type PageSignal,
   type SuccessEvidence,
   type TrackingSpecificationV1,
 } from "@trimtale/core";
+import { pageSignalBridge } from "./page-signal-bridge.js";
 
 // Captures a lead-form verification run from real browser signals:
 // - the submit attempt: the form's own `submit` event, or `invalid` events from
@@ -16,7 +16,8 @@ import {
 //   (including after a full navigation), or the confirmed dataLayer event;
 // - failures: field `aria-invalid`, and the form endpoint's HTTP status from the
 //   page's Resource Timing entries;
-// - dataLayer events and Consent Mode commands, from the MAIN-world page observer;
+// - dataLayer events and Consent Mode commands, from the MAIN-world page observer over its
+//   private MessagePort (page-signal-bridge.ts); page scripts can neither forge nor read them;
 // - GA4 collection request attempts and their delivery, from the service worker.
 // No form field value is read into the run.
 
@@ -33,8 +34,6 @@ interface SavedFormRun { context: FormRunContext; state: FormRunState; baseline:
 
 export interface FormAnalyticsRequest { id: string; url: string; observedAt: string; delivery?: "pending" | "delivered" | "failed" }
 
-const signalEvent = "trimtale:page-signal";
-const replayEvent = "trimtale:page-signal-replay";
 const runWindowMs = 2_500;
 const resumedWindowMs = 2_000;
 const deliveryGraceMs = 1_500;
@@ -85,11 +84,11 @@ export class FormSignalCapture {
 
   constructor(onFinish: (run: FormRun, context: FormRunContext) => void) {
     this.#onFinish = onFinish;
-    document.addEventListener(signalEvent, (event) => {
-      this.#recordSignal(parsePageSignal(String((event as CustomEvent<unknown>).detail)));
-    });
-    document.addEventListener("submit", (event) => this.#onSubmit(event), true);
-    document.addEventListener("invalid", (event) => this.#onInvalid(event), true);
+    pageSignalBridge()?.subscribe((signal) => this.#recordSignal(signal));
+    // Only the browser's own submit and constraint-validation events count: a page script can
+    // dispatch synthetic ones (isTrusted === false) without anyone submitting the form.
+    document.addEventListener("submit", (event) => { if (event.isTrusted) this.#onSubmit(event); }, true);
+    document.addEventListener("invalid", (event) => { if (event.isTrusted) this.#onInvalid(event); }, true);
     window.addEventListener("pagehide", () => this.#persist());
   }
 
@@ -99,7 +98,7 @@ export class FormSignalCapture {
 
   arm(context: FormRunContext): void {
     this.#armed = context;
-    document.dispatchEvent(new CustomEvent(replayEvent));
+    pageSignalBridge()?.start();
   }
 
   disarm(): void {
@@ -133,17 +132,18 @@ export class FormSignalCapture {
     const navigation = performance.getEntriesByType("navigation")[0] as (PerformanceNavigationTiming & { responseStatus?: number }) | undefined;
     if (navigation?.responseStatus) run.recordResponseStatus(navigation.responseStatus);
     for (const request of requests) this.recordAnalyticsRequest(request);
-    document.dispatchEvent(new CustomEvent(replayEvent));
+    pageSignalBridge()?.start();
     this.#watch(resumedWindowMs);
     return value.context;
   }
 
-  #recordSignal(signal: PageSignal | undefined): void {
-    if (!signal) return;
+  #recordSignal(signal: PageSignal): void {
     if (signal.kind === "consent") this.#pageConsent = signal.analyticsStorage;
     const run = this.#run;
     if (!run) return;
-    run.recordPageSignal(signal);
+    // Signals arrive in dataLayer order, so a consent state that arrives during the run is the
+    // current one even if the observer read it just before the submit.
+    run.recordPageSignal(signal.kind === "consent" ? { ...signal, at: Math.max(signal.at, run.startedAtMs) } : signal);
     const success = this.#context?.success;
     if (signal.kind === "datalayer_event" && success?.type === "data_layer_event" && signal.event === success.eventName && signal.at >= run.startedAtMs) {
       run.recordOutcome();
@@ -172,7 +172,7 @@ export class FormSignalCapture {
     this.#baseline = successSnapshot(context.success);
     this.#startUrl = location.href;
     this.#startPerformance = performance.now();
-    document.dispatchEvent(new CustomEvent(replayEvent));
+    pageSignalBridge()?.start();
     this.#run = new FormRun(context.specification.event.name, new Date().toISOString(), this.#pageConsent);
     this.#run.recordTransport("native");
     this.#observeResponses();

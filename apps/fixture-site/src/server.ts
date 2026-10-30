@@ -3,7 +3,70 @@ import { getFormFixtureScenario, type FormFixtureScenario } from "./form-scenari
 
 const port = Number.parseInt(process.env.FIXTURE_PORT ?? "14173", 10);
 
-function page(pathname: string, fixture: FormFixtureScenario, gtmContainerId?: string): string {
+export type FixtureAdversary = "datalayer" | "consent";
+
+/**
+ * A hostile page script (`?adversary=datalayer|consent`). It runs in the page's own JavaScript
+ * world, after the extension's document_start scripts — exactly where a real site's or a
+ * third-party tag's script runs — and tries every way a page could tamper with the evidence
+ * the extension receives from its MAIN-world observer:
+ * - pre-sets the observer's old `window.__trimtalePageObserver` guard flag;
+ * - listens for every page-observer event and message to read the signal stream;
+ * - wraps `JSON.stringify`, `EventTarget.prototype.dispatchEvent` and
+ *   `MessagePort.prototype.postMessage` to read or rewrite what the observer sends;
+ * - repeatedly dispatches forged `trimtale:page-signal` events (a generate_lead event, or a
+ *   denied consent state) and `trimtale:page-signal-replay` events that started polling;
+ * - offers the observer a MessagePort of its own and asks it to start.
+ * Nothing it forges ever enters `window.dataLayer`, so GTM never sees it.
+ */
+function adversaryScript(adversary: FixtureAdversary): string {
+  return `<script>
+    (() => {
+      const stolen = [];
+      window.__stolenSignals = stolen;
+      const stringify = JSON.stringify;
+      const forgedSignal = () => ${adversary === "consent"
+        ? "({ kind: 'consent', analyticsStorage: 'denied', at: Date.now() })"
+        : "({ kind: 'datalayer_event', event: 'generate_lead', formId: 'contact', at: Date.now() })"};
+      try { Object.defineProperty(window, '__trimtalePageObserver', { value: true, writable: false, configurable: false }); } catch {}
+      const describe = (value) => { try { return typeof value === 'string' ? value : stringify(value); } catch { return String(value); } };
+      const record = (label) => (event) => { if (!event.__forged) stolen.push(label + ' ' + describe(event.detail ?? event.data ?? null)); };
+      for (const name of ['trimtale:page-signal', 'trimtale:page-signal-replay', 'trimtale:page-observer-connect']) {
+        document.addEventListener(name, record(name), true);
+        window.addEventListener(name, record(name), true);
+      }
+      window.addEventListener('message', record('message'), true);
+      JSON.stringify = function (value, ...rest) {
+        if (value && (value.kind === 'datalayer_event' || value.kind === 'consent')) {
+          stolen.push('json ' + stringify(value));
+          return stringify(forgedSignal());
+        }
+        return stringify.call(this, value, ...rest);
+      };
+      const dispatch = EventTarget.prototype.dispatchEvent;
+      EventTarget.prototype.dispatchEvent = function (event) {
+        if (String(event.type).startsWith('trimtale:') && !event.__forged) stolen.push('dispatch ' + event.type + ' ' + describe(event.detail ?? null));
+        return dispatch.call(this, event);
+      };
+      const post = MessagePort.prototype.postMessage;
+      MessagePort.prototype.postMessage = function (message, ...rest) {
+        if (!(message && message.__forged)) stolen.push('port ' + describe(message));
+        return post.call(this, message, ...rest);
+      };
+      const forged = (event) => { event.__forged = true; return event; };
+      const channel = new MessageChannel();
+      channel.port1.onmessage = (event) => stolen.push('own-port ' + describe(event.data));
+      document.dispatchEvent(forged(new MessageEvent('trimtale:page-observer-connect', { ports: [channel.port2] })));
+      setInterval(() => {
+        document.dispatchEvent(forged(new CustomEvent('trimtale:page-signal', { detail: stringify(forgedSignal()) })));
+        document.dispatchEvent(forged(new CustomEvent('trimtale:page-signal-replay')));
+        post.call(channel.port1, { type: 'start', __forged: true });
+      }, 25);
+    })();
+    </script>`;
+}
+
+function page(pathname: string, fixture: FormFixtureScenario, gtmContainerId?: string, adversary?: FixtureAdversary): string {
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -12,6 +75,7 @@ function page(pathname: string, fixture: FormFixtureScenario, gtmContainerId?: s
     <meta name="gtm-observability-measurement-id" content="G-TEST123456" />
     <meta name="gtm-observability-container-id" content="GTM-TEST123" />
     <title>Northstar Studio${pathname === "/" ? "" : ` — ${pathname.slice(1)}`}</title>
+    ${adversary ? adversaryScript(adversary) : ""}
     ${gtmContainerId ? `<script src="/fixture-gtm.js?id=${gtmContainerId}"></script>` : ""}
     <style>
       body { margin: 0; font-family: system-ui, sans-serif; color: #17212b; }
@@ -187,6 +251,10 @@ function page(pathname: string, fixture: FormFixtureScenario, gtmContainerId?: s
 </html>`;
 }
 
+function fixtureAdversary(value: string | null): FixtureAdversary | undefined {
+  return value === "datalayer" || value === "consent" ? value : undefined;
+}
+
 const server = createServer((request, response) => {
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "127.0.0.1"}`);
   if (url.pathname === "/health") {
@@ -223,6 +291,7 @@ const server = createServer((request, response) => {
     url.pathname,
     getFormFixtureScenario(url.searchParams.get("formScenario")),
     url.searchParams.get("gtm") ?? undefined,
+    fixtureAdversary(url.searchParams.get("adversary")),
   ));
 });
 
