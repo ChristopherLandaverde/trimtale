@@ -131,6 +131,58 @@ describe("presentVerdict", () => {
     expect(finding.observed.length).toBeLessThan(160);
   });
 
+  describe("endpoint failure while the page reported success (#63)", () => {
+    type Interaction = Observations["interaction"] & { responseStatus?: number };
+    const interaction = (submissionResult: Interaction["submissionResult"], responseStatus?: number): Interaction => ({
+      type: "form_submission", targetId: "contact", attempted: true, submissionResult,
+      ...(responseStatus === undefined ? {} : { responseStatus }),
+    });
+    const leadRequest = { network: { ga4Requests: [{ url: requestUrl, observedAt: "x" }] } };
+    const noRequest = { network: { ga4Requests: [] } };
+
+    it.each([
+      ["submission_failed", "server_error", 503, leadRequest, "The page reported success, but the form endpoint returned HTTP 503. A `generate_lead` request was still sent, so GA4 may count a lead that does not exist."],
+      ["submission_failed", "server_error", 503, noRequest, "The page reported success, but the form endpoint returned HTTP 503."],
+      ["expected_non_conversion", "validation_error", 422, leadRequest, "The page reported success, but the form endpoint rejected the submission with HTTP 422. A `generate_lead` request was still sent, so GA4 may count a lead that does not exist."],
+      ["expected_non_conversion", "validation_error", 422, noRequest, "The page reported success, but the form endpoint rejected the submission with HTTP 422."],
+    ] as const)("%s (%s %i) names the conflict and the HTTP status", (code, result, status, network, observed) => {
+      const finding = presentVerdict(formEvidence(code, "failed", {
+        interaction: interaction(result, status),
+        outcome: { observed: true, observable: true, evidenceType: "visible_element" },
+        ...network,
+      }), { targetLabel: "Contact sales" });
+      expect(finding.status).toBe("broken");
+      expect(finding.observed).toBe(observed);
+      expect(finding.title).toMatch(/but the page showed success$/);
+      expect(`${finding.consequence} ${finding.fix}`).not.toMatch(/nothing (is )?sent|stopped by validation/i);
+      expect(finding.evidence).toContainEqual({ label: "interaction.responseStatus", value: String(status) });
+      for (const copy of [finding.title, finding.observed, finding.consequence, finding.fix, finding.verify]) {
+        for (const sentence of sentences(copy)) expect(sentence.split(/\s+/).length, sentence).toBeLessThanOrEqual(18);
+      }
+    });
+
+    it("never says nothing reached GA4 when a lead request was sent for a failed submission", () => {
+      const finding = presentVerdict(formEvidence("submission_failed", "failed", {
+        interaction: interaction("server_error", 500),
+        outcome: { observed: false, observable: true },
+        ...leadRequest,
+      }));
+      expect(finding.observed).toBe("The form endpoint returned HTTP 500 after submit. A `generate_lead` request was still sent, so GA4 may count a lead that does not exist.");
+      expect(finding.consequence).not.toMatch(/no lead request was sent/);
+    });
+
+    it("keeps browser-side validation, with no endpoint status, as not checked", () => {
+      const finding = presentVerdict(formEvidence("expected_non_conversion", "failed", {
+        interaction: interaction("validation_error"),
+        outcome: { observed: false, observable: true },
+        ...noRequest,
+      }));
+      expect(finding.status).toBe("not_checked");
+      expect(finding.observed).toBe("Form validation stopped the submission before it was accepted.");
+      expect(finding.evidence.map((row) => row.label)).not.toContain("interaction.responseStatus");
+    });
+  });
+
   it("words navigation verdicts with navigation_click", () => {
     expect(presentVerdict(navigationEvidence("browser_verified", 1), { targetLabel: "Pricing" })).toMatchObject({
       status: "verified",

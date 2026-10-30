@@ -74,6 +74,11 @@ function missingParameters(observations: Observations): string[] {
   }
 }
 
+function responseStatusOf(observations: Observations): number | undefined {
+  const status = (observations.interaction as { responseStatus?: unknown }).responseStatus;
+  return typeof status === "number" && Number.isInteger(status) ? status : undefined;
+}
+
 function successSignalLabel(observations: Observations): string {
   const type = observations.outcome.evidenceType;
   if (type === "thank_you_url") return "the thank-you page loaded";
@@ -93,6 +98,9 @@ function evidenceRows(evidence: TrackingRunEvidenceV1): FindingEvidenceRow[] {
   if (observations.interaction.type === "form_submission") {
     rows.push(
       { label: "interaction.submissionResult", value: observations.interaction.submissionResult },
+      ...(responseStatusOf(observations) !== undefined
+        ? [{ label: "interaction.responseStatus", value: String(responseStatusOf(observations)) }]
+        : []),
       { label: "outcome.observed", value: String(observations.outcome.observed) },
       { label: "consent.analyticsStorage", value: observations.consent.analyticsStorage },
       { label: "dataLayer.matchingEvents", value: String(observations.dataLayer.matchingEvents.length) },
@@ -127,6 +135,11 @@ function presentFormVerdict(evidence: TrackingRunEvidenceV1, target: string): Ve
   const requests = observations.network.ga4Requests.length;
   const success = successSignalLabel(observations);
   const platformNote = "Platform confirmation is not available yet, so GA4 processing is unconfirmed.";
+  // Present once the core records the form endpoint's HTTP status (evidence field added in #63).
+  const status = responseStatusOf(observations);
+  const leadSentAnyway = requests > 0
+    ? ` A \`generate_lead\` request was still sent, so GA4 may count a lead that does not exist.`
+    : "";
 
   switch (verdict.code) {
     case "browser_verified":
@@ -137,11 +150,37 @@ function presentFormVerdict(evidence: TrackingRunEvidenceV1, target: string): Ve
         fix: "No browser fix is needed.",
         verify: "Look for `generate_lead` in GA4 Realtime. Rerun after any GTM or form change.",
       });
-    case "expected_non_conversion":
-      if (observations.interaction.submissionResult === "validation_error") {
+    case "expected_non_conversion": {
+      const result = observations.interaction.submissionResult;
+      if (result === "validation_error" && status !== undefined) {
+        // The form endpoint answered 4xx: the submission was rejected, whatever the page showed.
+        if (observations.outcome.observed) {
+          return finding(evidence, "broken", {
+            title: "The form rejected the submission, but the page showed success",
+            observed: `The page reported success, but the form endpoint rejected the submission with HTTP ${status}.${leadSentAnyway}`,
+            consequence: requests > 0
+              ? "Visitors see a confirmation for a lead you never received, and reports may count it."
+              : "Visitors see a confirmation for a lead you never received.",
+            fix: "Show success and push `generate_lead` only after the endpoint accepts the submission.",
+            verify: "Submit valid input. Success and one `generate_lead` request should follow an accepted response.",
+          });
+        }
+        return finding(evidence, requests > 0 ? "broken" : "not_checked", {
+          title: "The form endpoint rejected this attempt, so it is not a lead",
+          observed: `The form endpoint rejected the submission with HTTP ${status}.${leadSentAnyway}`,
+          consequence: requests > 0
+            ? "A rejected submission is not a lead, yet reports may count it."
+            : "A rejected submission is not a lead, so tracking was not tested on this attempt.",
+          fix: requests > 0
+            ? "Push `generate_lead` only after the endpoint accepts the submission."
+            : "Correct the input and submit again.",
+          verify: "A valid submission should show the success signal and one `generate_lead` request.",
+        });
+      }
+      if (result === "validation_error") {
         return finding(evidence, "not_checked", {
           title: "This attempt was not counted as a lead",
-          observed: "The browser's form validation stopped the submission before it was sent.",
+          observed: "Form validation stopped the submission before it was accepted.",
           consequence: "A validation error is not a lead, so tracking was not tested on this attempt.",
           fix: "Correct the input and submit again.",
           verify: "A valid submission should show the success signal and one `generate_lead` request.",
@@ -154,14 +193,30 @@ function presentFormVerdict(evidence: TrackingRunEvidenceV1, target: string): Ve
         fix: "Submit again with input the form accepts.",
         verify: "A successful submission should show the success signal and one `generate_lead` request.",
       });
-    case "submission_failed":
+    }
+    case "submission_failed": {
+      const answer = status !== undefined ? `HTTP ${status}` : "a server error";
+      if (observations.outcome.observed) {
+        return finding(evidence, "broken", {
+          title: "The form failed, but the page showed success",
+          observed: `The page reported success, but the form endpoint returned ${answer}.${leadSentAnyway}`,
+          consequence: requests > 0
+            ? "Visitors see a confirmation for a lead you never received, and reports may count it."
+            : "Visitors see a confirmation for a lead you never received.",
+          fix: "Fix the server error. Show success and push `generate_lead` only after a successful response.",
+          verify: "Submit again. Success and one `generate_lead` request should follow a successful response.",
+        });
+      }
       return finding(evidence, "broken", {
         title: "The form submission failed, so no lead was created",
-        observed: "The form's endpoint returned a server error after submit.",
-        consequence: "Visitors who submit this form may not become leads, and nothing is sent to GA4.",
+        observed: `The form endpoint returned ${answer} after submit.${leadSentAnyway}`,
+        consequence: requests > 0
+          ? "Visitors who submit this form may not become leads, yet reports may count them."
+          : "Visitors who submit this form may not become leads, and no lead request was sent.",
         fix: "Fix the form or server error, then rerun browser verification.",
         verify: "Submit once more. The success signal and one `generate_lead` request should follow.",
       });
+    }
     case "outcome_observed_event_missing":
       return finding(evidence, "broken", {
         title: "The form succeeded, but no lead event was sent",
