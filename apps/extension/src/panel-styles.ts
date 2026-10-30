@@ -78,7 +78,7 @@ export const panelStyles = `
   .quick:disabled { cursor: default; color: var(--ink-secondary); border-color: var(--ink-secondary); background: var(--surface-paper); }
   .primary-quick { color: var(--surface-paper); background: var(--ink-primary); }
   .primary-quick:hover { background: var(--ink-primary); text-decoration: underline; text-underline-offset: 3px; }
-  .gtm-action, .primary-quick { justify-self: start; margin-top: var(--space-2); }
+  .gtm-action, .primary-quick, .evidence-path > .quick { justify-self: start; margin-top: var(--space-2); }
 
   /* GTM connection card */
   .gtm-context { flex: none; display: grid; gap: var(--space-2); padding: var(--space-3); border: var(--rule) solid var(--line-subtle); border-radius: var(--radius-md); background: var(--surface-raised); }
