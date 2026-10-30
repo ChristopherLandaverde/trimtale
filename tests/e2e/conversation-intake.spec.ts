@@ -153,3 +153,48 @@ test("uses one adjacent stable status as form success evidence and rejects ambig
     await rm(profile, { recursive: true, force: true });
   }
 });
+
+test("keeps the assistant fully open when a request is sent during the open transition", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "gtm-observability-open-race-"));
+  const context = await chromium.launchPersistentContext(profile, {
+    channel: "chromium",
+    headless: true,
+    args: [
+      `--disable-extensions-except=${resolve("apps/extension/dist")}`,
+      `--load-extension=${resolve("apps/extension/dist")}`,
+    ],
+  });
+
+  try {
+    const site = await context.newPage();
+    await site.goto("http://127.0.0.1:14173/");
+    const root = site.locator("#gtm-observability-root");
+    const assistant = root.locator("section.assistant");
+    await expect(assistant).toHaveClass(/collapsed/);
+
+    // Open and submit while the 180ms width transition is still running.
+    await root.evaluate(async (host) => {
+      const shadow = host.shadowRoot;
+      if (!shadow) throw new Error("Expected an open shadow root");
+      shadow.querySelector<HTMLButtonElement>(".orb")!.click();
+      await new Promise((settle) => setTimeout(settle, 60));
+      const textarea = shadow.querySelector<HTMLTextAreaElement>("textarea")!;
+      textarea.value = "Track leads from a form";
+      shadow.querySelector<HTMLButtonElement>(".send")!.click();
+    });
+
+    await expect(root.getByText("I found 2 forms. Which one represents the outcome you want to measure?")).toBeVisible();
+    await expect.poll(() => assistant.evaluate((element) => (element as HTMLElement).style.width)).toBe("380px");
+    await expect.poll(() => assistant.evaluate((element) => Math.round(element.getBoundingClientRect().width)))
+      .toBeGreaterThanOrEqual(380);
+
+    // A later request re-applies the remembered size; it must not grow by the border width.
+    await root.getByLabel("Tracking request").fill("navigation");
+    await root.getByRole("button", { name: "Send request" }).click();
+    await expect(root.getByText("I found 2 forms. Which one represents the outcome you want to measure?")).toBeVisible();
+    await expect.poll(() => assistant.evaluate((element) => (element as HTMLElement).style.width)).toBe("380px");
+  } finally {
+    await context.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});
