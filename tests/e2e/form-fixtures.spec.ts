@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { formFixtureScenarios } from "../../apps/fixture-site/src/form-scenarios.js";
+import { formEndpointStatus, formFixtureScenarios } from "../../apps/fixture-site/src/form-scenarios.js";
 
 // Replays each fixture scenario without the extension and checks that the page itself
 // produces the real browser behavior the scenario describes. The page sets no verdict
@@ -7,6 +7,13 @@ import { formFixtureScenarios } from "../../apps/fixture-site/src/form-scenarios
 for (const fixture of Object.values(formFixtureScenarios)) {
   test(`replays form fixture: ${fixture.id}`, async ({ page }) => {
     const deliveredRequests: string[] = [];
+    const endpointStatuses: number[] = [];
+    const widgetStatuses: number[] = [];
+    page.on("response", (response) => {
+      const url = new URL(response.url());
+      if (url.pathname === "/api/lead" || (url.pathname === "/thank-you" && response.request().method() === "POST")) endpointStatuses.push(response.status());
+      if (url.pathname === "/widget/collect") widgetStatuses.push(response.status());
+    });
     const failedRequests: string[] = [];
     page.on("requestfinished", (request) => {
       if (request.url().includes("/g/collect") && request.url().includes("en=generate_lead")) deliveredRequests.push(request.url());
@@ -50,7 +57,23 @@ for (const fixture of Object.values(formFixtureScenarios)) {
       await page.waitForTimeout(300);
       await expect(page.getByRole("status").filter({ hasText: "Thanks" })).toHaveCount(0);
     }
-    if (fixture.submissionResult === "server_error") await expect(page.getByRole("alert").filter({ hasText: "Something went wrong" })).toBeVisible();
+    if (fixture.submissionResult === "server_error" && !fixture.reportsSuccessOnFailure) {
+      await expect(page.getByRole("alert").filter({ hasText: "Something went wrong" })).toBeVisible();
+    }
+    if (fixture.validation !== "html5" && fixture.validation !== "script") {
+      // The form endpoint answers with the scenario's status (and 200 on a retry).
+      const expected = fixture.retriesFailedResponse
+        ? [formEndpointStatus(fixture, 1), formEndpointStatus(fixture, 2)]
+        : [formEndpointStatus(fixture)];
+      await expect.poll(() => endpointStatuses).toEqual(expected);
+    }
+    if (fixture.thirdPartyErrorAfterSubmit) {
+      await expect.poll(() => widgetStatuses).toEqual([500]);
+      // The cross-origin failure is visible to Resource Timing, so the extension really sees it.
+      await expect.poll(() => page.evaluate(() => performance.getEntriesByType("resource")
+        .filter((entry) => entry.name.includes("/widget/collect"))
+        .map((entry) => (entry as PerformanceResourceTiming & { responseStatus?: number }).responseStatus))).toEqual([500]);
+    }
 
     const leadEvents = () => page.evaluate(() => (
       ((window as Window & { dataLayer?: Array<{ event?: string }> }).dataLayer ?? [])

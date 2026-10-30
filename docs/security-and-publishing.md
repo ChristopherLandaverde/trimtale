@@ -44,6 +44,17 @@ What a page still controls, by definition:
 
 How verdicts weigh that evidence: dataLayer signals alone can never produce `browser_verified`. A passing verdict also needs exactly one GA4 `/g/collect` request for the specified event, with `form_id`, `form_name` and a page location, seen by the service worker through `chrome.webRequest` and not reported failed. A page cannot fabricate that observation without the browser actually sending the request; a page that sends a hand-made GA4 request is really sending a hit to Google, which is why platform confirmation stays `unverified` until GA4 reports it. What dataLayer-only evidence can change is which failure or inconclusive verdict a broken setup gets (for example `outcome_observed_event_missing` versus `datalayer_event_observed_tag_not_firing`), and a page-reported denied consent state takes precedence over the `gcs` parameter, giving `consent_limited` (inconclusive, never passed).
 
+The same principle decides a form's submission result: what the browser saw the form endpoint
+answer outranks what the page reports about itself. A 5xx or 400/422 from the form endpoint (a
+fetch/XHR to the form's action origin, or the document a native POST returned) beats the
+success element, the thank-you URL and the dataLayer event, so a page that shows success after
+a failed request gets `submission_failed` or `expected_non_conversion`, never a pass. The
+conflicting success signal stays in the evidence and the next action names it with the HTTP
+status. A failure from another origin (an analytics or chat widget) is not attributed to the
+form and only counts when the page showed no success. The full order is documented in
+`docs/product-plan/current-capabilities.md` and on `FormRun` in
+`packages/core/src/form-signals.ts`.
+
 ## Google integration controls
 
 `GET /api/google/status` is public and reports whether Google discovery is configured.

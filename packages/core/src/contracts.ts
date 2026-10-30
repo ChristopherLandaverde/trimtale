@@ -82,6 +82,8 @@ export interface TrackingRunEvidenceV1 {
       targetId: string;
       attempted: boolean;
       submissionResult: "success" | "validation_error" | "server_error" | "unknown";
+      /** HTTP status of the form endpoint response behind a `server_error` or `validation_error` result. */
+      responseStatus?: number;
     };
     outcome: {
       observed: boolean;
@@ -237,6 +239,10 @@ export function validateTrackingRunEvidence(value: unknown): string[] {
   const interaction = observations && isRecord(observations.interaction) ? observations.interaction : undefined;
   if (interaction && !["success", "validation_error", "server_error", "unknown"].includes(String(interaction.submissionResult))) {
     errors.push("observations.interaction.submissionResult is invalid");
+  }
+  if (interaction && "responseStatus" in interaction && interaction.responseStatus !== undefined
+    && !(Number.isInteger(interaction.responseStatus) && Number(interaction.responseStatus) >= 100 && Number(interaction.responseStatus) <= 599)) {
+    errors.push("observations.interaction.responseStatus is invalid");
   }
   const outcome = observations && isRecord(observations.outcome) ? observations.outcome : undefined;
   if (outcome && typeof outcome.observable !== "boolean") errors.push("observations.outcome.observable is required");

@@ -25,6 +25,38 @@ function requestHasRequiredParameters(url: string): boolean {
   }
 }
 
+/**
+ * The next action when the form endpoint failed but the page still reported success (its
+ * confirmed success signal fired). The submission result already outranks the page's success
+ * signal; this names the conflict so the practitioner sees both sides.
+ */
+function conflictingSuccessAction(observations: FormObservations): string | undefined {
+  const { interaction, outcome, network } = observations;
+  if (!outcome.observed) return undefined;
+  const status = interaction.responseStatus;
+  const leadSent = network.ga4Requests.length > 0
+    ? " A generate_lead request was sent for this failed submission, so GA4 may count a lead that does not exist."
+    : "";
+  if (interaction.submissionResult === "server_error") {
+    return `The page reported success, but the form endpoint returned ${status ? `HTTP ${status}` : "a server error"}. `
+      + `Fix the server error, show success and push generate_lead only after a successful response, then rerun browser verification.${leadSent}`;
+  }
+  if (interaction.submissionResult === "validation_error" && status) {
+    return `The page reported success, but the form endpoint rejected the submission with HTTP ${status}. `
+      + `Show success and push generate_lead only after the submission is accepted; do not count this attempt as a lead.${leadSent}`;
+  }
+  return undefined;
+}
+
+/**
+ * Verdict order, first match wins: no trusted submit attempt; a rejected submission
+ * (`validation_error`); a failed submission (`server_error`); no success signal; denied consent;
+ * then the tracking chain (dataLayer event, tag, request count, parameters).
+ *
+ * The submission result arrives already resolved by `FormRun`, where an endpoint response
+ * outranks the page's own success signal (see `FormRun#submissionResult`). So a run in which the
+ * server failed but the page reported success is a failure here, never `browser_verified`.
+ */
 export function determineFormVerdict(observations: FormObservations): TrackingRunEvidenceV1["verdict"] {
   let code: ScenarioVerdictCode;
   if (!observations.interaction.attempted) {
@@ -61,7 +93,8 @@ export function determineFormVerdict(observations: FormObservations): TrackingRu
         ? "inconclusive"
         : "failed",
     platformConfirmation: "unverified",
-    nextAction: nextActions[code],
+    nextAction: (code === "submission_failed" || code === "expected_non_conversion" ? conflictingSuccessAction(observations) : undefined)
+      ?? nextActions[code],
   };
 }
 
