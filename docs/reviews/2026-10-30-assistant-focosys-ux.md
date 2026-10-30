@@ -20,6 +20,7 @@ Job of the panel: a marketer opens the assistant on their own page to set up tra
 | `analytics_storage` denied | ambiguous | [before](2026-10-30-assistant-focosys-ux/before-verdict-consent.png) | [after](2026-10-30-assistant-focosys-ux/after-verdict-consent.png) |
 | Two lead requests for one submit | negative | [before](2026-10-30-assistant-focosys-ux/before-verdict-duplicate.png) | [after](2026-10-30-assistant-focosys-ux/after-verdict-duplicate.png) |
 | Lead request missing parameters | negative | [before](2026-10-30-assistant-focosys-ux/before-verdict-missing-parameter.png) | [after](2026-10-30-assistant-focosys-ux/after-verdict-missing-parameter.png) |
+| Endpoint 503 while the page showed success and sent a lead (`server_error_with_success_event`, from #63's fixture, run on a trial merge with #63) | conflicting | n/a | [after](2026-10-30-assistant-focosys-ux/after-verdict-endpoint-conflict.png) |
 | Keyboard: evidence toggle then Shift+Tab | accessibility | n/a | [after](2026-10-30-assistant-focosys-ux/after-keyboard-focus.png) |
 | Hostile form label on a dark page | adversarial | n/a | [page](2026-10-30-assistant-focosys-ux/after-page-adversarial.png), [finding](2026-10-30-assistant-focosys-ux/after-adversarial-finding.png) |
 
@@ -28,6 +29,7 @@ The adversarial page served a form whose `aria-label` was `<img src=x onerror=al
 ## What changed on screen
 
 - Every run verdict is a finding card: status tag (`✓ VERIFIED`, `× BROKEN`, `! REVIEW`, `– NOT CHECKED`), a plain-language title, then Observed / Why / Fix / Verify. The raw `verdict.*` fields and observation counts sit behind "Show evidence" in IBM Plex Mono.
+- When the form endpoint fails or rejects a submission but the page still shows success (#63), the finding names that conflict and the HTTP status. When a lead request was sent anyway, it warns that GA4 may count a lead that does not exist, instead of claiming nothing reached GA4.
 - The lowercase fallback (`submission failed. Fix the form…`) is gone; every verdict code has its own copy.
 - The panel is on Focosys tokens: paper and ink, 4–6px radius, no gradients, blur or depth shadows, DM Sans for sentences and IBM Plex Mono for labels and evidence. Text is 13px or larger, labels 11px.
 - The collapsed launcher is an ink square with a lime `T`, not a conic-gradient orb.
