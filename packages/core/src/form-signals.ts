@@ -11,6 +11,9 @@ type Delivery = "pending" | "delivered" | "failed";
 
 interface RunEvent { event: string; form_id?: string; form_name?: string; at: number }
 interface RunRequest { id: string; url: string; observedAt: string; delivery: Delivery }
+/** An HTTP response seen after the submit. `attributable` is false when it cannot be tied to the form. */
+interface RunResponse { status: number; attributable: boolean }
+type SubmissionResult = RawFormRunObservation["submissionResult"];
 
 /** Serializable state of one form verification run (survives a page navigation). */
 export interface FormRunState {
@@ -18,7 +21,11 @@ export interface FormRunState {
   startedAt: string;
   attempted: boolean;
   validationFailed: boolean;
-  responseFailure?: ResponseFailure;
+  /**
+   * Failure responses still standing when the state was saved. The endpoints themselves stay in
+   * memory only, so no request path or query reaches persistence.
+   */
+  responses: RunResponse[];
   outcomeObserved: boolean;
   transport: Transport;
   consent: Consent;
@@ -42,6 +49,30 @@ export function classifyFormResponseStatus(status: number): ResponseFailure | un
   if (status >= 500 && status <= 599) return "server_error";
   if (status === 400 || status === 422) return "validation_error";
   return undefined;
+}
+
+/**
+ * Whether a fetch/XHR response can be attributed to the form's submission: it went to the origin
+ * the form submits to (its resolved `action`, which defaults to the page itself). Responses from
+ * other origins (analytics, chat or error-reporting widgets) are not form evidence.
+ */
+export function isFormEndpointRequest(requestUrl: string, formActionUrl: string): boolean {
+  try {
+    return new URL(requestUrl).origin === new URL(formActionUrl).origin;
+  } catch {
+    return false;
+  }
+}
+
+/** One key per endpoint (origin + path), so a retry to the same endpoint replaces its earlier status. */
+function endpointKey(endpoint: string | undefined): string {
+  if (endpoint === undefined) return "document";
+  try {
+    const url = new URL(endpoint);
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return `unparsed:${endpoint}`;
+  }
 }
 
 function escapeRegex(value: string): string {
@@ -74,7 +105,9 @@ const transports: readonly Transport[] = ["native", "redirect", "ajax", "spa", "
 const consents: readonly Consent[] = ["granted", "denied", "unknown"];
 
 export class FormRun {
-  #state: FormRunState;
+  #state: Omit<FormRunState, "responses">;
+  /** Latest status per endpoint key (see `endpointKey`). */
+  readonly #responses = new Map<string, RunResponse>();
 
   constructor(eventName: string, startedAt: string, consent: Consent) {
     this.#state = {
@@ -101,10 +134,13 @@ export class FormRun {
       ...run.#state,
       attempted: state.attempted === true,
       validationFailed: state.validationFailed === true,
-      ...(state.responseFailure === "server_error" || state.responseFailure === "validation_error" ? { responseFailure: state.responseFailure } : {}),
       outcomeObserved: state.outcomeObserved === true,
       transport: state.transport as Transport,
     };
+    (Array.isArray(state.responses) ? state.responses : []).forEach((response, index) => {
+      if (!response || typeof response.status !== "number") return;
+      run.#recordResponse(`restored:${index}`, response.status, response.attributable !== false);
+    });
     for (const event of state.events) {
       if (event && typeof event.event === "string" && typeof event.at === "number") {
         run.recordPageSignal({ kind: "datalayer_event", event: event.event, ...(event.form_id ? { formId: event.form_id } : {}), ...(event.form_name ? { formName: event.form_name } : {}), at: event.at });
@@ -119,7 +155,8 @@ export class FormRun {
   }
 
   toJSON(): FormRunState {
-    return structuredClone(this.#state);
+    const responses = [...this.#responses.values()].filter((response) => classifyFormResponseStatus(response.status));
+    return { ...structuredClone(this.#state), responses: structuredClone(responses) };
   }
 
   get outcomeObserved(): boolean {
@@ -139,9 +176,20 @@ export class FormRun {
     this.#state.validationFailed = true;
   }
 
-  recordResponseStatus(status: number): void {
-    const failure = classifyFormResponseStatus(status);
-    if (failure && this.#state.responseFailure !== "server_error") this.#state.responseFailure = failure;
+  /**
+   * Records an HTTP response seen after the submit: a fetch/XHR (pass its URL as `endpoint`) or,
+   * without an endpoint, the document a native POST navigated to. A later response from the same
+   * endpoint (origin + path) replaces the earlier one, so a successful retry clears a failure.
+   * Pass `attributable: false` for a response that cannot be tied to the form (see
+   * `isFormEndpointRequest`); it never outranks an observed success.
+   */
+  recordResponseStatus(status: number, options: { endpoint?: string; attributable?: boolean } = {}): void {
+    this.#recordResponse(endpointKey(options.endpoint), status, options.attributable !== false);
+  }
+
+  #recordResponse(key: string, status: number, attributable: boolean): void {
+    if (!Number.isInteger(status) || status < 100 || status > 599) return;
+    this.#responses.set(key, { status, attributable });
   }
 
   recordOutcome(): void {
@@ -196,10 +244,41 @@ export class FormRun {
     return fromRequests.includes("granted") ? "granted" : "unknown";
   }
 
-  #submissionResult(): RawFormRunObservation["submissionResult"] {
-    if (this.#state.outcomeObserved) return "success";
-    if (this.#state.validationFailed) return "validation_error";
-    return this.#state.responseFailure ?? "unknown";
+  /** The most severe failure among the latest responses: any 5xx outranks a 400/422. */
+  #responseFailure(attributable: boolean): { result: ResponseFailure; status: number } | undefined {
+    let found: { result: ResponseFailure; status: number } | undefined;
+    for (const response of this.#responses.values()) {
+      if (response.attributable !== attributable) continue;
+      const result = classifyFormResponseStatus(response.status);
+      if (result && (!found || (result === "server_error" && found.result !== "server_error"))) found = { result, status: response.status };
+    }
+    return found;
+  }
+
+  /**
+   * Submission result precedence. What the browser saw the form endpoint answer outranks what
+   * the page reports about itself: the success element, the thank-you URL and the dataLayer
+   * event are all set by page code, which can show success after a failed request.
+   *
+   *   1. 5xx from the form endpoint (fetch/XHR to the form's origin, or the document a native
+   *      POST returned)                                                       -> server_error
+   *   2. 400/422 from the form endpoint                                       -> validation_error
+   *   3. the confirmed success signal (element, thank-you URL, dataLayer event) -> success
+   *   4. client-side validation (`invalid` events, `aria-invalid`)           -> validation_error
+   *   5. 5xx, then 400/422, from a response not attributable to the form     -> server_error / validation_error
+   *   6. otherwise                                                            -> unknown
+   *
+   * A conflicting success signal stays in the evidence (`outcome.observed`, dataLayer events,
+   * GA4 requests), and the response status is reported as `responseStatus`.
+   */
+  #submissionResult(): { result: SubmissionResult; responseStatus?: number } {
+    const endpointFailure = this.#responseFailure(true);
+    if (endpointFailure) return { result: endpointFailure.result, responseStatus: endpointFailure.status };
+    if (this.#state.outcomeObserved) return { result: "success" };
+    if (this.#state.validationFailed) return { result: "validation_error" };
+    const otherFailure = this.#responseFailure(false);
+    if (otherFailure) return { result: otherFailure.result, responseStatus: otherFailure.status };
+    return { result: "unknown" };
   }
 
   observation(input: { runId: string; specificationId: string; targetId: string; success: SuccessEvidence }): RawFormRunObservation {
@@ -207,6 +286,7 @@ export class FormRun {
     // A request still pending at the end of the run is counted as delivered: the browser
     // sent it and reported no failure within the observation window.
     const delivered = relevant.filter((request) => request.delivery !== "failed");
+    const submission = this.#submissionResult();
     return {
       runId: input.runId,
       specificationId: input.specificationId,
@@ -214,7 +294,8 @@ export class FormRun {
       transport: this.#state.transport,
       targetId: input.targetId,
       submitAttempted: this.#state.attempted,
-      submissionResult: this.#submissionResult(),
+      submissionResult: submission.result,
+      ...(submission.responseStatus !== undefined ? { responseStatus: submission.responseStatus } : {}),
       outcomeObserved: this.#state.outcomeObserved,
       outcomeObservable: input.success.type !== "same_page_success",
       outcomeEvidenceType: input.success.type,

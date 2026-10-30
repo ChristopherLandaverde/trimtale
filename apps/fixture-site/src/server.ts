@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { getFormFixtureScenario, type FormFixtureScenario } from "./form-scenarios.js";
+import { formEndpointStatus, getFormFixtureScenario, type FormFixtureScenario } from "./form-scenarios.js";
 
 const port = Number.parseInt(process.env.FIXTURE_PORT ?? "14173", 10);
 
@@ -175,18 +175,27 @@ function page(pathname: string, fixture: FormFixtureScenario, gtmContainerId?: s
         fireLeadTag(formId, formName);
       }
 
-      function postLead(form, onDone) {
+      function postLead(form, onDone, attempt = 1) {
         const body = new FormData(form);
-        const url = '/api/lead?formScenario=' + encodeURIComponent(formFixture.id);
+        const url = '/api/lead?formScenario=' + encodeURIComponent(formFixture.id) + '&attempt=' + attempt;
+        // A retrying form library: one more attempt after a failed request.
+        const done = (ok) => (!ok && formFixture.retriesFailedResponse && attempt === 1 ? postLead(form, onDone, 2) : onDone(ok));
         if (formFixture.presentation === 'embedded') {
           const request = new XMLHttpRequest();
           request.open('POST', url);
-          request.onload = () => onDone(request.status >= 200 && request.status < 300);
+          request.onload = () => done(request.status >= 200 && request.status < 300);
           request.send(body);
           return;
         }
         fetch(url, { method: 'POST', body })
-          .then((response) => response.json().then(() => onDone(response.ok)), () => onDone(false));
+          .then((response) => response.json().then(() => done(response.ok)), () => done(false));
+      }
+
+      // A third-party widget on another origin whose own endpoint is failing.
+      function callThirdPartyWidget() {
+        if (!formFixture.thirdPartyErrorAfterSubmit) return;
+        fetch('http://localhost:' + location.port + '/widget/collect', { method: 'POST', mode: 'cors' })
+          .then((response) => response.text(), () => undefined);
       }
 
       function attachFixtureForm(form, status) {
@@ -195,13 +204,15 @@ function page(pathname: string, fixture: FormFixtureScenario, gtmContainerId?: s
           if (formFixture.transport === 'redirect') return;
           event.preventDefault();
           const email = form.querySelector('input[type="email"]');
-          if (formFixture.submissionResult === 'validation_error') {
+          if (formFixture.submissionResult === 'validation_error' && formFixture.validation !== 'endpoint') {
             email.setAttribute('aria-invalid', 'true');
             if (error) { error.hidden = false; error.textContent = 'Enter a work email address.'; }
             return;
           }
+          callThirdPartyWidget();
           postLead(form, (ok) => {
-            if (!ok) {
+            // reportsSuccessOnFailure: a broken page that ignores the failed response.
+            if (!ok && !formFixture.reportsSuccessOnFailure) {
               if (error) { error.hidden = false; error.textContent = 'Something went wrong. Try again.'; }
               return;
             }
@@ -264,10 +275,18 @@ const server = createServer((request, response) => {
   }
   if (url.pathname === "/api/lead" && request.method === "POST") {
     const fixture = getFormFixtureScenario(url.searchParams.get("formScenario"));
-    const failed = fixture.submissionResult === "server_error";
+    const status = formEndpointStatus(fixture, Number.parseInt(url.searchParams.get("attempt") ?? "1", 10));
+    const ok = status >= 200 && status < 300;
     request.resume();
-    response.writeHead(failed ? 500 : 200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
-    response.end(JSON.stringify(failed ? { error: "unavailable" } : { ok: true }));
+    response.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+    response.end(JSON.stringify(ok ? { ok: true } : { error: status >= 500 ? "unavailable" : "rejected" }));
+    return;
+  }
+  if (url.pathname === "/widget/collect") {
+    // Reached cross-origin (http://localhost) by the third_party_error_after_success scenario.
+    request.resume();
+    response.writeHead(500, { "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store", "Content-Type": "text/plain" });
+    response.end("widget unavailable");
     return;
   }
   if (url.pathname === "/g/collect" && url.searchParams.get("fixture_drop") === "1") {
@@ -286,10 +305,13 @@ const server = createServer((request, response) => {
     return;
   }
   request.resume();
-  response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+  const fixture = getFormFixtureScenario(url.searchParams.get("formScenario"));
+  // A native form POST lands here; the page it returns carries the form endpoint's status.
+  const status = request.method === "POST" && url.pathname === "/thank-you" ? formEndpointStatus(fixture) : 200;
+  response.writeHead(status, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
   response.end(page(
     url.pathname,
-    getFormFixtureScenario(url.searchParams.get("formScenario")),
+    fixture,
     url.searchParams.get("gtm") ?? undefined,
     fixtureAdversary(url.searchParams.get("adversary")),
   ));

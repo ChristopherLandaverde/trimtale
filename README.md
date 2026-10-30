@@ -58,6 +58,10 @@ Chromium), use `npm run verify`.
   on the bundled fixture site, not on a live production site yet. Signals Trimtale can't see:
   GA4 events batched into a POST body (only the request URL's event name is read), a form
   endpoint response whose body the page never reads, and forms inside cross-origin iframes.
+  When the server's answer and the page disagree, the server wins: a page that says "Thanks"
+  after its form endpoint returned 503 is reported as a failed submission. That only works for
+  requests to the origin the form submits to; a failure on another origin (say a separate API
+  subdomain the form's `action` doesn't name) can't overrule a success message.
 - **Verification is tied to setup.** You can't yet point Trimtale at tracking that already
   exists and get a verdict without generating a setup first. A read-only check mode is planned.
 - **Only GA4 collection requests are captured**, from `*.google-analytics.com` and

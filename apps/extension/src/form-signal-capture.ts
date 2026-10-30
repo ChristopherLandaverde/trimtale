@@ -1,5 +1,6 @@
 import {
   FormRun,
+  isFormEndpointRequest,
   matchesSuccessUrl,
   type FormRunState,
   type FormSetupRequest,
@@ -15,7 +16,9 @@ import { pageSignalBridge } from "./page-signal-bridge.js";
 // - the outcome: the confirmed success element becoming visible, the thank-you URL
 //   (including after a full navigation), or the confirmed dataLayer event;
 // - failures: field `aria-invalid`, and the form endpoint's HTTP status from the
-//   page's Resource Timing entries;
+//   page's Resource Timing entries (fetch/XHR to the form's action origin, or the document a
+//   native POST returned); a failed endpoint response outranks the page's own success signal
+//   (see `FormRun` in @trimtale/core for the full precedence order);
 // - dataLayer events and Consent Mode commands, from the MAIN-world page observer over its
 //   private MessagePort (page-signal-bridge.ts); page scripts can neither forge nor read them;
 // - GA4 collection request attempts and their delivery, from the service worker.
@@ -62,6 +65,18 @@ function successSnapshot(success: SuccessEvidence): string | null {
   return null;
 }
 
+/**
+ * The URL the form submits to. Read from the attribute: `form.action` can be shadowed by a field
+ * named "action". An absent or empty action submits to the page itself.
+ */
+function formActionUrl(form: HTMLFormElement): string {
+  try {
+    return new URL(form.getAttribute("action") ?? "", document.baseURI).href;
+  } catch {
+    return location.href;
+  }
+}
+
 function hasValidationFailure(form: HTMLFormElement | null): boolean {
   if (!form) return false;
   if (form.querySelector('[aria-invalid="true"]')) return true;
@@ -76,6 +91,8 @@ export class FormSignalCapture {
   #baseline: string | null = null;
   #startUrl = "";
   #startPerformance = 0;
+  /** The resolved URL the target form submits to; fetch/XHR to its origin is the form endpoint. */
+  #formAction = "";
   #deadline = 0;
   #finishAt = 0;
   #timer: number | undefined;
@@ -163,12 +180,13 @@ export class FormSignalCapture {
     }
   }
 
-  #begin(): FormRun | undefined {
+  #begin(form: HTMLFormElement): FormRun | undefined {
     if (this.#run) return this.#run;
     const context = this.#armed;
     if (!context) return undefined;
     this.#context = context;
     this.#armed = undefined;
+    this.#formAction = formActionUrl(form);
     this.#baseline = successSnapshot(context.success);
     this.#startUrl = location.href;
     this.#startPerformance = performance.now();
@@ -181,14 +199,16 @@ export class FormSignalCapture {
   }
 
   #onSubmit(event: Event): void {
-    if (!this.#targetForm(event)) return;
-    this.#begin()?.recordAttempt();
+    const form = this.#targetForm(event);
+    if (!form) return;
+    this.#begin(form)?.recordAttempt();
     this.#persist();
   }
 
   #onInvalid(event: Event): void {
-    if (!this.#targetForm(event)) return;
-    this.#begin()?.recordValidationFailure();
+    const form = this.#targetForm(event);
+    if (!form) return;
+    this.#begin(form)?.recordValidationFailure();
   }
 
   #observeResponses(): void {
@@ -201,7 +221,12 @@ export class FormSignalCapture {
         if (entry.initiatorType !== "fetch" && entry.initiatorType !== "xmlhttprequest") continue;
         if (analyticsUrl.test(entry.name)) continue;
         if (location.href === this.#startUrl) run.recordTransport("ajax");
-        if (entry.responseStatus) run.recordResponseStatus(entry.responseStatus);
+        if (entry.responseStatus) {
+          run.recordResponseStatus(entry.responseStatus, {
+            endpoint: entry.name,
+            attributable: isFormEndpointRequest(entry.name, this.#formAction),
+          });
+        }
       }
     });
     try {
