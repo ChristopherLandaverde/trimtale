@@ -977,6 +977,73 @@ test("finishes post-publication verification on the next page when the link unlo
   }
 });
 
+// Regression for the #76 review: only the clicked document's requests count. The
+// destination page's own page_view must neither duplicate a working tag's hit nor stand
+// in for a broken tag's missing one.
+for (const [name, tagWorks, verdict] of [
+  ["passes a working tag when the destination page sends its own page_view", true, { code: "browser_verified", browserVerification: "passed" }],
+  ["fails a broken tag even when the destination page sends its own page_view", false, { code: "tag_fired_request_missing", browserVerification: "failed" }],
+] as const) {
+  test(name, async () => {
+    const profile = await mkdtemp(join(tmpdir(), "gtm-observability-destination-page-view-"));
+    const extensionPath = resolve("apps/extension/dist");
+    const context = await chromium.launchPersistentContext(profile, {
+      channel: "chromium",
+      headless: true,
+      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+    });
+    const posted: Array<Record<string, unknown>> = [];
+    await mockWritableContainerAndWorkflow(context, { onBrowserVerification: (body) => posted.push(body) });
+    try {
+      const site = await context.newPage();
+      await site.addInitScript((working: boolean) => {
+        // Like GA4 on a real site: the destination sends a page_view as it loads.
+        if (location.pathname === "/services") navigator.sendBeacon("/g/collect?v=2&tid=G-TEST123456&en=page_view");
+        if (location.pathname !== "/") return;
+        // A fast site: the link commits navigation ~50 ms after the click, before the 180 ms sample.
+        document.addEventListener("click", (event) => {
+          const link = (event.target as Element | null)?.closest?.("a[href$='/services']") as HTMLAnchorElement | null;
+          if (link) setTimeout(() => { location.href = link.href; }, 50);
+        });
+        // GA4 batches hits and flushes them when the page is hidden; a broken tag never sends.
+        const queue: string[] = [];
+        const send = navigator.sendBeacon.bind(navigator);
+        Object.defineProperty(navigator, "sendBeacon", { value: (url: string) => { queue.push(url); return true; } });
+        addEventListener("pagehide", () => { if (working) for (const url of queue) send(url); });
+      }, tagWorks);
+      await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
+      const root = site.locator("#trimtale-root");
+      await root.getByRole("button", { name: "Open tracking assistant" }).click();
+      await root.getByLabel("Tracking request").fill("navigation");
+      await root.getByRole("button", { name: "Send request" }).click();
+      await root.getByRole("button", { name: "Track all" }).click();
+      await root.getByRole("button", { name: "Check GTM access" }).click();
+      await root.getByRole("button", { name: "Prepare GTM version" }).click();
+      await approveThenPublish(root);
+      await root.getByRole("region", { name: "Setup operation" }).getByRole("button", { name: "Start browser verification" }).click();
+      await site.getByRole("link", { name: "Services" }).click();
+      await expect(site).toHaveURL(/\/services$/);
+
+      await expect.poll(() => posted.length).toBe(1);
+      const evidence = posted[0]!.evidence as {
+        specificationId: string;
+        verdict: Record<string, unknown>;
+        observations: { network: { ga4Requests: Array<{ url: string }> } };
+      };
+      expect(evidence.specificationId).toBe(navigationSpecId);
+      expect(evidence.verdict).toMatchObject({ ...verdict, platformConfirmation: "unverified" });
+      const urls = evidence.observations.network.ga4Requests.map((request) => request.url);
+      expect(urls.some((url) => url.includes("en=page_view"))).toBe(false);
+      expect(urls.filter((url) => url.includes("en=navigation_click"))).toHaveLength(tagWorks ? 1 : 0);
+      await site.waitForTimeout(500);
+      expect(posted).toHaveLength(1);
+    } finally {
+      await context.close();
+      await rm(profile, { recursive: true, force: true });
+    }
+  });
+}
+
 test("keeps publication failures bounded without advancing verification", async () => {
   const profile = await mkdtemp(join(tmpdir(), "gtm-observability-publication-block-"));
   const extensionPath = resolve("apps/extension/dist");

@@ -8,9 +8,11 @@ import {
   canonicalNavigationRequest,
   isNavigationRun,
   mergeNavigationEvidence,
-  navigationRequestsFrom,
   navigationRunKey,
+  navigationRunRequests,
+  navigationRunResumableAt,
   navigationRunSettleDelay,
+  type DocumentRequest,
   type NavigationRun,
   type NavigationRunResume,
 } from "./navigation-run.js";
@@ -483,6 +485,7 @@ chrome.webRequest.onBeforeRequest.addListener(
       .filter((item) => Date.parse(item.observedAt) >= cutoff);
     observed.push(request);
     recentRequests.set(details.tabId, observed);
+    recordDocumentRequest(details.tabId, { ...request, ...(details.documentId ? { documentId: details.documentId } : {}) });
     const formRequest: FormAnalyticsRequest = { id: details.requestId, ...request, delivery: "pending" };
     recordFormRequest(details.tabId, formRequest);
     if (details.tabId >= 0) {
@@ -512,6 +515,20 @@ chrome.webRequest.onBeforeRequest.addListener(
 // recorded result live here, and the next page in the tab finishes the run.
 const navigationRecordings = new Map<number, Promise<unknown>>();
 
+// Collection requests per tab with the document that sent them, kept long enough for the
+// next page to finish a run. The destination page's own hits (a page_view on load) come
+// from another document and so never count for the click.
+const documentRequests = new Map<number, DocumentRequest[]>();
+const documentRequestLifetimeMs = 30_000;
+
+function recordDocumentRequest(tabId: number, request: DocumentRequest): void {
+  if (tabId < 0) return;
+  const cutoff = Date.now() - documentRequestLifetimeMs;
+  const observed = (documentRequests.get(tabId) ?? []).filter((item) => Date.parse(item.observedAt) >= cutoff);
+  observed.push(request);
+  documentRequests.set(tabId, observed);
+}
+
 async function storedNavigationRun(tabId: number): Promise<NavigationRun | undefined> {
   const stored = await chrome.storage.session.get(navigationRunKey(tabId));
   const run: unknown = stored[navigationRunKey(tabId)];
@@ -524,23 +541,28 @@ async function rememberNavigationRunResult(tabId: number, operationId: string, r
   await chrome.storage.session.set({ [navigationRunKey(tabId)]: { ...run, result } });
 }
 
+chrome.tabs.onRemoved.addListener((tabId) => {
+  void chrome.storage.session.remove([navigationRunKey(tabId), formRunKey(tabId)]);
+  documentRequests.delete(tabId);
+  navigationRecordings.delete(tabId);
+});
+
 chrome.runtime.onMessage.addListener(
   (message: { type?: string; run?: unknown }, sender, sendResponse) => {
     const tabId = sender.tab?.id;
     if (tabId === undefined) return undefined;
     if (message.type === "NAVIGATION_RUN_SAVE") {
-      const run = isRecord(message.run) ? { ...message.run, savedAt: Date.now() } : undefined;
+      // The clicked document comes from the sender, never from the page's message.
+      const run = isRecord(message.run)
+        ? { ...message.run, savedAt: Date.now(), documentId: sender.documentId }
+        : undefined;
       if (isNavigationRun(run)) void chrome.storage.session.set({ [navigationRunKey(tabId)]: run });
-      return undefined;
-    }
-    if (message.type === "NAVIGATION_RUN_CLEAR") {
-      void chrome.storage.session.remove(navigationRunKey(tabId));
       return undefined;
     }
     if (message.type !== "NAVIGATION_RUN_RESUME") return undefined;
     void (async (): Promise<NavigationRunResume> => {
       const saved = await storedNavigationRun(tabId);
-      if (!saved) return {};
+      if (!saved || !navigationRunResumableAt(saved, sender.url)) return {};
       // Give the click the same time to settle as it would have had on its own page,
       // and let a recording the old page already started finish first.
       await new Promise((resolve) => setTimeout(resolve, navigationRunSettleDelay(saved)));
@@ -550,12 +572,9 @@ chrome.runtime.onMessage.addListener(
       await chrome.storage.session.remove(navigationRunKey(tabId));
       const summary = { operationId: run.operationId, request: canonicalNavigationRequest(run.request) };
       if (run.result) return { run: summary, result: run.result };
-      const settled = pending?.tabId === tabId && pending.evidence.navigationId === run.evidence.navigationId
-        ? pending.evidence.requests
-        : [];
       return {
         run: summary,
-        evidence: mergeNavigationEvidence(run.evidence, settled, requestsSince(tabId, navigationRequestsFrom(run.evidence.clickedAt))),
+        evidence: mergeNavigationEvidence(run.evidence, navigationRunRequests(run, documentRequests.get(tabId) ?? [])),
       };
     })().then(sendResponse, () => sendResponse({}));
     return true;

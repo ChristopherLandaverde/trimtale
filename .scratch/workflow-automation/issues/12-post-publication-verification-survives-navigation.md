@@ -22,8 +22,11 @@ request, click evidence, recorded result) is kept in the service worker and
   **Review rollback**. The test fails without the fix and passes with it.
 - `tests/e2e/navigation-extension.spec.ts`, both rollback tests: they now run through the
   real navigation to `/services`, with no 204 stub.
+- `tests/e2e/navigation-extension.spec.ts`, "passes a working tag when the destination
+  page sends its own page_view" and "fails a broken tag even when the destination page
+  sends its own page_view": only the clicked document's requests count.
 - `apps/extension/src/navigation-run.test.ts`: run validation and lifetime, settle delay,
-  and evidence merging.
+  evidence merging, the clicked-document filter, and resuming only on the link's origin.
 
 ## Answer
 

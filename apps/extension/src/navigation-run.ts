@@ -12,6 +12,11 @@ export interface NavigationRun {
   /** The evidence captured on the click, before the page unloaded. */
   evidence: BrowserEvidence;
   savedAt: number;
+  /**
+   * The document that was clicked, as the service worker saw the sender. Only collection
+   * requests that document sent count, so the destination page's own hits never do.
+   */
+  documentId?: string;
   /** The recorded browser-verification result, once the API answered. */
   result?: WorkflowResult;
 }
@@ -65,6 +70,8 @@ export function isNavigationRun(value: unknown, now = Date.now()): value is Navi
     && typeof value.evidence.navigationId === "string"
     && typeof value.evidence.clickedAt === "string"
     && Array.isArray(value.evidence.requests)
+    && typeof value.evidence.linkUrl === "string"
+    && (value.documentId === undefined || typeof value.documentId === "string")
     && typeof value.savedAt === "number"
     && now - value.savedAt >= 0
     && now - value.savedAt <= NAVIGATION_RUN_LIFETIME_MS;
@@ -75,6 +82,37 @@ export function navigationRunSettleDelay(run: Pick<NavigationRun, "evidence">, n
   const clickedAt = Date.parse(run.evidence.clickedAt);
   if (!Number.isFinite(clickedAt)) return 0;
   return Math.min(NAVIGATION_RUN_SETTLE_MS, Math.max(0, clickedAt + NAVIGATION_RUN_SETTLE_MS - now));
+}
+
+/** A collection request as the service worker observed it, with the document that sent it. */
+export interface DocumentRequest {
+  url: string;
+  observedAt: string;
+  documentId?: string;
+}
+
+/**
+ * The requests that belong to the run's click: sent by the clicked document, from just
+ * before the click stamp on. Without a known document, nothing counts.
+ */
+export function navigationRunRequests(
+  run: Pick<NavigationRun, "evidence" | "documentId">,
+  requests: DocumentRequest[],
+): BrowserEvidence["requests"] {
+  if (!run.documentId) return [];
+  const earliest = Date.parse(navigationRequestsFrom(run.evidence.clickedAt));
+  return requests
+    .filter((request) => request.documentId === run.documentId && Date.parse(request.observedAt) >= earliest)
+    .map(({ url, observedAt }) => ({ url, observedAt }));
+}
+
+/** A run resumes only on a page from the clicked link's origin, never on an unrelated site. */
+export function navigationRunResumableAt(run: Pick<NavigationRun, "evidence">, pageUrl: string | undefined): boolean {
+  try {
+    return pageUrl !== undefined && new URL(pageUrl).origin === new URL(run.evidence.linkUrl).origin;
+  } catch {
+    return false;
+  }
 }
 
 /** The click evidence plus collection requests that belong to the click, without duplicates. */

@@ -40,17 +40,22 @@ named, verified approver" rule to hold.
   saved to the service worker on the click (`chrome.storage.session`, per tab, 60 s). The
   next page in the tab waits out the click's settle time, records the evidence if the old
   page could not, then reloads the stored operation so **Review rollback** is reachable.
-  Two details: requests the page's own click listener sent up to 100 ms before the click
-  stamp count for the click, and the stored request is rebuilt in scan key order because
-  `chrome.storage` reorders keys and the specification fingerprint hashes them in order.
-  Evidence is posted only when the request maps to the operation's own specification.
+  Only collection requests sent by the clicked document count, from 100 ms before the
+  click stamp on. The service worker takes the document from `sender.documentId` and
+  records `details.documentId` on every request. The destination page's own page_view
+  can therefore neither turn a working tag into `duplicate_fire` nor pass a broken one.
+  A run resumes only on a page from the clicked link's origin, and it is removed when its
+  tab closes. The stored request is rebuilt in scan key order, because `chrome.storage`
+  reorders keys and the specification fingerprint hashes them in order. Evidence is
+  posted only when the request maps to the operation's own specification.
 - A stored rollback approval older than 30 minutes reloads as `rollback_required` (review
   again), not as approved.
 - Copy: a blocked message states "Nothing was published/rolled back" once, not twice.
   A rollback `confirmation_mismatch` reads "The typed container ID did not match. Review
   the rollback and type it again." The `/rollback` route has its own error messages.
 - Unchanged: publish behavior, Google rollback guards, publication off by default.
-- Out of scope: the approve/execute race on both flows (#77); requiring `rollback.approval` on legacy `rolled_back` records in the
+- Out of scope: the approve/execute race on both flows (#77), the open shadow root and
+  untrusted approve events (#78), key-order-independent IDs in core (#79); requiring `rollback.approval` on legacy `rolled_back` records in the
   schema (old records stay readable; every new rollback records one).
 
 ## Regression coverage
@@ -61,7 +66,9 @@ happy path. The e2e rollback test was rewritten for the two-step flow and a stal
 e2e was added. The old e2e asserted `approvedBy: "website assistant"`; it now asserts no
 approver is sent. The rollback tests now go through the real navigation to `/services`.
 A new e2e, "finishes post-publication verification on the next page when the link unloads
-first", fails without the #76 fix and passes with it.
+first", fails without the #76 fix and passes with it. Two more cover a destination page
+that sends its own page_view: one passes a working tag, the other fails a broken tag.
+Before the document filter they gave `duplicate_fire` and a false `browser_verified`.
 `apps/extension/src/navigation-run.test.ts`, the new Google-client rollback refusals, and
 the stored-expiry and route-message tests are added. The publish blocked-message test now
 asserts the outcome is stated exactly once; before, it required the trailing "Nothing was
