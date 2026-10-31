@@ -124,4 +124,6 @@ and agents follow [AGENTS.md](AGENTS.md).
 
 ## License
 
-No license has been chosen yet; all rights reserved.
+Trimtale is licensed under the [GNU Affero General Public License v3.0](LICENSE). You can use,
+change and self-host it; if you run a modified version as a network service, you must offer
+its users the source of your changes.
