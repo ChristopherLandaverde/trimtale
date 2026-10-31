@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16" role="img" aria-labelledby="title">
+  <title id="title">Trimtale (small sizes): a sail with two telltale ribbons, drawn on a 16 px grid</title>
+  <rect width="16" height="16" rx="3.5" fill="#10231F"/>
+  <path d="M3 2 V13 H9.5 Z" fill="#F3F0E6"/>
+  <rect x="7" y="5" width="5" height="2" rx="1" fill="#F3F0E6"/>
+  <rect x="10" y="9" width="4" height="2" rx="1" fill="#F3F0E6"/>
+</svg>

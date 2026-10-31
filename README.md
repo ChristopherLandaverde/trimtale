@@ -1,8 +1,25 @@
-# Trimtale
+<p align="center">
+  <img src="docs/media/logo.png" width="96" height="96" alt="Trimtale logo: a paper-coloured sail with two telltale ribbons streaming off its trailing edge, on a dark green rounded tile">
+</p>
 
-**Prove that your site's tracking fires: set up GA4 events through Google Tag Manager and check each one against what the browser actually sends.**
+<h1 align="center">Trimtale</h1>
 
-[Quick start](#quick-start) · [What it does](#what-it-does) · [Known limits](#known-limits) · [Privacy](#privacy-and-permissions) · [Docs](docs/)
+<p align="center">
+  <strong>Prove that your site's tracking fires: set up GA4 events through Google Tag Manager and check each one against what the browser actually sends.</strong>
+</p>
+
+<p align="center">
+  Link clicks and lead forms · 10 lead-form verdicts from real browser signals · runs against a local API, no Google account needed to try it · GTM publishing off by default
+</p>
+
+<p align="center">
+  <a href="https://github.com/ChristopherLandaverde/trimtale/actions/workflows/verify.yml"><img src="https://github.com/ChristopherLandaverde/trimtale/actions/workflows/verify.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/ChristopherLandaverde/trimtale?color=10231F" alt="License: AGPL-3.0"></a>
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick start</a> · <a href="#what-it-does">What it does</a> · <a href="#known-limits">Known limits</a> · <a href="#privacy-and-permissions">Privacy</a> · <a href="docs/">Docs</a>
+</p>
 
 Trimtale is a Chrome extension and small API for analytics consultants and marketers who
 set up tracking on lead-generation sites and need proof that it works. It finds the links
@@ -112,7 +129,7 @@ More detail: [Security and publishing notes](docs/security-and-publishing.md).
 | `apps/extension` | Chrome MV3 extension: the on-page assistant, target discovery, evidence capture. |
 | `apps/api` | Node API: setup generation, Google OAuth, GTM reads and writes, the durable setup operation. |
 | `packages/core` | Domain logic: tracking specs, the GTM generator, the deterministic form verdict engine, change planning. |
-| `apps/fixture-site` | The sample "Northstar" lead-gen site with 18 form scenarios used by the browser tests. |
+| `apps/fixture-site` | The sample "Northstar" lead-gen site with 23 form scenarios used by the browser tests. |
 | `apps/verification-target` | A disposable smoke-test page for credentialed runs. |
 
 The product plan and current status live in [`docs/product-plan/`](docs/product-plan/), starting
@@ -129,6 +146,13 @@ The agent command harness, Google OAuth setup, container-write and publication s
 hosted API builds are documented in [Local development](docs/engineering/local-development.md)
 and the [GTM setup workflow runbook](docs/engineering/gtm-workflow-runbook.md). Contributors
 and agents follow [AGENTS.md](AGENTS.md).
+
+## Contributing
+
+Issues that describe a real tracking setup Trimtale got wrong are as useful as code. Keep a pull
+request to one slice of behavior, run `npm run verify` before opening it, and add a change record
+when it touches code; [CONTRIBUTING.md](CONTRIBUTING.md) has the details. Report security problems
+privately through the [security policy](SECURITY.md), not a public issue.
 
 ## License
 

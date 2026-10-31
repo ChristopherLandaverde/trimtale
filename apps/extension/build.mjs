@@ -53,6 +53,11 @@ async function buildExtension() {
     for (const file of ["workbench.html", "workbench.css"]) {
       await cp(`src/${file}`, `${outdir}/${file}`);
     }
+    // Toolbar and extensions-page icons, rendered from docs/media/logo.svg by scripts/render-logo.mjs.
+    await mkdir(`${outdir}/icons`, { recursive: true });
+    for (const size of [16, 32, 48, 128]) {
+      await cp(`src/icons/icon-${size}.png`, `${outdir}/icons/icon-${size}.png`);
+    }
     // The fonts are inlined into content-script.js; ship their licences beside it.
     await mkdir(`${outdir}/fonts`, { recursive: true });
     for (const file of ["OFL-DMSans.txt", "OFL-IBMPlexMono.txt"]) {

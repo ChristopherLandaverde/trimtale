@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title">
+  <title id="title">Trimtale: a sail with two telltale ribbons streaming off its trailing edge</title>
+  <rect width="256" height="256" rx="56" fill="#10231F"/>
+  <g fill="#F3F0E6" stroke="#F3F0E6" stroke-width="6" stroke-linejoin="round">
+    <path d="M78 82 C114 76 148 98 192 88 A7 7 0 0 1 196 102 C148 118 112 100 78 114 Z"/>
+    <path d="M112 144 C148 138 180 162 216 150 A7 7 0 0 1 220 164 C178 182 146 160 112 176 Z"/>
+  </g>
+  <path d="M44 32 V208 H148 Q118 108 44 32 Z" fill="none" stroke="#10231F" stroke-width="32" stroke-linejoin="round"/>
+  <path d="M44 32 V208 H148 Q118 108 44 32 Z" fill="#F3F0E6" stroke="#F3F0E6" stroke-width="6" stroke-linejoin="round"/>
+</svg>
