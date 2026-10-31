@@ -57,28 +57,46 @@ form and only counts when the page showed no success. The full order is document
 
 ## Google integration controls
 
-`GET /api/google/status` is public and reports whether Google discovery is configured.
+Google access runs only through the local API (`npm run dev:api`, `apps/api/src/server.ts`),
+which listens on `127.0.0.1`. The hosted Vercel functions route through
+`apps/api/src/app.ts`, which serves `GET /api/health` and `POST /api/setups` only; the
+`api/google/` function files return 404.
 
-`GET /api/google/gtm/accounts` is admin-gated and must not be exposed with only a Google OAuth token. It requires:
+The local API enables Google routes only when all three OAuth settings are present:
 
-- `GTM_OBSERVABILITY_ADMIN_TOKEN`: bearer token required from the caller
-- `GOOGLE_OAUTH_ACCESS_TOKEN`: Google OAuth access token used server-side for read-only GTM discovery
+- `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REDIRECT_URI`
 
-Do not configure `GOOGLE_OAUTH_ACCESS_TOKEN` in production unless `GTM_OBSERVABILITY_ADMIN_TOKEN` is also set and known only to trusted operators.
+Without them, `GET /api/google/status` reports `configured: false` and the other Google
+routes refuse. With them, the practitioner connects through `GET /api/google/oauth/start` and
+the callback, which checks a single-use random `state`. Access is read-only
+(`tagmanager.readonly`) unless the operator opts in:
 
-`POST /api/google/gtm/resolve-site` is the narrower extension-facing read path. It accepts the page URL and page-detected GTM/GA4 signals, matches a visible public GTM ID to an accessible container, reads that container's live published version, and returns valid GA4 Measurement IDs found in the container configuration. It requires `GOOGLE_OAUTH_ACCESS_TOKEN` plus either `GTM_OBSERVABILITY_ADMIN_TOKEN` or `GTM_OBSERVABILITY_EXTENSION_TOKEN`.
+- `GOOGLE_GTM_CONTAINER_WRITES_ENABLED=true` requests the container-edit scope, so Trimtale
+  can prepare its managed workspace.
+- `GOOGLE_GTM_PUBLICATION_SCOPE_REQUESTED=true` and `GOOGLE_GTM_PUBLICATION_ENABLED=true`,
+  together with container writes, are all required before anything can be published. All
+  three are off by default.
+- `GOOGLE_OAUTH_TOKEN_STORE` optionally persists tokens to a local file. Operation records go
+  to `.data/`, which is git-ignored.
 
-`GTM_OBSERVABILITY_EXTENSION_TOKEN` may be bundled into an unpacked extension build for internal testing. Treat it as a temporary bridge, not a long-term end-user authentication model. A production multi-user version should replace that token with user-scoped OAuth/session authorization so users can resolve only the GTM containers they are allowed to access.
+Even with publication enabled, publishing a version takes two separate requests: approve,
+then publish. Approval needs the container's public ID typed back, records the connected
+Google account's verified email as the approver, and expires after 30 minutes.
 
-## Extension host permissions
+Google and intake-evaluation routes answer cross-origin requests only from the origin in
+`EXTENSION_ORIGIN` (`apps/api/src/cors.ts`); a missing, `*` or `null` value refuses them.
 
-The extension manifest is generated at build time. It includes:
+## Extension permissions
 
-- the exact configured API origin from `GTM_OBSERVABILITY_API_BASE`
-- the local fixture origin for deterministic development checks
-- Google Analytics collection hosts used for browser evidence observation
-
-The extension requests the `downloads` permission only to save the generated GTM container JSON and browser-verification evidence report from the embedded workbench.
+The extension requests `activeTab`, `scripting`, `storage` and `webRequest`. Its content
+scripts load on every `http` and `https` page. On each page they add the collapsed assistant
+panel and resume a form check left in progress. If the panel was left open, they also send
+the page's detected GTM container IDs to the local API (`127.0.0.1:18787`) to recognise the
+matching container. The page observer stays idle until a check starts on the page. Its host
+permissions are the configured API origin from `GTM_OBSERVABILITY_API_BASE`, the local
+fixture origin for deterministic checks, and the Google Analytics collection hosts it
+observes for browser evidence. Generated files are saved through a download link in the panel, so
+the extension does not need the `downloads` permission.
 
 Do not add wildcard Vercel host permissions. Build hosted extension artifacts with:
 
@@ -86,13 +104,13 @@ Do not add wildcard Vercel host permissions. Build hosted extension artifacts wi
 GTM_OBSERVABILITY_API_BASE=https://your-api.vercel.app npm run build:extension
 ```
 
-For the current production API, build with:
+`GTM_OBSERVABILITY_EXTENSION_TOKEN` is compiled into the extension bundle when set. Leave it
+unset for any build you share; anything compiled into an extension can be read by whoever
+installs it.
 
-```bash
-npm run build:extension:prod
-```
-
-Load `apps/extension/prod-dist` in Chrome for production-style testing. The local deterministic harness uses `apps/extension/dist`, so `prod-dist` remains stable when `npm run verify` rebuilds local artifacts.
+Load `apps/extension/prod-dist` for production-style testing (`npm run build:extension:prod`).
+The local deterministic harness uses `apps/extension/dist`, so `prod-dist` stays stable when
+`npm run verify` rebuilds local artifacts.
 
 ## Vercel pre-publish checklist
 
@@ -100,16 +118,17 @@ Before promoting a Vercel deployment to production:
 
 - Run `npm run verify`.
 - Typecheck the root Vercel API entrypoints.
-- Verify `GET /api/health` on the deployment.
-- Verify `GET /api/google/status` on the deployment.
-- Verify `POST /api/setups` on the deployment with a disposable request.
-- Confirm `.env*` and `.vercel` remain ignored and uncommitted.
-- Confirm `GOOGLE_OAUTH_ACCESS_TOKEN` is absent unless an operator-only `GTM_OBSERVABILITY_ADMIN_TOKEN` is configured.
-- If enabling extension-based GTM resolution, configure `GTM_OBSERVABILITY_EXTENSION_TOKEN` on the API and build the extension with the same value.
-- Build any distributable extension artifact with the production API origin.
+- Verify `GET /api/health` and `POST /api/setups` on the deployment with a disposable request.
+- Confirm `.env*.local`, `.vercel` and `.data/` remain ignored and uncommitted.
+- Build any distributable extension artifact with the production API origin and without
+  `GTM_OBSERVABILITY_EXTENSION_TOKEN`.
 
 ## Publishing boundary
 
-Publishing means promoting the API deployment. It does not publish GTM changes, mutate a GTM container, or submit the Chrome extension to the Chrome Web Store.
+"Publishing the API" means promoting a Vercel deployment. It does not change a GTM container
+or submit the extension to the Chrome Web Store.
 
-The generated GTM file must still be imported by a tracking practitioner using Merge into a new GTM workspace, followed by GTM Preview and browser-side verification.
+Publishing a GTM container version is a separate, local-API-only path, disabled by default
+and gated as described under Google integration controls. With it disabled, the generated
+GTM file must be imported by a practitioner using Merge into a new GTM workspace, followed by
+GTM Preview and browser-side verification.

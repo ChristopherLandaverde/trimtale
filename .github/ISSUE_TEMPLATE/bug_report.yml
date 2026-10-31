@@ -1,0 +1,36 @@
+name: Bug report
+description: Trimtale gave a wrong verdict, missed a target, or broke.
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What Trimtale showed, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The page (a public URL, or the fixture-site page), what you asked the assistant, and what you clicked or submitted.
+      placeholder: |
+        1. Open ...
+        2. Ask "Track successful submissions of this form"
+        3. Submit the form
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: The verdict card or a screenshot, and the GA4 request from DevTools if you have it. Replace real container and measurement IDs with placeholders.
+  - type: input
+    id: version
+    attributes:
+      label: Commit or build
+      placeholder: e.g. 86a17ab
+  - type: input
+    id: browser
+    attributes:
+      label: Chrome version

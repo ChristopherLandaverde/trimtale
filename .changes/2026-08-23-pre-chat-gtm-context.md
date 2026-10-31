@@ -59,7 +59,7 @@ start without essential operational context.
 
 [`docs/reviews/2026-08-23-pre-chat-gtm-context.md`](../docs/reviews/2026-08-23-pre-chat-gtm-context.md)
 records deterministic state review and an isolated read-only live review. The live page
-showed `GTM-PCJ3Q5RK`, `Premium Carpet Company Test`, `ConsentFlow Verification`, and
+showed `GTM-XXXXXXX`, `Example Test Account`, `ConsentFlow Verification`, and
 `READ-ONLY` before chat. Two medium findings were resolved; no blocker or high-severity
 finding remains.
 

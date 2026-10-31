@@ -63,8 +63,8 @@ Required invariants:
 ## Comments
 
 - 2026-08-23: Claimed from a live ConsentFlow review. The saved OAuth grant was valid
-  and read-only, with exact page match `Premium Carpet Company Test` / `ConsentFlow
-  Verification` / `GTM-PCJ3Q5RK`, but that context was hidden until after setup and a
+  and read-only, with exact page match `Example Test Account` / `ConsentFlow
+  Verification` / `GTM-XXXXXXX`, but that context was hidden until after setup and a
   manual **Check GTM access** action.
 - 2026-08-23: Implemented delayed open/refresh loading, fixed-endpoint service-worker
   mediation, strict decoding, account-aware exact recognition, every required visible

@@ -1,0 +1,20 @@
+name: Feature request
+description: A tracking setup or check Trimtale should handle.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The tracking problem
+      description: What you're trying to set up or prove, and on what kind of site.
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: How you do it today
+      description: The manual steps or other tools you use now.
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you'd want Trimtale to do

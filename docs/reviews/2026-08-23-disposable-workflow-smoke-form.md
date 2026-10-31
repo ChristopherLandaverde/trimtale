@@ -60,7 +60,7 @@ Build: ConsentFlow-Debugger `main` at `663d57c`, deployed as Vercel deployment
 `https://consentflow-psi.vercel.app/`.
 
 Environment: Playwright Chromium 1234 on Linux against the public production alias,
-loading published container `GTM-PCJ3Q5RK` version `3`.
+loading published container `GTM-XXXXXXX` version `3`.
 
 ### Security and invalid-input checks
 
