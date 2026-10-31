@@ -30,7 +30,9 @@ import { registerPanelFonts } from "./panel-fonts.js";
 import { panelStyles, targetHighlightStyles } from "./panel-styles.js";
 import {
   presentPublicationReview,
+  presentRollbackReview,
   presentSetupOperation,
+  type PublicationReview,
   type SetupOperationAction,
 } from "./setup-operation-presenter.js";
 import { presentVerdict } from "./verdict-presenter.js";
@@ -495,9 +497,9 @@ async function requestGtmContainer(
 }
 
 async function requestSetupOperation(
-  action: "start" | "resume" | "get" | "approve" | "publish",
+  action: "start" | "resume" | "get" | "approve" | "publish" | "approveRollback" | "rollback",
   value: TrackingWorkflowRequest | string,
-  approval?: { versionFingerprint: string; confirmation?: string },
+  approval?: { versionFingerprint?: string; targetVersionFingerprint?: string; confirmation?: string },
 ): Promise<WorkflowBridgeResponse> {
   return chrome.runtime.sendMessage({
     type: "GTM_WORKFLOW_REQUEST",
@@ -516,19 +518,6 @@ async function requestBrowserVerification(
     action: "browserVerification",
     operationId,
     evidence,
-  }) as Promise<WorkflowBridgeResponse>;
-}
-
-async function requestRollback(
-  operationId: string,
-  targetVersionFingerprint: string,
-): Promise<WorkflowBridgeResponse> {
-  return chrome.runtime.sendMessage({
-    type: "GTM_WORKFLOW_REQUEST",
-    action: "rollback",
-    operationId,
-    targetVersionFingerprint,
-    approvedBy: "website assistant",
   }) as Promise<WorkflowBridgeResponse>;
 }
 
@@ -943,6 +932,9 @@ function appendSetupOperationAction(
       void runPublishOperation(action.operationId, action.versionFingerprint, request);
     } else if (action.kind === "browserVerification" && result.status === "published") {
       void startPostPublicationBrowserVerification(result.operation, request);
+    } else if (action.kind === "rollbackReview") {
+      const operation = result.operation;
+      if (operation) renderRollbackReview(operation, request);
     } else if (action.kind === "rollback") {
       void runRollbackOperation(action.operationId, action.targetVersionFingerprint, request);
     }
@@ -982,16 +974,50 @@ async function runSetupOperation(
  * typed container ID. Approving records approval only; publishing is a later request.
  */
 function renderPublicationReview(operation: TrackingSetupOperationV1, request?: TrackingWorkflowRequest): void {
-  const review = presentPublicationReview(operation);
-  responseList?.querySelectorAll("section[aria-label=\"Publication review\"]").forEach((element) => element.remove());
+  renderConfirmationReview({
+    review: presentPublicationReview(operation),
+    region: "Publication review",
+    unavailable: "This version can no longer be approved. Reload the setup operation.",
+    cancelled: "Approval cancelled. Nothing was approved or published.",
+    approve: (confirmation) => operation.version
+      ? runApproveOperation(operation.id, operation.version.fingerprint, confirmation, request)
+      : Promise.resolve(),
+  });
+}
+
+/**
+ * The same deliberate step before a rollback: what the rollback restores and replaces, and
+ * the typed container ID. Approving records approval only; rolling back is a later request.
+ */
+function renderRollbackReview(operation: TrackingSetupOperationV1, request?: TrackingWorkflowRequest): void {
+  renderConfirmationReview({
+    review: presentRollbackReview(operation),
+    region: "Rollback review",
+    unavailable: "This rollback can no longer be approved. Reload the setup operation.",
+    cancelled: "Rollback approval cancelled. Nothing was approved or rolled back.",
+    approve: (confirmation) => operation.rollback
+      ? runApproveRollback(operation.id, operation.rollback.targetVersionFingerprint, confirmation, request)
+      : Promise.resolve(),
+  });
+}
+
+function renderConfirmationReview({ review, region, unavailable, cancelled, approve: submit }: {
+  review: PublicationReview | undefined;
+  region: "Publication review" | "Rollback review";
+  unavailable: string;
+  cancelled: string;
+  approve: (confirmation: string) => Promise<void>;
+}): void {
+  responseList?.querySelectorAll("section[aria-label=\"Publication review\"], section[aria-label=\"Rollback review\"]")
+    .forEach((element) => element.remove());
   if (!review) {
-    addMessage("This version can no longer be approved. Reload the setup operation.", "assistant");
+    addMessage(unavailable, "assistant");
     return;
   }
   const id = `trimtale-review-${++findingSequence}`;
   const section = document.createElement("section");
   section.className = "finding publication-review";
-  section.setAttribute("aria-label", "Publication review");
+  section.setAttribute("aria-label", region);
 
   const tag = document.createElement("span");
   tag.className = "tag review";
@@ -1021,15 +1047,20 @@ function renderPublicationReview(operation: TrackingSetupOperationV1, request?: 
     rows.append(term, detail);
   }
 
-  const changesHeading = document.createElement("h3");
-  changesHeading.className = "review-heading";
-  changesHeading.textContent = `${review.changes.length} change${review.changes.length === 1 ? "" : "s"} in this version`;
-  const changes = document.createElement("ul");
-  changes.className = "review-changes";
-  for (const change of review.changes) {
-    const item = document.createElement("li");
-    item.textContent = change;
-    changes.append(item);
+  // A rollback restores a whole prior version, so it lists no per-entity changes.
+  const changeList: HTMLElement[] = [];
+  if (review.changes.length > 0) {
+    const changesHeading = document.createElement("h3");
+    changesHeading.className = "review-heading";
+    changesHeading.textContent = `${review.changes.length} change${review.changes.length === 1 ? "" : "s"} in this version`;
+    const changes = document.createElement("ul");
+    changes.className = "review-changes";
+    for (const change of review.changes) {
+      const item = document.createElement("li");
+      item.textContent = change;
+      changes.append(item);
+    }
+    changeList.push(changesHeading, changes);
   }
 
   const note = document.createElement("p");
@@ -1065,17 +1096,16 @@ function renderPublicationReview(operation: TrackingSetupOperationV1, request?: 
   });
   cancel.addEventListener("click", () => {
     section.remove();
-    addMessage("Approval cancelled. Nothing was approved or published.", "assistant");
+    addMessage(cancelled, "assistant");
   });
   approve.addEventListener("click", () => {
-    if (input.value.trim() !== review.confirmation || !operation.version) return;
+    if (input.value.trim() !== review.confirmation) return;
     approve.disabled = true;
     input.disabled = true;
-    void runApproveOperation(operation.id, operation.version.fingerprint, input.value.trim(), request)
-      .finally(() => section.remove());
+    void submit(input.value.trim()).finally(() => section.remove());
   });
 
-  section.append(tag, title, consequence, rows, changesHeading, changes, note, label, input, actions);
+  section.append(tag, title, consequence, rows, ...changeList, note, label, input, actions);
   responseList?.append(section);
   window.requestAnimationFrame(() => {
     section.scrollIntoView({ block: "start" });
@@ -1114,13 +1144,28 @@ async function runPublishOperation(
   renderSetupOperation(response.result, request);
 }
 
+async function runApproveRollback(
+  operationId: string,
+  targetVersionFingerprint: string,
+  confirmation: string,
+  request?: TrackingWorkflowRequest,
+): Promise<void> {
+  addMessage(`Recording rollback approval for ${targetVersionFingerprint}. Nothing is rolled back in this step.`, "assistant");
+  const response = await requestSetupOperation("approveRollback", operationId, { targetVersionFingerprint, confirmation });
+  if (!response.ok) {
+    addMessage(`${response.error} Nothing was approved or rolled back.`, "assistant");
+    return;
+  }
+  renderSetupOperation(response.result, request);
+}
+
 async function runRollbackOperation(
   operationId: string,
   targetVersionFingerprint: string,
   request?: TrackingWorkflowRequest,
 ): Promise<void> {
-  addMessage(`Approving rollback to ${targetVersionFingerprint}…`, "assistant");
-  const response = await requestRollback(operationId, targetVersionFingerprint);
+  addMessage(`Rolling back to approved version ${targetVersionFingerprint}…`, "assistant");
+  const response = await requestSetupOperation("rollback", operationId, { targetVersionFingerprint });
   if (!response.ok) {
     addMessage(`${response.error} The failed publication still requires recovery.`, "assistant");
     return;

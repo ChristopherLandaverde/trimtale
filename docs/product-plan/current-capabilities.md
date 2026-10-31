@@ -53,8 +53,10 @@ The assistant currently supports:
   30 minutes.
 - A post-publication **Start browser verification** action that records whether the
   confirmed interaction produced exactly one expected Google collection request.
-- A rollback action that appears only from a `rollback_required` operation and submits
-  the exact prior-live fingerprint for approval-gated restoration.
+- A **Review rollback** step from a `rollback_required` operation card that shows the
+  container, the prior live version it restores and the version it replaces, and requires
+  typing the container ID. The rollback approval is recorded under the signed-in Google
+  account, and **Roll back** is a separate request that must follow within 30 minutes.
 
 The conversation classifier and state transitions are deterministic today. Model-backed conversation intake is the next product slice, but no production model currently interprets tracking intents or decides whether evidence passed.
 
@@ -209,10 +211,13 @@ Google publish confirmation.
 After publication, the assistant can run browser verification for the confirmed
 navigation or lead-form interaction. Passing evidence marks the operation completed
 with `Google request verified`; failed evidence marks it `rollback_required` and
-shows the prior live version fingerprint for explicit rollback approval. If rollback
-is approved, the backend re-reads the target version and live container state, then
-publishes the prior-live version with Google's fingerprint guard and records
-`rolled_back`.
+shows the prior live version fingerprint for explicit rollback approval. Rollback mirrors
+publication: the rollback-approval route checks the typed container ID and records the
+Google-verified email, and the rollback route refuses a missing approval
+(`approval_required`), a stale one (`approval_expired`) or a changed account
+(`approver_changed`). Only then does the backend re-read the target version and live
+container state, publish the prior-live version with Google's fingerprint guard, and
+record `rolled_back` with the rollback approver.
 Platform confirmation remains unavailable because browser evidence cannot prove GA4
 processing, reporting, attribution, or destination receipt.
 

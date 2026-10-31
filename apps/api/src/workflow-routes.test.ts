@@ -38,23 +38,40 @@ function versioned(): TrackingSetupOperationV1 {
   };
 }
 
+function rollbackRequired(): TrackingSetupOperationV1 {
+  return {
+    ...versioned(),
+    status: "rollback_required",
+    approval: { approvedAt: "2026-08-22T12:11:00.000Z", approvedBy: sessionAccount, versionFingerprint: "version-8" },
+    publication: { publishedAt: "2026-08-22T12:12:00.000Z", versionFingerprint: "version-8" },
+    postPublicationEvidenceId: "run_failed",
+    rollback: { targetVersionFingerprint: "live-7", status: "required" },
+  };
+}
+
 async function harness(options: {
   publicationEnabled?: boolean;
   identity?: () => Promise<string>;
   clock?: { now: Date };
+  operation?: TrackingSetupOperationV1;
 } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "workflow-routes-"));
   directories.push(directory);
   const repository = new TrackingOperationRepository(join(directory, "operations.json"));
-  repository.create(versioned());
+  repository.create(options.operation ?? versioned());
   const publishApprovedVersion = vi.fn().mockResolvedValue({
     publishedAt: "2026-08-22T12:20:00.000Z",
     versionFingerprint: "version-8",
   });
   const clock = options.clock ?? { now: new Date("2026-08-22T12:15:00.000Z") };
+  const rollbackPublishedVersion = vi.fn().mockResolvedValue({
+    targetVersionFingerprint: "live-7",
+    status: "completed",
+    completedAt: "2026-08-22T12:21:00.000Z",
+  });
   const runner = new TrackingWorkflowRunner(
     repository,
-    { publishApprovedVersion } as unknown as WorkflowGoogleClient,
+    { publishApprovedVersion, rollbackPublishedVersion } as unknown as WorkflowGoogleClient,
     () => clock.now,
   );
   const identity = vi.fn(options.identity ?? (async () => sessionAccount));
@@ -77,7 +94,7 @@ async function harness(options: {
     return sent;
   }
 
-  return { post, runner, publishApprovedVersion, identity, clock };
+  return { post, runner, publishApprovedVersion, rollbackPublishedVersion, identity, clock };
 }
 
 describe("publication approval and publish routes", () => {
@@ -175,5 +192,95 @@ describe("publication approval and publish routes", () => {
     const approval = await post("approve", { versionFingerprint: "version-8", confirmation: "GTM-ABC123" });
     expect(approval.status).toBe(403);
     expect(runner.get("operation_navigation")?.approval).toBeUndefined();
+  });
+});
+
+describe("rollback approval and rollback routes", () => {
+  const target = { targetVersionFingerprint: "live-7" };
+
+  it("records the session account as rollback approver and ignores a client-supplied approver", async () => {
+    const { post, runner, rollbackPublishedVersion } = await harness({ operation: rollbackRequired() });
+    const approved = await post("rollback-approval", { ...target, confirmation: "GTM-ABC123", approvedBy: "website assistant" });
+    expect(approved.status).toBe(200);
+    expect(approved.body.result).toMatchObject({
+      status: "rollback_approved",
+      nextStep: "rollback",
+      approvalExpiresAt: "2026-08-22T12:45:00.000Z",
+      operation: { rollback: { approval: { approvedBy: sessionAccount, targetVersionFingerprint: "live-7" } } },
+    });
+    expect(rollbackPublishedVersion).not.toHaveBeenCalled();
+
+    const rolledBack = await post("rollback", { ...target, approvedBy: "attacker@example.test" });
+    expect(rolledBack.status).toBe(200);
+    expect(rolledBack.body.result).toMatchObject({
+      status: "rolled_back",
+      operation: { rollback: { status: "completed", approval: { approvedBy: sessionAccount } } },
+    });
+    expect(rollbackPublishedVersion).toHaveBeenCalledTimes(1);
+    const stored = JSON.stringify(runner.get("operation_navigation"));
+    expect(stored).not.toContain("website assistant");
+    expect(stored).not.toContain("attacker@example.test");
+  });
+
+  it("refuses a rollback approval without a matching typed container ID", async () => {
+    const { post, runner, rollbackPublishedVersion } = await harness({ operation: rollbackRequired() });
+    expect((await post("rollback-approval", target)).status).toBe(400);
+    const wrong = await post("rollback-approval", { ...target, confirmation: "GTM-WRONG" });
+    expect(wrong.status).toBe(409);
+    expect(wrong.body.result).toMatchObject({ status: "blocked", stage: "rollback", reason: "confirmation_mismatch" });
+    const rollback = await post("rollback", target);
+    expect(rollback.status).toBe(409);
+    expect(rollback.body.result).toMatchObject({ reason: "approval_required" });
+    expect(runner.get("operation_navigation")?.rollback?.approval).toBeUndefined();
+    expect(rollbackPublishedVersion).not.toHaveBeenCalled();
+  });
+
+  it("refuses a stale rollback approval with 409 and no Google call", async () => {
+    const clock = { now: new Date("2026-08-22T12:15:00.000Z") };
+    const { post, rollbackPublishedVersion } = await harness({ clock, operation: rollbackRequired() });
+    expect((await post("rollback-approval", { ...target, confirmation: "GTM-ABC123" })).status).toBe(200);
+    clock.now = new Date("2026-08-22T12:45:01.000Z");
+    const rollback = await post("rollback", target);
+    expect(rollback.status).toBe(409);
+    expect(rollback.body.result).toMatchObject({ status: "blocked", stage: "rollback", reason: "approval_expired" });
+    expect(rollbackPublishedVersion).not.toHaveBeenCalled();
+  });
+
+  it("refuses rolling back from a different signed-in account than the approver", async () => {
+    let account = sessionAccount;
+    const { post, rollbackPublishedVersion } = await harness({ identity: async () => account, operation: rollbackRequired() });
+    await post("rollback-approval", { ...target, confirmation: "GTM-ABC123" });
+    account = "someone-else@example.test";
+    const rollback = await post("rollback", target);
+    expect(rollback.status).toBe(409);
+    expect(rollback.body.result).toMatchObject({ reason: "approver_changed" });
+    expect(rollbackPublishedVersion).not.toHaveBeenCalled();
+  });
+
+  it("refuses rollback approval when Google cannot verify the account's email", async () => {
+    const { post, runner, rollbackPublishedVersion } = await harness({
+      operation: rollbackRequired(),
+      identity: async () => {
+        throw new GoogleIntegrationError("no verified email", 403);
+      },
+    });
+    const approval = await post("rollback-approval", { ...target, confirmation: "GTM-ABC123" });
+    expect(approval.status).toBe(403);
+    expect(approval.body.error).toBe("no verified email");
+    expect((await post("rollback", target)).status).toBe(403);
+    expect(runner.get("operation_navigation")?.rollback?.approval).toBeUndefined();
+    expect(rollbackPublishedVersion).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when publication is disabled, before asking Google who is signed in", async () => {
+    const { post, identity, runner, rollbackPublishedVersion } = await harness({
+      publicationEnabled: false,
+      operation: rollbackRequired(),
+    });
+    expect((await post("rollback-approval", { ...target, confirmation: "GTM-ABC123" })).status).toBe(403);
+    expect((await post("rollback", target)).status).toBe(403);
+    expect(identity).not.toHaveBeenCalled();
+    expect(rollbackPublishedVersion).not.toHaveBeenCalled();
+    expect(runner.get("operation_navigation")?.status).toBe("rollback_required");
   });
 });

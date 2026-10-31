@@ -1,15 +1,17 @@
-import { expect, test, chromium } from "@playwright/test";
+import { expect, test, chromium, type Page } from "@playwright/test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
   approveThenPublish,
+  approveThenRollBack,
   formOperation,
   mockWritableContainerAndWorkflow,
   navigationSpecId,
   operation,
   sessionApprover,
+  withRollbackApproval,
 } from "./helpers/workflow-fixtures.js";
 
 const screenshotOptions = {
@@ -781,7 +783,15 @@ test("records post-publication lead-form browser verification without leaking fo
   }
 });
 
-test("rolls back a failed publication only after exact target approval", async () => {
+/**
+ * Rollback review and approval are separate steps after browser verification, so the
+ * page must survive the verification click. A 204 answer cancels the navigation in place.
+ */
+async function stayOnPageAfterNavigationClick(site: Page): Promise<void> {
+  await site.route("http://127.0.0.1:14173/services", (route) => route.fulfill({ status: 204 }));
+}
+
+test("rolls back a failed publication only after a typed confirmation and a separate approval request", async () => {
   const profile = await mkdtemp(join(tmpdir(), "gtm-observability-rollback-approval-"));
   const extensionPath = resolve("apps/extension/dist");
   const context = await chromium.launchPersistentContext(profile, {
@@ -789,16 +799,16 @@ test("rolls back a failed publication only after exact target approval", async (
     headless: true,
     args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
   });
-  let postedRollback: Record<string, unknown> | undefined;
+  const rollbackApprovals: Array<Record<string, unknown>> = [];
+  const rollbacks: Array<Record<string, unknown>> = [];
   await mockWritableContainerAndWorkflow(context, {
     browserVerificationResult: {
       status: "rollback_required",
       nextStep: "rollback_approval",
       operation: operation("rollback_required"),
     },
-    onRollback: (body) => {
-      postedRollback = body;
-    },
+    onRollbackApproval: (body) => rollbackApprovals.push(body),
+    onRollback: (body) => rollbacks.push(body),
   });
   try {
     const site = await context.newPage();
@@ -813,22 +823,105 @@ test("rolls back a failed publication only after exact target approval", async (
 
     await approveThenPublish(root);
     let operationRegion = root.getByRole("region", { name: "Setup operation" });
-    operationRegion = root.getByRole("region", { name: "Setup operation" });
     await operationRegion.getByRole("button", { name: "Start browser verification" }).click();
+    await stayOnPageAfterNavigationClick(site);
     await site.getByRole("link", { name: "Services" }).click();
 
     operationRegion = root.getByRole("region", { name: "Setup operation" });
     await expect(operationRegion.getByText(/Verification failed; prior live version live-7 is ready for rollback approval/)).toBeVisible();
-    await operationRegion.getByRole("button", { name: "Rollback live-7" }).click();
+    await expect(operationRegion.getByRole("button", { name: /^Roll ?back/ })).toHaveCount(0);
+    await operationRegion.getByRole("button", { name: "Review rollback" }).click();
 
-    await expect.poll(() => postedRollback).toMatchObject({
-      targetVersionFingerprint: "live-7",
-      approvedBy: "website assistant",
-    });
+    // (a) The confirmation shows exactly what the rollback restores and replaces.
+    const review = root.getByRole("region", { name: "Rollback review" });
+    await expect(review.getByRole("heading", { name: "Roll back GTM-TEST123 to live-7?" })).toBeVisible();
+    await expect(review.getByText("GTM-TEST123 · accounts/1/containers/10")).toBeVisible();
+    await expect(review.locator("dd", { hasText: /^live-7$/ })).toBeVisible();
+    await expect(review.locator("dd", { hasText: /^version-8$/ })).toBeVisible();
+    const confirm = review.getByLabel("Type GTM-TEST123 to confirm");
+    await expect(confirm).toBeFocused();
+    const approve = review.getByRole("button", { name: "Approve rollback to live-7" });
+    await expect(approve).toBeDisabled();
+    await confirm.fill("gtm-test123");
+    await expect(approve).toBeDisabled();
+    await confirm.fill("GTM-TEST123");
+    await expect(approve).toBeEnabled();
+    expect(rollbackApprovals).toHaveLength(0);
+    expect(rollbacks).toHaveLength(0);
+    await approve.click();
+
+    // (b) Approval is its own request and rolls nothing back; (c) no approver is sent.
+    await expect.poll(() => rollbackApprovals).toEqual([{ targetVersionFingerprint: "live-7", confirmation: "GTM-TEST123" }]);
+    operationRegion = root.getByRole("region", { name: "Setup operation" });
+    await expect(operationRegion.getByText(`Approved restoring live-7 by ${sessionApprover}`)).toBeVisible();
+    await expect(root.getByRole("region", { name: "Rollback review" })).toHaveCount(0);
+    expect(rollbacks).toHaveLength(0);
+
+    await operationRegion.getByRole("button", { name: "Roll back to live-7" }).click();
+    await expect.poll(() => rollbacks).toEqual([{ targetVersionFingerprint: "live-7" }]);
     operationRegion = root.getByRole("region", { name: "Setup operation" });
     await expect(operationRegion.getByText(/Rollback completed/)).toBeVisible();
-    await expect(operationRegion.getByText(/Restored prior live version live-7/)).toBeVisible();
+    await expect(operationRegion.getByText(`Restored prior live version live-7; approved by ${sessionApprover}`)).toBeVisible();
     await expect(root.getByText(/platform-confirmed/i)).toHaveCount(0);
+    const sent = JSON.stringify([...rollbackApprovals, ...rollbacks]);
+    expect(sent).not.toContain("approvedBy");
+    expect(sent).not.toContain("website assistant");
+  } finally {
+    await context.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});
+
+test("sends a stale rollback approval back to rollback review instead of rolling back", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "gtm-observability-stale-rollback-"));
+  const extensionPath = resolve("apps/extension/dist");
+  const context = await chromium.launchPersistentContext(profile, {
+    channel: "chromium",
+    headless: true,
+    args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+  });
+  let rollbackApprovals = 0;
+  await mockWritableContainerAndWorkflow(context, {
+    browserVerificationResult: {
+      status: "rollback_required",
+      nextStep: "rollback_approval",
+      operation: operation("rollback_required"),
+    },
+    onRollbackApproval: () => {
+      rollbackApprovals += 1;
+    },
+    rollbackStatus: 409,
+    rollbackResult: {
+      status: "blocked",
+      stage: "rollback",
+      reason: "approval_expired",
+      operation: withRollbackApproval(operation("rollback_required")),
+    },
+  });
+  try {
+    const site = await context.newPage();
+    await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123&scenario=duplicate");
+    const root = site.locator("#trimtale-root");
+    await root.getByRole("button", { name: "Open tracking assistant" }).click();
+    await root.getByLabel("Tracking request").fill("navigation");
+    await root.getByRole("button", { name: "Send request" }).click();
+    await root.getByRole("button", { name: "Track all" }).click();
+    await root.getByRole("button", { name: "Check GTM access" }).click();
+    await root.getByRole("button", { name: "Prepare GTM version" }).click();
+    await approveThenPublish(root);
+    await root.getByRole("region", { name: "Setup operation" }).getByRole("button", { name: "Start browser verification" }).click();
+    await stayOnPageAfterNavigationClick(site);
+    await site.getByRole("link", { name: "Services" }).click();
+    await approveThenRollBack(root);
+
+    const operationRegion = root.getByRole("region", { name: "Setup operation" });
+    await expect(operationRegion.getByText(/rollback approval is older than 30 minutes, so nothing was rolled back/i)).toBeVisible();
+    await expect(operationRegion.getByText("Rollback approval for live-7 expired; approve again")).toBeVisible();
+    await expect(operationRegion.getByText(/Restored prior live version/)).toHaveCount(0);
+    await expect(root.getByText(/Nothing was published/)).toHaveCount(0);
+    await operationRegion.getByRole("button", { name: "Review rollback" }).click();
+    await expect(root.getByRole("region", { name: "Rollback review" })).toBeVisible();
+    expect(rollbackApprovals).toBe(1);
   } finally {
     await context.close();
     await rm(profile, { recursive: true, force: true });

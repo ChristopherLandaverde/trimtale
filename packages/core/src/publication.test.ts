@@ -2,13 +2,16 @@ import { describe, expect, it } from "vitest";
 import { createTrackingChangePlan } from "./change-plan.js";
 import { createSetupProposal } from "./generator.js";
 import {
+  approveTrackingRollback,
   approveTrackingVersion,
   publicationApprovalCurrent,
   publicationApprovalExpiresAt,
   recordPostPublicationEvidence,
+  rollbackApprovalCurrent,
+  rollbackApprovalExpiresAt,
 } from "./publication.js";
 import type { TrackingRunEvidenceV1 } from "./contracts.js";
-import type { TrackingSetupOperationV1 } from "./tracking-operation.js";
+import { validateTrackingOperation, type TrackingSetupOperationV1 } from "./tracking-operation.js";
 
 function versioned(): TrackingSetupOperationV1 {
   const proposal = createSetupProposal({
@@ -82,5 +85,41 @@ describe("publication approval and post-publication evidence", () => {
       status: "rollback_required",
       rollback: { targetVersionFingerprint: "live-7", status: "required" },
     });
+  });
+
+  it("binds a short-lived rollback approval to the recorded target and approver", () => {
+    const approved = approveTrackingVersion(versioned(), "practitioner@example.test", "2026-08-22T12:15:00.000Z");
+    approved.status = "published";
+    approved.publication = { publishedAt: "2026-08-22T12:20:00.000Z", versionFingerprint: "version-8" };
+    const failed = recordPostPublicationEvidence(approved, evidence(approved, false), "2026-08-22T12:22:00.000Z");
+    expect(rollbackApprovalCurrent(failed)).toBe(false);
+    expect(rollbackApprovalExpiresAt(failed)).toBeUndefined();
+
+    const rollbackApproved = approveTrackingRollback(failed, " practitioner@example.test ", "2026-08-22T12:30:00.000Z");
+    expect(rollbackApproved).toMatchObject({
+      status: "rollback_required",
+      rollback: {
+        status: "required",
+        targetVersionFingerprint: "live-7",
+        approval: { approvedAt: "2026-08-22T12:30:00.000Z", approvedBy: "practitioner@example.test", targetVersionFingerprint: "live-7" },
+      },
+    });
+    expect(rollbackApprovalExpiresAt(rollbackApproved)).toBe("2026-08-22T13:00:00.000Z");
+    expect(rollbackApprovalCurrent(rollbackApproved, Date.parse("2026-08-22T12:59:59.000Z"))).toBe(true);
+    expect(rollbackApprovalCurrent(rollbackApproved, Date.parse("2026-08-22T13:00:01.000Z"))).toBe(false);
+    expect(rollbackApprovalCurrent(rollbackApproved, Date.parse("2026-08-22T12:29:59.000Z"))).toBe(false);
+
+    const renewed = approveTrackingRollback(rollbackApproved, "practitioner@example.test", "2026-08-22T13:10:00.000Z");
+    expect(rollbackApprovalCurrent(renewed, Date.parse("2026-08-22T13:20:00.000Z"))).toBe(true);
+    expect(() => approveTrackingRollback(failed, "  ")).toThrow("requires an approver");
+    expect(() => approveTrackingRollback(approved, "practitioner@example.test")).toThrow("Only a rollback-required operation");
+
+    const retargeted = structuredClone(rollbackApproved);
+    retargeted.rollback!.approval!.targetVersionFingerprint = "other-live";
+    expect(rollbackApprovalCurrent(retargeted, Date.parse("2026-08-22T12:40:00.000Z"))).toBe(false);
+    expect(validateTrackingOperation(retargeted)).toContain("rollback.approval.targetVersionFingerprint must match rollback.targetVersionFingerprint");
+    const anonymous = structuredClone(rollbackApproved);
+    anonymous.rollback!.approval!.approvedBy = "";
+    expect(validateTrackingOperation(anonymous)).toContain("rollback.approval is invalid");
   });
 });

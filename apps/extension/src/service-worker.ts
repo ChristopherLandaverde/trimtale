@@ -198,7 +198,7 @@ chrome.runtime.onMessage.addListener(
 );
 
 function workflowError(status: number, action?: GtmWorkflowAction): string {
-  if (status === 403 && action === "publish") return "GTM publication is disabled for this backend.";
+  if (status === 403 && (action === "publish" || action === "rollback")) return "GTM publication is disabled for this backend.";
   if (status === 403) return "Container-write access is disabled for this backend.";
   if (status === 404) return "The tracking setup operation was not found.";
   if (status === 409) return "The tracking setup operation is blocked and needs review.";
@@ -261,24 +261,31 @@ chrome.runtime.onMessage.addListener(
           return;
         }
 
-        if (message.action === "approve" || message.action === "publish") {
-          if (!operationId || !message.versionFingerprint
-            || (message.action === "approve" && !message.confirmation)) {
+        if (message.action === "approve" || message.action === "publish"
+          || message.action === "approveRollback" || message.action === "rollback") {
+          const rollback = message.action === "approveRollback" || message.action === "rollback";
+          const approving = message.action === "approve" || message.action === "approveRollback";
+          const fingerprint = rollback ? message.targetVersionFingerprint : message.versionFingerprint;
+          if (!operationId || !fingerprint || (approving && !message.confirmation)) {
             sendResponse({
               ok: false,
-              error: message.action === "approve"
-                ? "Approval requires an operation ID, version fingerprint, and typed container confirmation."
-                : "Publication requires an operation ID and the approved version fingerprint.",
+              error: approving
+                ? `${rollback ? "Rollback approval" : "Approval"} requires an operation ID, ${rollback ? "target" : "version"} fingerprint, and typed container confirmation.`
+                : rollback
+                  ? "Rollback requires an operation ID and the approved target fingerprint."
+                  : "Publication requires an operation ID and the approved version fingerprint.",
             });
             return;
           }
           // No approver is sent: the backend records the signed-in Google account itself.
-          const response = await fetch(`http://127.0.0.1:18787/api/google/workflows/${encodeURIComponent(operationId)}/${message.action}`, {
+          const path = { approve: "approve", publish: "publish", approveRollback: "rollback-approval", rollback: "rollback" }[message.action];
+          const confirmation = approving ? { confirmation: message.confirmation } : {};
+          const response = await fetch(`http://127.0.0.1:18787/api/google/workflows/${encodeURIComponent(operationId)}/${path}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(message.action === "approve"
-              ? { versionFingerprint: message.versionFingerprint, confirmation: message.confirmation }
-              : { versionFingerprint: message.versionFingerprint }),
+            body: JSON.stringify(rollback
+              ? { targetVersionFingerprint: fingerprint, ...confirmation }
+              : { versionFingerprint: fingerprint, ...confirmation }),
           });
           const responseBody = await readJsonResponse(response);
           const blockedResult = response.status === 409 && isRecord(responseBody.result) && responseBody.result.status === "blocked";
@@ -290,7 +297,7 @@ chrome.runtime.onMessage.addListener(
               ok: false,
               error: identityRefused
                 ? "Google did not confirm a verified email for the connected account. Reconnect Google with publication access, then approve again."
-                : workflowError(response.status, "publish"),
+                : workflowError(response.status, rollback ? "rollback" : "publish"),
             });
           return;
         }
@@ -309,26 +316,6 @@ chrome.runtime.onMessage.addListener(
           sendResponse(verified.ok
             ? { ok: true, result: verifiedBody.result }
             : { ok: false, error: workflowError(verified.status) });
-          return;
-        }
-
-        if (message.action === "rollback") {
-          if (!operationId || !message.targetVersionFingerprint || !message.approvedBy) {
-            sendResponse({ ok: false, error: "Rollback requires an operation ID, target fingerprint, and approver." });
-            return;
-          }
-          const rolledBack = await fetch(`http://127.0.0.1:18787/api/google/workflows/${encodeURIComponent(operationId)}/rollback`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              targetVersionFingerprint: message.targetVersionFingerprint,
-              approvedBy: message.approvedBy,
-            }),
-          });
-          const rolledBackBody = await readJsonResponse(rolledBack);
-          sendResponse(rolledBack.ok
-            ? { ok: true, result: rolledBackBody.result }
-            : { ok: false, error: workflowError(rolledBack.status, "publish") });
           return;
         }
 

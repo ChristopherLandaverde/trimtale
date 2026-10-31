@@ -1,4 +1,4 @@
-import { publicationApprovalExpiresAt, type TrackingSetupOperationV1 } from "@trimtale/core";
+import { publicationApprovalExpiresAt, rollbackApprovalExpiresAt, type TrackingSetupOperationV1 } from "@trimtale/core";
 import type { WorkflowResult } from "./workflow-bridge.js";
 
 export interface SetupOperationStage {
@@ -13,6 +13,7 @@ export type SetupOperationAction =
   | { kind: "review"; label: "Review and approve"; operationId: string; versionFingerprint: string }
   | { kind: "publish"; label: string; operationId: string; versionFingerprint: string }
   | { kind: "browserVerification"; label: "Start browser verification"; operationId: string }
+  | { kind: "rollbackReview"; label: "Review rollback"; operationId: string; targetVersionFingerprint: string }
   | { kind: "rollback"; label: string; operationId: string; targetVersionFingerprint: string };
 
 export interface SetupOperationPresentation {
@@ -37,6 +38,9 @@ function operationSummary(operation: TrackingSetupOperationV1): string {
   const actions = operation.plan.actions.length;
   if (operation.status === "completed") {
     return "Google collection request verified from browser evidence. Platform confirmation unavailable.";
+  }
+  if (operation.status === "rollback_required" && operation.rollback?.approval) {
+    return `Browser verification failed; rollback to prior live version ${operation.rollback.targetVersionFingerprint} is approved and waiting for a separate rollback step.`;
   }
   if (operation.status === "rollback_required") {
     return `Browser verification failed; rollback approval is required for prior live version ${operation.rollback?.targetVersionFingerprint ?? "unknown"}.`;
@@ -66,12 +70,25 @@ export function workflowReason(result: WorkflowResult): string {
   if (result.status === "published") return "verify_publication";
   if (result.status === "completed") return "platform_unavailable";
   if (result.status === "rollback_required") return "rollback_approval";
+  if (result.status === "rollback_approved") return "ready_to_roll_back";
   if (result.status === "rolled_back") return "complete";
   return result.reason;
 }
 
+/** Copy for a refused rollback request. Rollback reuses publication's refusal codes. */
+function rollbackGuidance(reason: string): string {
+  if (reason === "approval_required") return "Rolling back needs a separate approval first. Review the rollback, then approve it.";
+  if (reason === "approval_expired") return "The rollback approval is older than 30 minutes, so nothing was rolled back. Review and approve again.";
+  if (reason === "approver_changed") return "A different Google account is connected than the one that approved the rollback. Approve again as this account.";
+  if (reason === "confirmation_mismatch") return "The typed container ID did not match, so the rollback was not approved.";
+  if (reason === "rollback_fingerprint_mismatch") return "The target did not match the recorded prior live version. Review the rollback again.";
+  if (reason === "operation_not_rollback_required") return "Only a failed publication awaiting rollback can be rolled back. Reload the setup operation.";
+  return "Review the saved rollback state before continuing.";
+}
+
 export function setupOperationGuidance(result: WorkflowResult): string {
   const reason = workflowReason(result);
+  if (result.status === "blocked" && result.stage === "rollback") return rollbackGuidance(reason);
   if (reason === "ready_to_apply") return "Ready to apply owned GTM entities from the saved plan.";
   if (reason === "partial_application" || reason === "partial_failure") {
     return "Interrupted after a partial application. Resume re-reads GTM state and applies only incomplete owned actions.";
@@ -101,7 +118,8 @@ export function setupOperationGuidance(result: WorkflowResult): string {
   if (reason === "operation_not_approved") return "Only an approved, unpublished version can be published.";
   if (reason === "verify_publication") return "Approved GTM version was published. Run browser verification to confirm the Google collection request.";
   if (reason === "platform_unavailable") return "Google request verified from browser evidence. Platform confirmation remains unavailable.";
-  if (reason === "rollback_approval") return "Browser verification failed. Rollback approval is required before restoring the prior live version.";
+  if (reason === "rollback_approval") return "Browser verification failed. Review the rollback, then approve it. Approving does not roll back.";
+  if (reason === "ready_to_roll_back") return "Rollback approved. Rolling back is a separate step and must happen within 30 minutes of approval.";
   if (reason === "complete") return "Rollback completed. The prior live version was restored.";
   if (reason === "fingerprint_mismatch") return "The fingerprint did not match the immutable version, so nothing was approved or published.";
   if (reason === "operation_not_versioned") return "Only a versioned operation can be approved for publication.";
@@ -116,11 +134,19 @@ function labelFor(result: WorkflowResult): string {
   if (result.status === "published") return "Published";
   if (result.status === "completed") return "Google request verified";
   if (result.status === "rollback_required") return "Rollback required";
+  if (result.status === "rollback_approved") return "Rollback approved, not rolled back";
   if (result.status === "rolled_back") return "Rolled back";
   return result.status;
 }
 
+function localTime(iso: string | undefined): string {
+  return iso ? ` before ${new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "";
+}
+
 function assistantMessageFor(result: WorkflowResult, guidance: string): string {
+  if (result.status === "blocked" && result.stage === "rollback") {
+    return `Rollback stopped. ${guidance} Nothing was rolled back.`;
+  }
   if (result.status === "blocked" || result.status === "paused") {
     return `Setup ${result.status === "blocked" ? "stopped" : "paused"}. ${guidance} Nothing was published.`;
   }
@@ -128,8 +154,7 @@ function assistantMessageFor(result: WorkflowResult, guidance: string): string {
     return `Version ${result.operation.version?.fingerprint ?? ""} is ready and nothing is published. Review exactly what will change, then approve it.`;
   }
   if (result.status === "approved") {
-    const expiresAt = publicationApprovalExpiresAt(result.operation);
-    const until = expiresAt ? ` before ${new Date(expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "";
+    const until = localTime(publicationApprovalExpiresAt(result.operation));
     return `Approved by ${result.operation.approval?.approvedBy ?? "the connected Google account"}. Nothing is published yet. Publish${until}, or approve again.`;
   }
   if (result.status === "published") {
@@ -139,7 +164,12 @@ function assistantMessageFor(result: WorkflowResult, guidance: string): string {
     return "Google request verified from browser evidence. Platform confirmation remains unavailable.";
   }
   if (result.status === "rollback_required") {
-    return `Browser verification failed. Rollback approval is required before restoring ${result.operation.rollback?.targetVersionFingerprint ?? "the prior live version"}.`;
+    return `Browser verification failed. Review the rollback to ${result.operation.rollback?.targetVersionFingerprint ?? "the prior live version"}, then approve it.`;
+  }
+  if (result.status === "rollback_approved") {
+    const target = result.operation.rollback?.targetVersionFingerprint ?? "the prior live version";
+    const approver = result.operation.rollback?.approval?.approvedBy ?? "the connected Google account";
+    return `Rollback to ${target} approved by ${approver}. Nothing is rolled back yet. Roll back${localTime(rollbackApprovalExpiresAt(result.operation))}, or approve again.`;
   }
   if (result.status === "rolled_back") {
     return `Rollback completed. Prior live version ${result.operation.rollback?.targetVersionFingerprint ?? "unknown"} was restored.`;
@@ -147,7 +177,21 @@ function assistantMessageFor(result: WorkflowResult, guidance: string): string {
   return `Setup operation ${result.status}: ${guidance} Nothing was published.`;
 }
 
+function rollbackReviewAction(operation: TrackingSetupOperationV1): SetupOperationAction[] {
+  return operation.status === "rollback_required" && operation.rollback
+    ? [{
+      kind: "rollbackReview",
+      label: "Review rollback",
+      operationId: operation.id,
+      targetVersionFingerprint: operation.rollback.targetVersionFingerprint,
+    }]
+    : [];
+}
+
 function actionsFor(result: WorkflowResult): SetupOperationAction[] {
+  if (result.status === "blocked" && result.stage === "rollback") {
+    return result.operation ? rollbackReviewAction(result.operation) : [];
+  }
   const reviewable = result.operation?.version
     && (result.operation.status === "versioned" || result.operation.status === "approved");
   if (result.status === "blocked" && result.stage === "approval" && reviewable && result.operation?.version) {
@@ -180,10 +224,11 @@ function actionsFor(result: WorkflowResult): SetupOperationAction[] {
   if (result.status === "published") {
     return [{ kind: "browserVerification", label: "Start browser verification", operationId: result.operation.id }];
   }
-  if (result.status === "rollback_required" && result.operation.rollback) {
+  if (result.status === "rollback_required") return rollbackReviewAction(result.operation);
+  if (result.status === "rollback_approved" && result.operation.rollback?.approval) {
     return [{
       kind: "rollback",
-      label: `Rollback ${result.operation.rollback.targetVersionFingerprint}`,
+      label: `Roll back to ${result.operation.rollback.targetVersionFingerprint}`,
       operationId: result.operation.id,
       targetVersionFingerprint: result.operation.rollback.targetVersionFingerprint,
     }];
@@ -201,9 +246,15 @@ export function presentSetupOperation(result: WorkflowResult): SetupOperationPre
     || result.status === "published"
     || result.status === "completed"
     || result.status === "rollback_required"
+    || result.status === "rollback_approved"
     || result.status === "rolled_back";
+  const rollbackRefused = result.status === "blocked" && result.stage === "rollback";
   // A blocked publish whose approval expired or belongs to another account must not keep a passed approval stage.
-  const approvalUnusable = result.status === "blocked" && (reason === "approval_expired" || reason === "approver_changed");
+  const approvalUnusable = result.status === "blocked" && !rollbackRefused
+    && (reason === "approval_expired" || reason === "approver_changed");
+  const rollbackApprovalUnusable = rollbackRefused && (reason === "approval_expired" || reason === "approver_changed");
+  const rollbackTarget = operation?.rollback?.targetVersionFingerprint ?? "unknown";
+  const rollbackApprover = operation?.rollback?.approval?.approvedBy;
   const blockedReason = terminalWorkflow ? "Operation reached version creation" : result.reason;
   const stages: SetupOperationStage[] = [
     { key: "planned", label: "Tracking change plan", detail: operation ? operationSummary(operation) : blockedReason, passed: Boolean(status) },
@@ -273,10 +324,16 @@ export function presentSetupOperation(result: WorkflowResult): SetupOperationPre
       key: "rollback",
       label: "Rollback",
       detail: operation?.status === "rolled_back"
-        ? `Restored prior live version ${operation.rollback?.targetVersionFingerprint ?? "unknown"}`
-        : operation?.status === "rollback_required"
-          ? `Approval required to restore ${operation.rollback?.targetVersionFingerprint ?? "unknown"}`
-          : "No rollback required",
+        ? `Restored prior live version ${rollbackTarget}${rollbackApprover ? `; approved by ${rollbackApprover}` : ""}`
+        : rollbackApprovalUnusable
+          ? reason === "approval_expired"
+            ? `Rollback approval for ${rollbackTarget} expired; approve again`
+            : `Rollback approval by ${rollbackApprover ?? "another account"} no longer matches the connected account`
+          : operation?.status === "rollback_required" && rollbackApprover
+            ? `Approved restoring ${rollbackTarget} by ${rollbackApprover}`
+            : operation?.status === "rollback_required"
+              ? `Separate approval is required to restore ${rollbackTarget}; nothing was rolled back`
+              : "No rollback required",
       passed: status === "rolled_back",
     },
   ];
@@ -294,6 +351,7 @@ export interface PublicationReviewRow {
   value: string;
 }
 
+/** A typed-confirmation review shown before approving any change to the live container. */
 export interface PublicationReview {
   title: string;
   consequence: string;
@@ -340,5 +398,27 @@ export function presentPublicationReview(operation: TrackingSetupOperationV1): P
     approvalNote: "The backend records your connected Google account as the approver. The approval lasts 30 minutes, and publishing is a separate step.",
     confirmation: publicId,
     approveLabel: `Approve ${version.fingerprint}`,
+  };
+}
+
+/** What one rollback would change, built only from the stored operation. */
+export function presentRollbackReview(operation: TrackingSetupOperationV1): PublicationReview | undefined {
+  const version = operation.version;
+  const rollback = operation.rollback;
+  if (!version || !rollback || operation.status !== "rollback_required" || rollback.status !== "required") return undefined;
+  const publicId = operation.container.publicId;
+  const target = rollback.targetVersionFingerprint;
+  return {
+    title: `Roll back ${publicId} to ${target}?`,
+    consequence: `Rolling back makes ${target} the live version of ${publicId} again, replacing ${version.fingerprint}. Every page that loads this container gets the change.`,
+    rows: [
+      { label: "Container", value: `${publicId} · ${operation.container.path}` },
+      { label: "Restores", value: target },
+      { label: "Replaces", value: version.fingerprint },
+    ],
+    changes: [],
+    approvalNote: "The backend records your connected Google account as the approver. The approval lasts 30 minutes, and rolling back is a separate step.",
+    confirmation: publicId,
+    approveLabel: `Approve rollback to ${target}`,
   };
 }

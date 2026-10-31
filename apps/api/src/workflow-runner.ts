@@ -1,10 +1,13 @@
 import {
+  approveTrackingRollback,
   approveTrackingVersion,
   createFormSetupProposal,
   createSetupProposal,
   publicationApprovalCurrent,
   publicationApprovalExpiresAt,
   recordPostPublicationEvidence,
+  rollbackApprovalCurrent,
+  rollbackApprovalExpiresAt,
   type FormSetupRequest,
   type SetupRequest,
   type TrackingRunEvidenceV1,
@@ -57,6 +60,10 @@ export type WorkflowBrowserVerificationResult =
   | { status: "completed"; operation: TrackingSetupOperationV1; nextStep: "platform_unavailable" }
   | { status: "rollback_required"; operation: TrackingSetupOperationV1; nextStep: "rollback_approval" };
 
+export type WorkflowRollbackApprovalResult =
+  | { status: "rollback_approved"; operation: TrackingSetupOperationV1; nextStep: "rollback"; approvalExpiresAt: string }
+  | { status: "blocked"; operation: TrackingSetupOperationV1; stage: "rollback"; reason: string };
+
 export type WorkflowRollbackResult =
   | { status: "rolled_back"; operation: TrackingSetupOperationV1; nextStep: "complete" }
   | {
@@ -66,6 +73,11 @@ export type WorkflowRollbackResult =
     reason: string;
     details?: unknown;
   };
+
+/** The practitioner typed the public ID of the container that will change, exactly. */
+function confirmsContainer(operation: TrackingSetupOperationV1, confirmation: string): boolean {
+  return confirmation.trim() === operation.container.publicId;
+}
 
 function nextTimestamp(previous: string, now: () => Date): string {
   const candidate = now().getTime();
@@ -259,7 +271,7 @@ export class TrackingWorkflowRunner {
     if (approvedFingerprint !== operation.version.fingerprint) {
       return { status: "blocked", operation, stage: "approval", reason: "fingerprint_mismatch" };
     }
-    if (confirmation.trim() !== operation.container.publicId) {
+    if (!confirmsContainer(operation, confirmation)) {
       return { status: "blocked", operation, stage: "approval", reason: "confirmation_mismatch" };
     }
     const approved = approveTrackingVersion(operation, approvedBy, nextTimestamp(operation.updatedAt, this.now));
@@ -293,15 +305,12 @@ export class TrackingWorkflowRunner {
       || approvedFingerprint !== operation.approval.versionFingerprint) {
       return { status: "blocked", operation, stage: "approval", reason: "fingerprint_mismatch" };
     }
-    // The runner stamped approvedAt itself, at most a few ms past its own clock, so that
-    // lower bound is trusted here; the 30-minute upper bound is what this check enforces.
-    const checkedAt = Math.max(this.now().getTime(), Date.parse(operation.approval.approvedAt));
-    if (!publicationApprovalCurrent(operation, checkedAt)) {
-      return { status: "blocked", operation, stage: "approval", reason: "approval_expired" };
-    }
-    if (currentAccount !== operation.approval.approvedBy) {
-      return { status: "blocked", operation, stage: "approval", reason: "approver_changed" };
-    }
+    const refusal = this.approvalRefusal(
+      operation.approval,
+      currentAccount,
+      (checkedAt) => publicationApprovalCurrent(operation, checkedAt),
+    );
+    if (refusal) return { status: "blocked", operation, stage: "approval", reason: refusal };
     const publication = await this.google.publishApprovedVersion(operation);
     const published = this.save(operation, { status: "published", publication });
     return { status: "published", operation: published, nextStep: "verify_publication" };
@@ -323,33 +332,87 @@ export class TrackingWorkflowRunner {
       : { status: "rollback_required", operation: saved, nextStep: "rollback_approval" };
   }
 
-  async approveAndRollback(
+  /**
+   * Records an explicit approval to restore the recorded prior live version, mirroring
+   * publication approval: the exact target, the typed container ID, and the identity the
+   * route verified with Google. Nothing is rolled back here.
+   */
+  approveRollback(
     id: string,
     approvedTargetFingerprint: string,
+    confirmation: string,
+    approvedBy: string,
+  ): WorkflowRollbackApprovalResult {
+    const operation = this.requiredOperation(id);
+    if (operation.status !== "rollback_required" || !operation.rollback) {
+      return { status: "blocked", operation, stage: "rollback", reason: "operation_not_rollback_required" };
+    }
+    if (approvedTargetFingerprint !== operation.rollback.targetVersionFingerprint) {
+      return { status: "blocked", operation, stage: "rollback", reason: "rollback_fingerprint_mismatch" };
+    }
+    if (!confirmsContainer(operation, confirmation)) {
+      return { status: "blocked", operation, stage: "rollback", reason: "confirmation_mismatch" };
+    }
+    const approved = approveTrackingRollback(operation, approvedBy, nextTimestamp(operation.updatedAt, this.now));
+    if (!approved.rollback?.approval) throw new Error("Rollback approval was not recorded.");
+    const saved = this.save(operation, { rollback: approved.rollback });
+    return {
+      status: "rollback_approved",
+      operation: saved,
+      nextStep: "rollback",
+      approvalExpiresAt: rollbackApprovalExpiresAt(saved)!,
+    };
+  }
+
+  /**
+   * Restores the prior live version approved in an earlier request. The approval must
+   * still be current, name this exact target, and belong to the account rolling back now.
+   */
+  async rollbackApproved(
+    id: string,
+    approvedTargetFingerprint: string,
+    currentAccount: string,
   ): Promise<WorkflowRollbackResult> {
     const operation = this.requiredOperation(id);
     if (operation.status !== "rollback_required" || !operation.rollback) {
-      return {
-        status: "blocked",
-        operation,
-        stage: "rollback",
-        reason: "operation_not_rollback_required",
-      };
+      return { status: "blocked", operation, stage: "rollback", reason: "operation_not_rollback_required" };
     }
-    if (approvedTargetFingerprint !== operation.rollback.targetVersionFingerprint) {
-      return {
-        status: "blocked",
-        operation,
-        stage: "rollback",
-        reason: "rollback_fingerprint_mismatch",
-      };
+    const approval = operation.rollback.approval;
+    if (!approval) {
+      return { status: "blocked", operation, stage: "rollback", reason: "approval_required" };
     }
+    if (approvedTargetFingerprint !== operation.rollback.targetVersionFingerprint
+      || approvedTargetFingerprint !== approval.targetVersionFingerprint) {
+      return { status: "blocked", operation, stage: "rollback", reason: "rollback_fingerprint_mismatch" };
+    }
+    const refusal = this.approvalRefusal(
+      approval,
+      currentAccount,
+      (checkedAt) => rollbackApprovalCurrent(operation, checkedAt),
+    );
+    if (refusal) return { status: "blocked", operation, stage: "rollback", reason: refusal };
     const rollback = await this.google.rollbackPublishedVersion(operation);
     const rolledBack = this.save(operation, {
       status: "rolled_back",
-      rollback,
+      rollback: { ...rollback, approval },
     });
     return { status: "rolled_back", operation: rolledBack, nextStep: "complete" };
+  }
+
+  /**
+   * Why a recorded approval can no longer authorize a live change, or undefined if it can.
+   * The runner stamped approvedAt itself, at most a few ms past its own clock, so that
+   * lower bound is trusted here; the 30-minute upper bound is what `current` enforces.
+   */
+  private approvalRefusal(
+    approval: { approvedAt: string; approvedBy: string },
+    currentAccount: string,
+    current: (checkedAt: number) => boolean,
+  ): "approval_expired" | "approver_changed" | undefined {
+    const checkedAt = Math.max(this.now().getTime(), Date.parse(approval.approvedAt));
+    if (!current(checkedAt)) return "approval_expired";
+    if (currentAccount !== approval.approvedBy) return "approver_changed";
+    return undefined;
   }
 
   private requiredOperation(id: string): TrackingSetupOperationV1 {

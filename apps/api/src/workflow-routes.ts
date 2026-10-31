@@ -180,23 +180,40 @@ export async function handleGoogleWorkflowRoute({
     return true;
   }
 
+  const rollbackApprovalMatch = requestUrl.pathname.match(
+    /^\/api\/google\/workflows\/([A-Za-z0-9_-]+)\/rollback-approval$/,
+  );
   const rollbackMatch = requestUrl.pathname.match(
     /^\/api\/google\/workflows\/([A-Za-z0-9_-]+)\/rollback$/,
   );
-  if (request.method === "POST" && rollbackMatch) {
-    if (!workflowRunner) {
+  if (request.method === "POST" && (rollbackApprovalMatch || rollbackMatch)) {
+    if (!workflowRunner || !approverIdentity) {
       workflowUnavailable(sendJson, response);
+      return true;
+    }
+    // Rolling back publishes a prior version, so it sits behind the same switch as publishing.
+    if (!publicationEnabled) {
+      sendJson(response, 403, { error: "GTM publication is disabled on this backend." });
       return true;
     }
     try {
       const body = await readJson(request);
       const targetVersionFingerprint = objectField(body, "targetVersionFingerprint");
-      const approvedBy = objectField(body, "approvedBy");
-      if (typeof targetVersionFingerprint !== "string" || typeof approvedBy !== "string" || approvedBy.trim().length === 0) {
-        sendJson(response, 400, { error: "Rollback approval requires a target version fingerprint and approver." });
+      const confirmation = objectField(body, "confirmation");
+      if (typeof targetVersionFingerprint !== "string" || !targetVersionFingerprint.trim()
+        || (rollbackApprovalMatch && typeof confirmation !== "string")) {
+        sendJson(response, 400, {
+          error: rollbackApprovalMatch
+            ? "Rollback approval requires a target version fingerprint and the typed container confirmation."
+            : "Rollback requires the approved target version fingerprint.",
+        });
         return true;
       }
-      const result = await workflowRunner.approveAndRollback(rollbackMatch[1] ?? "", targetVersionFingerprint);
+      // As with publication, any approver the client sends is ignored.
+      const account = await approverIdentity();
+      const result = rollbackApprovalMatch
+        ? workflowRunner.approveRollback(rollbackApprovalMatch[1] ?? "", targetVersionFingerprint, confirmation as string, account)
+        : await workflowRunner.rollbackApproved(rollbackMatch![1] ?? "", targetVersionFingerprint, account);
       sendJson(response, result.status === "blocked" ? 409 : 200, { result });
     } catch (workflowError) {
       const status = workflowError instanceof GoogleIntegrationError
@@ -206,13 +223,13 @@ export async function handleGoogleWorkflowRoute({
           : workflowError instanceof SyntaxError
             ? 400
             : 409;
-      const message = status === 404
-        ? "Tracking operation was not found."
-        : status === 400
-          ? "Rollback approval must be valid JSON."
-          : status === 403
-            ? "GTM publication is disabled for this backend."
-            : "Unable to roll back the tracking workflow.";
+      const message = workflowError instanceof GoogleIntegrationError
+        ? workflowError.message
+        : status === 404
+          ? "Tracking operation was not found."
+          : status === 400
+            ? "Rollback approval must be valid JSON."
+            : "Unable to approve or roll back the tracking workflow.";
       sendJson(response, status, { error: message });
     }
     return true;

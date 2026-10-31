@@ -17,6 +17,18 @@ type WorkflowOperationStatus =
 type WorkflowOperationFactory = (status?: WorkflowOperationStatus) => Record<string, unknown>;
 
 export const navigationSpecId = "spec_e8d91c6baf9f";
+
+const rollbackApproval = {
+  approvedAt: "2026-08-30T20:04:00.000Z",
+  approvedBy: sessionApprover,
+  targetVersionFingerprint: "live-7",
+};
+
+/** A rollback-required operation after the separate rollback approval request. */
+export function withRollbackApproval(value: Record<string, unknown>): Record<string, unknown> {
+  const rollback = value.rollback as Record<string, unknown>;
+  return { ...value, rollback: { ...rollback, approval: rollbackApproval } };
+}
 const navigationOperationId = `operation_${navigationSpecId}`;
 
 export function operation(status: WorkflowOperationStatus = "versioned"): Record<string, unknown> {
@@ -133,7 +145,7 @@ export function operation(status: WorkflowOperationStatus = "versioned"): Record
       rollback: {
         targetVersionFingerprint: "live-7",
         status: status === "rolled_back" ? "completed" : "required",
-        ...(status === "rolled_back" ? { completedAt: "2026-08-30T20:05:00.000Z" } : {}),
+        ...(status === "rolled_back" ? { completedAt: "2026-08-30T20:05:00.000Z", approval: rollbackApproval } : {}),
       },
     } : {}),
   };
@@ -253,7 +265,7 @@ export function formOperation(status: WorkflowOperationStatus = "versioned"): Re
       rollback: {
         targetVersionFingerprint: "live-7",
         status: status === "rolled_back" ? "completed" : "required",
-        ...(status === "rolled_back" ? { completedAt: "2026-08-30T20:05:00.000Z" } : {}),
+        ...(status === "rolled_back" ? { completedAt: "2026-08-30T20:05:00.000Z", approval: rollbackApproval } : {}),
       },
     } : {}),
   };
@@ -271,6 +283,8 @@ export async function mockWritableContainerAndWorkflow(
     publishError?: string;
     browserVerificationResult?: Record<string, unknown>;
     onBrowserVerification?: (body: Record<string, unknown>) => void;
+    rollbackApprovalResult?: Record<string, unknown>;
+    onRollbackApproval?: (body: Record<string, unknown>) => void;
     rollbackResult?: Record<string, unknown>;
     rollbackStatus?: number;
     rollbackError?: string;
@@ -399,6 +413,21 @@ export async function mockWritableContainerAndWorkflow(
       }),
     });
   });
+  await context.route("http://127.0.0.1:18787/api/google/workflows/*/rollback-approval", async (route) => {
+    options.onRollbackApproval?.(postedJson(route.request().postData()));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        result: options.rollbackApprovalResult ?? {
+          status: "rollback_approved",
+          nextStep: "rollback",
+          approvalExpiresAt: "2026-08-30T20:34:00.000Z",
+          operation: withRollbackApproval(workflowOperation("rollback_required")),
+        },
+      }),
+    });
+  });
   await context.route("http://127.0.0.1:18787/api/google/workflows/*/rollback", async (route) => {
     let raw: unknown = {};
     try {
@@ -411,7 +440,9 @@ export async function mockWritableContainerAndWorkflow(
       await route.fulfill({
         status: options.rollbackStatus,
         contentType: "application/json",
-        body: JSON.stringify({ error: options.rollbackError ?? "Rollback blocked." }),
+        body: JSON.stringify(options.rollbackResult
+          ? { result: options.rollbackResult }
+          : { error: options.rollbackError ?? "Rollback blocked." }),
       });
       return;
     }
@@ -447,4 +478,15 @@ export async function approveThenPublish(root: Locator, containerId = "GTM-TEST1
   const operationRegion = root.getByRole("region", { name: "Setup operation" });
   await expect(operationRegion.getByText(`Approved fingerprint ${fingerprint} by ${sessionApprover}`)).toBeVisible();
   await operationRegion.getByRole("button", { name: `Publish ${fingerprint}` }).click();
+}
+
+/** Review the rollback, type the container ID, approve; then roll back in a separate step. */
+export async function approveThenRollBack(root: Locator, containerId = "GTM-TEST123", target = "live-7"): Promise<void> {
+  await root.getByRole("region", { name: "Setup operation" }).getByRole("button", { name: "Review rollback" }).click();
+  const review = root.getByRole("region", { name: "Rollback review" });
+  await review.getByLabel(`Type ${containerId} to confirm`).fill(containerId);
+  await review.getByRole("button", { name: `Approve rollback to ${target}` }).click();
+  const operationRegion = root.getByRole("region", { name: "Setup operation" });
+  await expect(operationRegion.getByText(`Approved restoring ${target} by ${sessionApprover}`)).toBeVisible();
+  await operationRegion.getByRole("button", { name: `Roll back to ${target}` }).click();
 }

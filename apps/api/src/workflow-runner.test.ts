@@ -375,20 +375,24 @@ describe("resumable non-publishing tracking workflow", () => {
     });
   });
 
-  it("rolls back only after exact target fingerprint approval", async () => {
+  async function rollbackRequired(options: {
+    clock?: { now: Date };
+    rollbackPublishedVersion?: WorkflowGoogleClient["rollbackPublishedVersion"];
+  } = {}) {
     const store = await repository();
+    const clock = options.clock ?? { now: new Date("2026-08-22T12:00:00.000Z") };
     const client = google({
       publishApprovedVersion: vi.fn().mockResolvedValue({
         publishedAt: "2026-08-22T12:07:00.000Z",
         versionFingerprint: "version-8",
       }),
-      rollbackPublishedVersion: vi.fn().mockResolvedValue({
+      rollbackPublishedVersion: options.rollbackPublishedVersion ?? vi.fn().mockResolvedValue({
         targetVersionFingerprint: "live-7",
         status: "completed",
         completedAt: "2026-08-22T12:09:00.000Z",
       }),
     });
-    const runner = new TrackingWorkflowRunner(store, client, () => new Date("2026-08-22T12:00:00.000Z"));
+    const runner = new TrackingWorkflowRunner(store, client, () => clock.now);
     const planned = await runner.plan(request);
     if (planned.status === "blocked") throw new Error(planned.reason);
     await runner.resume(planned.operation.id);
@@ -398,15 +402,28 @@ describe("resumable non-publishing tracking workflow", () => {
       planned.operation.id,
       runEvidence(published.operation, "tag_fired_request_missing"),
     );
+    return { store, client, runner, clock, id: planned.operation.id };
+  }
 
-    await expect(runner.approveAndRollback(planned.operation.id, "wrong-live")).resolves.toMatchObject({
-      status: "blocked",
-      stage: "rollback",
-      reason: "rollback_fingerprint_mismatch",
+  it("approves and rolls back in separate requests, recording the verified approver", async () => {
+    const { store, client, runner, id } = await rollbackRequired();
+
+    const approved = runner.approveRollback(id, "live-7", " GTM-ABC123 ", approver);
+    expect(approved).toMatchObject({
+      status: "rollback_approved",
+      nextStep: "rollback",
+      operation: {
+        status: "rollback_required",
+        rollback: { status: "required", approval: { approvedBy: approver, targetVersionFingerprint: "live-7" } },
+      },
     });
+    if (approved.status !== "rollback_approved") throw new Error(approved.reason);
+    expect(Date.parse(approved.approvalExpiresAt) - Date.parse(approved.operation.rollback!.approval!.approvedAt))
+      .toBe(30 * 60 * 1_000);
     expect(client.rollbackPublishedVersion).not.toHaveBeenCalled();
+    expect(new TrackingOperationRepository(store.filePath).get(id)?.rollback?.approval?.approvedBy).toBe(approver);
 
-    await expect(runner.approveAndRollback(planned.operation.id, "live-7")).resolves.toMatchObject({
+    await expect(runner.rollbackApproved(id, "live-7", approver)).resolves.toMatchObject({
       status: "rolled_back",
       nextStep: "complete",
       operation: {
@@ -415,11 +432,91 @@ describe("resumable non-publishing tracking workflow", () => {
           targetVersionFingerprint: "live-7",
           status: "completed",
           completedAt: "2026-08-22T12:09:00.000Z",
+          approval: { approvedBy: approver, targetVersionFingerprint: "live-7" },
         },
       },
     });
     expect(client.rollbackPublishedVersion).toHaveBeenCalledTimes(1);
-    expect(new TrackingOperationRepository(store.filePath).get(planned.operation.id)?.status).toBe("rolled_back");
+    const persisted = new TrackingOperationRepository(store.filePath).get(id);
+    expect(persisted?.status).toBe("rolled_back");
+    expect(persisted?.rollback?.approval?.approvedBy).toBe(approver);
+    expect(JSON.stringify(persisted)).not.toContain("website assistant");
+  });
+
+  it("refuses rollback approval for a mismatched target or typed container confirmation", async () => {
+    const { client, runner, id } = await rollbackRequired();
+
+    expect(runner.approveRollback(id, "wrong-live", "GTM-ABC123", approver))
+      .toMatchObject({ status: "blocked", stage: "rollback", reason: "rollback_fingerprint_mismatch" });
+    expect(runner.approveRollback(id, "live-7", "GTM-OTHER", approver))
+      .toMatchObject({ status: "blocked", stage: "rollback", reason: "confirmation_mismatch" });
+    expect(runner.approveRollback(id, "live-7", "gtm-abc123", approver))
+      .toMatchObject({ status: "blocked", stage: "rollback", reason: "confirmation_mismatch" });
+    expect(runner.approveRollback(id, "live-7", "", approver))
+      .toMatchObject({ status: "blocked", stage: "rollback", reason: "confirmation_mismatch" });
+    expect(runner.get(id)?.rollback?.approval).toBeUndefined();
+    expect(client.rollbackPublishedVersion).not.toHaveBeenCalled();
+  });
+
+  it("refuses rollback approval without a verified approver", async () => {
+    const { client, runner, id } = await rollbackRequired();
+    expect(() => runner.approveRollback(id, "live-7", "GTM-ABC123", "  ")).toThrow("requires an approver");
+    expect(runner.get(id)?.rollback?.approval).toBeUndefined();
+    expect(client.rollbackPublishedVersion).not.toHaveBeenCalled();
+  });
+
+  it("refuses to roll back without approval, with a mismatched target or for another account", async () => {
+    const { client, runner, id } = await rollbackRequired();
+
+    await expect(runner.rollbackApproved(id, "live-7", approver))
+      .resolves.toMatchObject({ status: "blocked", stage: "rollback", reason: "approval_required" });
+    runner.approveRollback(id, "live-7", "GTM-ABC123", approver);
+    await expect(runner.rollbackApproved(id, "wrong-live", approver))
+      .resolves.toMatchObject({ status: "blocked", stage: "rollback", reason: "rollback_fingerprint_mismatch" });
+    await expect(runner.rollbackApproved(id, "live-7", "someone-else@example.test"))
+      .resolves.toMatchObject({ status: "blocked", stage: "rollback", reason: "approver_changed" });
+    expect(client.rollbackPublishedVersion).not.toHaveBeenCalled();
+    expect(runner.get(id)?.status).toBe("rollback_required");
+  });
+
+  it("refuses a rollback approval older than 30 minutes before any Google call, and a renewed approval rolls back", async () => {
+    const clock = { now: new Date("2026-08-22T12:00:00.000Z") };
+    const { client, runner, id } = await rollbackRequired({ clock });
+    runner.approveRollback(id, "live-7", "GTM-ABC123", approver);
+
+    clock.now = new Date("2026-08-22T12:31:00.000Z");
+    await expect(runner.rollbackApproved(id, "live-7", approver))
+      .resolves.toMatchObject({ status: "blocked", stage: "rollback", reason: "approval_expired" });
+    expect(client.rollbackPublishedVersion).not.toHaveBeenCalled();
+    expect(runner.get(id)?.status).toBe("rollback_required");
+
+    expect(runner.approveRollback(id, "live-7", "GTM-ABC123", approver)).toMatchObject({ status: "rollback_approved" });
+    await expect(runner.rollbackApproved(id, "live-7", approver)).resolves.toMatchObject({ status: "rolled_back" });
+    await expect(runner.rollbackApproved(id, "live-7", approver))
+      .resolves.toMatchObject({ status: "blocked", reason: "operation_not_rollback_required" });
+    expect(runner.approveRollback(id, "live-7", "GTM-ABC123", approver))
+      .toMatchObject({ status: "blocked", reason: "operation_not_rollback_required" });
+    expect(client.rollbackPublishedVersion).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the rollback approved and pending when Google rollback fails", async () => {
+    const { store, runner, id } = await rollbackRequired({
+      rollbackPublishedVersion: vi.fn().mockRejectedValue(new Error("publication disabled")),
+    });
+    runner.approveRollback(id, "live-7", "GTM-ABC123", approver);
+    await expect(runner.rollbackApproved(id, "live-7", approver)).rejects.toThrow("publication disabled");
+    const persisted = store.get(id);
+    expect(persisted?.status).toBe("rollback_required");
+    expect(persisted?.rollback).toMatchObject({ status: "required", approval: { approvedBy: approver } });
+  });
+
+  it("refuses rollback approval for an operation that does not require rollback", async () => {
+    const runner = new TrackingWorkflowRunner(await repository(), google());
+    const planned = await runner.plan(request);
+    if (planned.status === "blocked") throw new Error(planned.reason);
+    await runner.resume(planned.operation.id);
+    expect(runner.approveRollback(planned.operation.id, "live-7", "GTM-ABC123", approver))
+      .toMatchObject({ status: "blocked", stage: "rollback", reason: "operation_not_rollback_required" });
   });
 
   it("rejects browser verification before publish or for another specification", async () => {
