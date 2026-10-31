@@ -111,7 +111,7 @@ export const panelStyles = `
   .disclosure { justify-self: start; min-height: 24px; padding: 2px 0; border: 0; background: none; font-size: var(--text-small); font-weight: 500; text-decoration: underline; text-underline-offset: 3px; }
   .disclosure::before { content: "+"; display: inline-block; width: 1.4em; font-family: var(--font-mono); text-decoration: none; }
   .disclosure[aria-expanded="true"]::before { content: "−"; }
-  .evidence { display: grid; grid-template-columns: fit-content(62%) minmax(0, 1fr); column-gap: var(--space-2); row-gap: 2px; margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--surface-raised); }
+  .evidence { display: grid; grid-template-columns: fit-content(55%) minmax(0, 1fr); column-gap: var(--space-2); row-gap: 2px; margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--surface-raised); }
   .evidence dt { text-transform: none; letter-spacing: 0; overflow-wrap: normal; }
   .evidence dd { margin: 0; font-family: var(--font-mono); font-size: var(--text-data); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ScenarioVerdictCode, TrackingRunEvidenceV1 } from "@trimtale/core";
-import { presentVerdict, type FindingStatus } from "./verdict-presenter.js";
+import { presentVerdict, type FindingEvidenceRow, type FindingStatus } from "./verdict-presenter.js";
 
 type Observations = TrackingRunEvidenceV1["observations"];
 
@@ -120,6 +120,101 @@ describe("presentVerdict", () => {
     }));
     expect(finding.title).toBe("One submission sent 3 lead requests");
     expect(finding.evidence).toContainEqual({ label: "network.ga4Requests", value: "3" });
+  });
+
+  describe("captured request rows", () => {
+    const capturedUrl = "https://region1.google-analytics.com/g/collect?v=2&tid=G-TEST123456&en=generate_lead"
+      + "&ep.form_id=contact&ep.form_name=Contact%20sales&ep.page_location=https%3A%2F%2Fexample.test%2Fcontact&dl=https%3A%2F%2Fexample.test%2Fcontact&gcs=G111";
+    const rowsFor = (urls: string[]) => presentVerdict(formEvidence("browser_verified", "passed", {
+      network: { ga4Requests: urls.map((url) => ({ url, observedAt: "x" })) },
+    })).evidence;
+    const capturedRows = (rows: FindingEvidenceRow[]) => rows.filter((row) => row.label.startsWith("network.ga4Requests["));
+
+    it("shows the first captured request's host, measurement ID, event and form fields after the count", () => {
+      const rows = rowsFor([capturedUrl]);
+      const labels = rows.map((row) => row.label);
+      expect(capturedRows(rows)).toEqual([
+        { label: "network.ga4Requests[0].host", value: "region1.google-analytics.com" },
+        { label: "network.ga4Requests[0].tid", value: "G-TEST123456" },
+        { label: "network.ga4Requests[0].en", value: "generate_lead" },
+        { label: "network.ga4Requests[0].ep.form_id", value: "contact" },
+        { label: "network.ga4Requests[0].ep.form_name", value: "Contact sales" },
+      ]);
+      expect(labels.indexOf("network.ga4Requests[0].host")).toBe(labels.indexOf("network.ga4Requests") + 1);
+      expect(labels.at(-1)).toBe("runId");
+      expect(rows).toContainEqual({ label: "network.ga4Requests", value: "1" });
+    });
+
+    it("never shows page URLs, consent strings or parameters outside the allowlist", () => {
+      const rows = rowsFor([`${capturedUrl}&uid=user-42&ep.email=private%40example.com&cid=123.456`]);
+      const text = JSON.stringify(rows);
+      for (const forbidden of ["example.test", "page_location", "dl", "gcs", "uid", "user-42", "private", "cid", "123.456"]) {
+        expect(capturedRows(rows).some((row) => row.label.includes(forbidden) || row.value.includes(forbidden)), forbidden).toBe(false);
+      }
+      expect(text).not.toContain("private@example.com");
+    });
+
+    it("describes only the first request when several were sent", () => {
+      const second = capturedUrl.replace("ep.form_id=contact", "ep.form_id=newsletter");
+      const rows = presentVerdict(formEvidence("duplicate_fire", "failed", {
+        network: { ga4Requests: [{ url: capturedUrl, observedAt: "a" }, { url: second, observedAt: "b" }] },
+      })).evidence;
+      expect(rows).toContainEqual({ label: "network.ga4Requests", value: "2" });
+      expect(capturedRows(rows).filter((row) => row.label.endsWith("form_id"))).toEqual([
+        { label: "network.ga4Requests[0].ep.form_id", value: "contact" },
+      ]);
+    });
+
+    it("shows the local fixture collection host", () => {
+      const rows = rowsFor(["http://127.0.0.1:14173/g/collect?v=2&tid=G-TEST123456&en=generate_lead&ep.form_id=contact"]);
+      expect(capturedRows(rows)[0]).toEqual({ label: "network.ga4Requests[0].host", value: "127.0.0.1:14173" });
+    });
+
+    it("omits parameters the request did not carry", () => {
+      const rows = rowsFor(["https://www.google-analytics.com/g/collect?en=generate_lead"]);
+      expect(capturedRows(rows).map((row) => row.label)).toEqual([
+        "network.ga4Requests[0].host",
+        "network.ga4Requests[0].en",
+      ]);
+    });
+
+    it.each([
+      ["a malformed URL", "not a url"],
+      ["a non-collection host", "https://attacker.test/g/collect?en=generate_lead&tid=G-EVIL"],
+      ["a non-collection path", "https://www.google-analytics.com/other?en=generate_lead"],
+    ])("skips the rows for %s without throwing", (_name, url) => {
+      const rows = rowsFor([url]);
+      expect(capturedRows(rows)).toEqual([]);
+      expect(rows).toContainEqual({ label: "network.ga4Requests", value: "1" });
+    });
+
+    it("adds no request rows when nothing was sent", () => {
+      expect(capturedRows(rowsFor([]))).toEqual([]);
+    });
+
+    it("bounds attacker-shaped form values", () => {
+      const rows = rowsFor([`https://www.google-analytics.com/g/collect?en=generate_lead&ep.form_name=${encodeURIComponent("<img src=x onerror=alert(1)>" + "x".repeat(200))}`]);
+      const name = capturedRows(rows).find((row) => row.label.endsWith("form_name"));
+      expect(name?.value.startsWith("<img src=x onerror=alert(1)>")).toBe(true);
+      expect(name!.value.length).toBeLessThanOrEqual(80);
+    });
+
+    it("applies to navigation evidence, whose request URLs are not pre-sanitized", () => {
+      const raw = "https://www.google-analytics.com/g/collect?v=2&tid=G-TEST123456&en=navigation_click&dl=https%3A%2F%2Fexample.test%2F%3Femail%3Dprivate%40example.com&cid=99";
+      const rows = presentVerdict({
+        ...navigationEvidence("browser_verified", 1),
+        observations: {
+          ...navigationEvidence("browser_verified", 1).observations,
+          network: { ga4Requests: [{ url: raw, observedAt: "x" }] },
+        },
+      }).evidence;
+      expect(capturedRows(rows)).toEqual([
+        { label: "network.ga4Requests[0].host", value: "www.google-analytics.com" },
+        { label: "network.ga4Requests[0].tid", value: "G-TEST123456" },
+        { label: "network.ga4Requests[0].en", value: "navigation_click" },
+      ]);
+      expect(JSON.stringify(rows)).not.toContain("private");
+    });
   });
 
   it("keeps attacker-shaped page labels as bounded plain text", () => {
