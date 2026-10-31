@@ -102,4 +102,21 @@ describe("Vercel handler CORS boundary", () => {
       }
     });
   });
+
+  describe("unknown route defaults", () => {
+    it("refuses mixed-case and percent-encoded protected paths", async () => {
+      vi.stubEnv("EXTENSION_ORIGIN", extensionOrigin);
+      for (const path of [
+        "/api/Google/status",
+        "/api/%67oogle/status",
+        "/api/INTAKE-EVALUATIONS/report",
+        "/api/%69ntake-evaluations/report",
+        "/api/not-public",
+      ]) {
+        const response = await handleVercelRequest(request(`${deployment}${path}`, extensionOrigin));
+        expect(response.status).toBe(403);
+        expect(response.headers.get("Access-Control-Allow-Origin")).toBeNull();
+      }
+    });
+  });
 });

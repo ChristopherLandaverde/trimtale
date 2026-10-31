@@ -12,13 +12,23 @@ function isIntakeEvaluationRoute(pathname: string): boolean {
     || pathname.startsWith("/api/intake-evaluations/");
 }
 
+function isPublicRoute(pathname: string): boolean {
+  return pathname === "/health"
+    || pathname === "/api/health"
+    || pathname === "/api/setups";
+}
+
 export function corsDecision(
   pathname: string,
   requestOrigin: string | undefined,
   configuredExtensionOrigin: string | undefined,
 ): CorsDecision {
-  if (!isGoogleRoute(pathname) && !isIntakeEvaluationRoute(pathname)) {
+  if (isPublicRoute(pathname)) {
     return { allowed: true, allowOrigin: "*" };
+  }
+
+  if (!isGoogleRoute(pathname) && !isIntakeEvaluationRoute(pathname)) {
+    return { allowed: false };
   }
 
   if (requestOrigin === undefined) {
