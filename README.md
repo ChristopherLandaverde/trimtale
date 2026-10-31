@@ -62,7 +62,7 @@ or decides whether tracking passed.
 
 Agentic levels: L1 machine-readable · L2 agent-callable · L3 live read · L4 proposes changes
 for you to approve. Trimtale: L4 for lead forms (L1–L3 not assessed; no MCP server). The approve, publish and rollback
-steps are tested against a faked Google backend; no test or CI run contacts Google.
+steps are tested against a faked Google backend; CI and `npm run verify` never contact Google.
 
 More detail: [What it does](#what-it-does) covers each step, [Privacy and
 permissions](#privacy-and-permissions) says what leaves the browser, and the [GTM setup
