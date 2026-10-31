@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 600" width="880" height="600" role="img" aria-labelledby="title desc">
+  <title id="title">Trimtale agentic stack</title>
+  <desc id="desc">Four stacked layers. 1 Engine, L0: the deterministic form verdict engine with 10 verdicts from real browser signals and the GTM setup generator. 2 Tools, L1 to L2 not assessed: the Trimtale API routes the assistant calls. 3 Your agent, L3 not assessed: the in-page website assistant, which proposes a GTM change and verifies form submissions in the browser; no AI model decides a verdict and there is no MCP server. 4 You approve, L4 for forms: type the container ID, approve with a verified Google account, then publish or roll back within 30 minutes; publishing is off by default.</desc>
+  <defs>
+    <style>
+      .sans { font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+      .mono { font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    </style>
+  </defs>
+
+  <!-- solid paper tile so the diagram never sits on a transparent background -->
+  <rect x="0" y="0" width="880" height="600" rx="20" fill="#F3F0E6"/>
+
+  <!-- header -->
+  <text x="32" y="46" class="mono" font-size="13" font-weight="500" fill="#426B5D" letter-spacing="1">TRIMTALE · AGENTIC STACK</text>
+  <text x="848" y="46" class="mono" font-size="13" font-weight="500" fill="#10231F" text-anchor="end">reached: L4 for lead forms</text>
+  <rect x="32" y="60" width="816" height="2" fill="#10231F"/>
+
+  <!-- connectors between layers -->
+  <g fill="#10231F">
+    <rect x="139" y="182" width="2" height="14"/><path d="M134 190 L140 198 L146 190 Z"/>
+    <rect x="139" y="302" width="2" height="14"/><path d="M134 310 L140 318 L146 310 Z"/>
+    <rect x="139" y="422" width="2" height="14"/><path d="M134 430 L140 438 L146 430 Z"/>
+  </g>
+
+  <!-- 1 Engine -->
+  <rect x="32" y="78" width="816" height="104" rx="10" fill="#EBE8DE" stroke="#10231F" stroke-width="1.5"/>
+  <text x="56" y="114" class="sans" font-size="21" font-weight="600" fill="#10231F">1 · Engine</text>
+  <text x="56" y="138" class="mono" font-size="12" fill="#426B5D">packages/core</text>
+  <text x="236" y="110" class="sans" font-size="14.5" fill="#10231F">Deterministic form verdict engine: 10 verdicts from real</text>
+  <text x="236" y="131" class="sans" font-size="14.5" fill="#10231F">browser signals, plus the GTM setup generator.</text>
+  <text x="236" y="156" class="mono" font-size="12" fill="#426B5D">23 fixture form scenarios · same input, same verdict</text>
+  <rect x="720" y="96" width="108" height="44" rx="6" fill="#D7FF69" stroke="#10231F" stroke-width="1.5"/>
+  <text x="774" y="114" class="mono" font-size="13" font-weight="600" fill="#10231F" text-anchor="middle">L0</text>
+  <text x="774" y="131" class="mono" font-size="11" fill="#10231F" text-anchor="middle">engine</text>
+
+  <!-- 2 Tools -->
+  <rect x="32" y="198" width="816" height="104" rx="10" fill="#EBE8DE" stroke="#10231F" stroke-width="1.5"/>
+  <text x="56" y="234" class="sans" font-size="21" font-weight="600" fill="#10231F">2 · Tools</text>
+  <text x="56" y="258" class="mono" font-size="12" fill="#426B5D">Trimtale API</text>
+  <text x="236" y="229" class="mono" font-size="12.5" fill="#10231F">POST /api/setups</text>
+  <text x="236" y="250" class="mono" font-size="12.5" fill="#10231F">POST /api/google/workflows/plan, then /:id/</text>
+  <text x="252" y="271" class="mono" font-size="12.5" fill="#10231F">resume · browser-verification · approve · publish</text>
+  <text x="252" y="292" class="mono" font-size="12.5" fill="#10231F">rollback-approval · rollback</text>
+  <rect x="720" y="216" width="108" height="44" rx="6" fill="#F3F0E6" stroke="#426B5D" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <text x="774" y="234" class="mono" font-size="13" font-weight="500" fill="#10231F" text-anchor="middle">L1–L2</text>
+  <text x="774" y="251" class="mono" font-size="11" fill="#426B5D" text-anchor="middle">not assessed</text>
+
+  <!-- 3 Your agent -->
+  <rect x="32" y="318" width="816" height="104" rx="10" fill="#EBE8DE" stroke="#10231F" stroke-width="1.5"/>
+  <text x="56" y="354" class="sans" font-size="21" font-weight="600" fill="#10231F">3 · Your agent</text>
+  <text x="56" y="378" class="mono" font-size="12" fill="#426B5D">in-page assistant</text>
+  <text x="236" y="350" class="sans" font-size="14.5" fill="#10231F">The website assistant proposes a GTM change and verifies</text>
+  <text x="236" y="371" class="sans" font-size="14.5" fill="#10231F">form submissions from real browser signals.</text>
+  <text x="236" y="396" class="mono" font-size="12" fill="#426B5D">deterministic · no AI model decides a verdict · no MCP server</text>
+  <rect x="720" y="336" width="108" height="44" rx="6" fill="#F3F0E6" stroke="#426B5D" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <text x="774" y="354" class="mono" font-size="13" font-weight="500" fill="#10231F" text-anchor="middle">L3</text>
+  <text x="774" y="371" class="mono" font-size="11" fill="#426B5D" text-anchor="middle">not assessed</text>
+
+  <!-- 4 You approve (strategic dark panel) -->
+  <rect x="32" y="438" width="816" height="104" rx="10" fill="#10231F"/>
+  <text x="56" y="474" class="sans" font-size="21" font-weight="600" fill="#F3F0E6">4 · You approve</text>
+  <text x="56" y="498" class="mono" font-size="12" fill="#F3F0E6">publish · roll back</text>
+  <text x="236" y="470" class="sans" font-size="14.5" fill="#F3F0E6">Type the container ID → Approve (records your verified</text>
+  <text x="236" y="491" class="sans" font-size="14.5" fill="#F3F0E6">Google account) → Publish or Roll back within 30 minutes.</text>
+  <text x="236" y="516" class="mono" font-size="12" fill="#D7FF69">publishing is off by default</text>
+  <rect x="720" y="456" width="108" height="44" rx="6" fill="#D7FF69"/>
+  <text x="774" y="474" class="mono" font-size="13" font-weight="600" fill="#10231F" text-anchor="middle">L4</text>
+  <text x="774" y="491" class="mono" font-size="11" fill="#10231F" text-anchor="middle">lead forms</text>
+
+  <!-- footer -->
+  <text x="32" y="574" class="sans" font-size="13.5" fill="#426B5D">The engine owns every verdict. Nothing goes live in GTM without a person's typed, verified approval.</text>
+</svg>
