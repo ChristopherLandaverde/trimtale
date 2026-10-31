@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Trimtale README demo frame</title>
+<style>
+  /* Focosys tokens (ux-standards focosys-brand.md); fonts are the extension's bundled copies. */
+  @font-face { font-family: "DM Sans"; font-weight: 400; src: url("../../apps/extension/src/fonts/dm-sans-latin-400-normal.woff2") format("woff2"); }
+  @font-face { font-family: "DM Sans"; font-weight: 500; src: url("../../apps/extension/src/fonts/dm-sans-latin-500-normal.woff2") format("woff2"); }
+  @font-face { font-family: "DM Sans"; font-weight: 600; src: url("../../apps/extension/src/fonts/dm-sans-latin-600-normal.woff2") format("woff2"); }
+  @font-face { font-family: "IBM Plex Mono"; font-weight: 400; src: url("../../apps/extension/src/fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2"); }
+  @font-face { font-family: "IBM Plex Mono"; font-weight: 500; src: url("../../apps/extension/src/fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2"); }
+  :root {
+    --ink: #10231F; --paper: #F3F0E6; --raised: #EBE8DE; --muted: #426B5D;
+    --exception: #B83A2D; --verified: #D7FF69; --observed: #8CBFFF;
+    --sans: "DM Sans", system-ui, sans-serif; --mono: "IBM Plex Mono", ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 880px; height: 640px; overflow: hidden; background: var(--ink); color: var(--paper); font-family: var(--sans); }
+  .stage { display: grid; grid-template-columns: 440px 382px; grid-template-rows: auto 1fr; column-gap: 18px; padding: 18px 20px 0; height: 640px; }
+  header { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 14px; padding-bottom: 16px; }
+  .counter { flex: none; font: 500 15px/1.3 var(--mono); color: var(--paper); opacity: .78; letter-spacing: .04em; }
+  h1 { margin: 0; font: 600 19px/1.3 var(--sans); }
+  h1 code, .note code { font-family: var(--mono); font-weight: 500; font-size: .92em; }
+  .left { display: grid; align-content: start; gap: 12px; min-width: 0; }
+  .card { overflow: hidden; border-radius: 6px; background: var(--paper); color: var(--ink); }
+  .card-head { padding: 6px 12px; background: var(--raised); border-bottom: 1px solid rgba(16,35,31,.22); font: 500 11.5px/1.4 var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card-head strong { color: var(--ink); font-weight: 500; letter-spacing: .06em; text-transform: uppercase; }
+  .page img { display: block; width: 100%; height: auto; max-height: 170px; object-fit: cover; object-position: left top; }
+  pre { margin: 0; padding: 8px 0; font: 400 12px/1.6 var(--mono); white-space: pre; overflow: hidden; }
+  pre span { display: block; padding: 0 12px; border-left: 3px solid transparent; }
+  pre .hl-broken { background: rgba(184,58,45,.16); border-left-color: var(--exception); }
+  pre .hl-verified { background: var(--verified); border-left-color: var(--ink); }
+  pre .hl-observed { background: rgba(140,191,255,.45); border-left-color: var(--ink); }
+  .note { margin: 2px 0 0; font: 400 14px/1.55 var(--sans); color: var(--paper); }
+  .note b { font: 500 13.5px/1 var(--mono); color: var(--observed); white-space: nowrap; }
+  .note .broken { display: inline-block; padding: 1px 6px; border-radius: 3px; background: var(--exception); color: var(--paper); font: 600 11px/1.5 var(--mono); letter-spacing: .08em; }
+  .note .verified { display: inline-block; padding: 1px 6px; border-radius: 3px; background: var(--verified); color: var(--ink); font: 600 11px/1.5 var(--mono); letter-spacing: .08em; }
+  .product { align-self: start; }
+  .product img { display: block; width: 382px; height: auto; border-radius: 8px; }
+</style>
+</head>
+<body>
+<main class="stage">
+  <header><span class="counter" id="counter"></span><h1 id="headline"></h1></header>
+  <section class="left" id="left"></section>
+  <section class="product"><img id="panel" alt=""></section>
+</main>
+<script>
+  // Inline segments: strings are text, {code} is mono, {num} is a picked-out value, {tag} a status chip.
+  function inline(parent, segments) {
+    for (const segment of segments) {
+      if (typeof segment === "string") { parent.append(segment); continue; }
+      const [kind, text] = Object.entries(segment)[0];
+      const element = document.createElement(kind === "code" ? "code" : kind === "num" ? "b" : "span");
+      if (kind === "broken" || kind === "verified") element.className = kind;
+      element.textContent = text;
+      parent.append(element);
+    }
+  }
+  function card(head, label) {
+    const element = document.createElement("div");
+    element.className = "card";
+    const header = document.createElement("div");
+    header.className = "card-head";
+    if (label) { const strong = document.createElement("strong"); strong.textContent = label; header.append(strong, " · "); }
+    header.append(head);
+    element.append(header);
+    return element;
+  }
+  window.renderFrame = (frame) => {
+    document.getElementById("counter").textContent = frame.counter;
+    inline(document.getElementById("headline"), frame.headline);
+    document.getElementById("panel").src = frame.panel;
+    const left = document.getElementById("left");
+    if (frame.page) {
+      const page = card(frame.page.url);
+      page.classList.add("page");
+      const image = document.createElement("img");
+      image.src = frame.page.image;
+      page.append(image);
+      left.append(page);
+    }
+    if (frame.code) {
+      const code = card(frame.code.path, frame.code.label);
+      const pre = document.createElement("pre");
+      for (const line of frame.code.lines) {
+        const span = document.createElement("span");
+        span.textContent = line.text || " ";
+        if (line.mark) span.className = `hl-${line.mark}`;
+        pre.append(span);
+      }
+      code.append(pre);
+      left.append(code);
+    }
+    const note = document.createElement("p");
+    note.className = "note";
+    inline(note, frame.note);
+    left.append(note);
+    return Promise.all([...document.images].map((image) => image.decode())).then(() => document.fonts.ready);
+  };
+</script>
+</body>
+</html>

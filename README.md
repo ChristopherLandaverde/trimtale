@@ -16,8 +16,10 @@ Sailors trim their sails by watching the telltales, the short ribbons that show 
 flowing the way it should. Trimtale is meant to be the telltale for your tracking.
 
 <p align="center">
-  <img src="docs/media/assistant-gtm-connection.png" width="382" alt="The Trimtale assistant on the bundled Northstar fixture site, showing GTM container GTM-TEST123 matched to the Agency account's Lead site container in read-only mode, and asking what to track on the page.">
+  <img src="docs/media/form-verified.gif" width="880" alt="Four-frame storyboard on the bundled Northstar fixture site. 1 of 4: asked to track successful submissions of this form, the assistant finds 2 forms and the Contact sales form is confirmed as generate_lead. 2 of 4: on a broken fixture variant the browser sends one generate_lead request without form_id, form_name and page_location, and the assistant reports Broken with the fix to add them to the GA4 tag. 3 of 4: the generated GTM export's tag carries form_id, form_name and page_location, and a re-run on the correctly tagged fixture variant reports Verified. 4 of 4: Show evidence lists the captured request: host 127.0.0.1:14173, the fixture's stand-in collector, tid G-TEST123456, en generate_lead and form_id contact, with platform confirmation unverified.">
 </p>
+
+<p align="center"><sub>Real extension runs on the bundled fixture site, whose stand-in GA4 tag sends requests to the fixture itself; no Google account or network call is involved. A captured request is browser evidence: it shows what left the browser, not what GA4 processed.</sub></p>
 
 ## Quick start
 
@@ -51,6 +53,12 @@ Chromium), use `npm run verify`.
 | Prepare a workspace | With container writes switched on, creates or reuses one managed custom workspace, applies the setup, validates it and creates an immutable GTM version. |
 | Verify in the browser | Watches what the browser actually does when you click or submit (the submit and validation events, the success message or thank-you page, `dataLayer` events, Consent Mode state, and GA4 requests and whether they were delivered) and classifies the result: verified, expected validation failure, missing event, tag did not fire, missing request, missing parameter, duplicate request, consent-limited, server error, or not enough evidence. |
 | Publish and roll back | Publishing and rollback exist behind an exact version-fingerprint approval and a separate backend switch. They are off by default and are never run by CI or `npm run verify`. |
+
+<p align="center">
+  <img src="docs/media/assistant-gtm-connection.png" width="382" alt="The Trimtale assistant on the bundled Northstar fixture site, showing GTM container GTM-TEST123 matched to the Agency account's Lead site container in read-only mode, and asking what to track on the page.">
+</p>
+
+<p align="center"><sub>Container detection on the bundled fixture site, with a stubbed read-only Google connection.</sub></p>
 
 ## Known limits
 

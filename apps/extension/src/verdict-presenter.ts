@@ -1,4 +1,4 @@
-import type { ScenarioVerdictCode, TrackingRunEvidenceV1 } from "@trimtale/core";
+import { safeRequestUrl, type ScenarioVerdictCode, type TrackingRunEvidenceV1 } from "@trimtale/core";
 
 /**
  * Turns a deterministic run verdict into a finding the practitioner can act on:
@@ -87,6 +87,39 @@ function successSignalLabel(observations: Observations): string {
   return "the form reported success";
 }
 
+/**
+ * Request parameters shown for the captured request. A subset of the core request allowlist:
+ * page URLs (`dl`, `ep.page_location`) and the consent string (`gcs`) are never displayed.
+ */
+const displayedRequestParameters = ["tid", "en", "ep.form_id", "ep.form_name"] as const;
+const maxRequestValueLength = 80;
+
+function boundedValue(value: string): string {
+  return value.length > maxRequestValueLength ? `${value.slice(0, maxRequestValueLength - 1)}…` : value;
+}
+
+/**
+ * The first captured GA4 request, as host plus allowlisted parameters. Navigation evidence carries
+ * raw request URLs, so the URL is re-sanitized here; anything unparseable or off-allowlist yields no rows.
+ */
+function capturedRequestRows(observations: Observations): FindingEvidenceRow[] {
+  const raw = observations.network.ga4Requests[0]?.url;
+  const safe = raw ? safeRequestUrl(raw) : undefined;
+  if (!safe) return [];
+  try {
+    const url = new URL(safe);
+    const prefix = "network.ga4Requests[0]";
+    const rows: FindingEvidenceRow[] = [{ label: `${prefix}.host`, value: url.host }];
+    for (const key of displayedRequestParameters) {
+      const value = url.searchParams.get(key)?.trim();
+      if (value) rows.push({ label: `${prefix}.${key}`, value: boundedValue(value) });
+    }
+    return rows;
+  } catch {
+    return [];
+  }
+}
+
 /** Raw contract fields, labelled by their path in `TrackingRunEvidenceV1`. */
 function evidenceRows(evidence: TrackingRunEvidenceV1): FindingEvidenceRow[] {
   const { observations, verdict } = evidence;
@@ -110,6 +143,7 @@ function evidenceRows(evidence: TrackingRunEvidenceV1): FindingEvidenceRow[] {
   }
   rows.push(
     { label: "network.ga4Requests", value: String(observations.network.ga4Requests.length) },
+    ...capturedRequestRows(observations),
     { label: "runId", value: evidence.runId },
   );
   return rows;

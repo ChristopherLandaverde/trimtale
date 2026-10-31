@@ -72,6 +72,17 @@ for (const acceptance of contract.journeys) {
         browserVerification: acceptance.expected.browserVerification,
         platformConfirmation: acceptance.expected.platformConfirmation,
       });
+      const evidenceValue = (field: string) => finding.locator(`dl.evidence dt[data-field="${field}"] + dd`);
+      if (acceptance.expected.verdict === "browser_verified") {
+        // The captured request is shown by host and allowlisted parameters, never by page URL.
+        await expect(evidenceValue("network.ga4Requests")).toHaveText("1");
+        await expect(evidenceValue("network.ga4Requests[0].host")).toHaveText("127.0.0.1:14173");
+        await expect(evidenceValue("network.ga4Requests[0].tid")).toHaveText("G-TEST123456");
+        await expect(evidenceValue("network.ga4Requests[0].en")).toHaveText(acceptance.expected.eventName);
+        await expect(evidenceValue("network.ga4Requests[0].ep.form_id")).toHaveText("contact");
+      }
+      await expect(finding.locator("dl.evidence")).not.toContainText("page_location");
+      await expect(finding.locator("dl.evidence")).not.toContainText("private@example.com");
       await finding.getByRole("button", { name: "Hide evidence" }).click();
       const explanation = await finding.innerText();
       const evaluation = evaluateExplanation(explanation, {
