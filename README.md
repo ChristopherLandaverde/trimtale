@@ -5,29 +5,31 @@
 <h1 align="center">Trimtale</h1>
 
 <p align="center">
-  <strong>Prove that your site's tracking fires: set up GA4 events through Google Tag Manager and check each one against what the browser actually sends.</strong>
+  <strong>Prove your GA4 tracking fires. An in-page assistant proposes the GTM change, checks it in the browser and waits for your approval.</strong>
 </p>
 
 <p align="center">
-  Link clicks and lead forms · 10 lead-form verdicts from real browser signals · runs against a local API, no Google account needed to try it · GTM publishing off by default
+  Link clicks and lead forms · 10 lead-form verdicts from real browser signals · in-page assistant; publish and rollback need your verified approval · no Google account needed to try it
 </p>
 
 <p align="center">
   <a href="https://github.com/ChristopherLandaverde/trimtale/actions/workflows/verify.yml"><img src="https://github.com/ChristopherLandaverde/trimtale/actions/workflows/verify.yml/badge.svg?branch=main" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/ChristopherLandaverde/trimtale?color=10231F" alt="License: AGPL-3.0"></a>
+  <a href="#agentic"><img src="https://img.shields.io/badge/agentic-L4-10231F" alt="agentic: L4"></a>
 </p>
 
 <p align="center">
-  <a href="#quick-start">Quick start</a> · <a href="#what-it-does">What it does</a> · <a href="#known-limits">Known limits</a> · <a href="#privacy-and-permissions">Privacy</a> · <a href="docs/">Docs</a>
+  <a href="#quick-start">Quick start</a> · <a href="#agentic">For agents</a> · <a href="#what-it-does">What it does</a> · <a href="#known-limits">Known limits</a> · <a href="#privacy-and-permissions">Privacy</a> · <a href="docs/">Docs</a>
 </p>
 
 Trimtale is a Chrome extension and small API for analytics consultants and marketers who
-set up tracking on lead-generation sites and need proof that it works. It finds the links
-and forms on the page you're on, generates the GTM setup for a navigation click or a lead
-form, and then records whether a real click or submission produced exactly one matching
-GA4 collection request. Every step reports its own evidence, so "setup generated", "container
-detected" and "request seen in the browser" stay separate claims. Seeing a request leave the
-browser is browser evidence only; it does not prove that GA4 processed it.
+set up tracking on lead-generation sites and need proof that it works. Its in-page assistant
+finds the links and forms on the page you're on, proposes the GTM setup for a navigation
+click or a lead form, and records whether a real click or submission produced exactly one
+matching GA4 collection request. With Google connected it can prepare an unpublished GTM
+version, but nothing goes live until you type the container ID and approve from a verified
+Google account, and publishing is off by default. Seeing a request leave the browser is
+browser evidence only; it does not prove that GA4 processed it.
 
 Sailors trim their sails by watching the telltales, the short ribbons that show whether air is
 flowing the way it should. Trimtale is meant to be the telltale for your tracking.
@@ -37,6 +39,35 @@ flowing the way it should. Trimtale is meant to be the telltale for your trackin
 </p>
 
 <p align="center"><sub>Real extension runs on the bundled fixture site, whose stand-in GA4 tag sends requests to the fixture itself; no Google account or network call is involved. A captured request is browser evidence: it shows what left the browser, not what GA4 processed.</sub></p>
+
+## Agentic
+
+<p align="center">
+  <img src="docs/media/agentic-stack.svg" width="880" alt="Trimtale's agentic stack in four layers. 1, Engine, the base layer: the deterministic form verdict engine in packages/core, with 10 verdicts from real browser signals, the GTM setup generator and 23 fixture form scenarios. 2, Tools, L1 to L2 not assessed: the Trimtale API routes POST /api/setups and /api/google/workflows plan, resume, browser-verification, approve, publish, rollback-approval and rollback. 3, Your agent, L3 not assessed: the in-page website assistant, which proposes a GTM change and verifies form submissions from real browser signals; it is deterministic, no AI model decides a verdict, and there is no MCP server. 4, You approve, L4 for lead forms: type the container ID, approve from a verified Google account, then publish or roll back within 30 minutes; publishing is off by default.">
+</p>
+
+Trimtale has no MCP server, so Claude, Cursor and other external agents can't call it. Its
+agent is the in-page website assistant: it proposes a tracking change, verifies form
+submissions from real browser signals, and needs your approval to publish or roll back. The
+assistant's intake and every verdict are deterministic; no AI model interprets your request
+or decides whether tracking passed.
+
+| Ask your agent… | Tool | Reads | Writes |
+|---|---|---|---|
+| "Track successful submissions of this form" | Form discovery and the GTM setup generator, in the extension | The page's forms and its public GTM and GA4 IDs | Nothing. You confirm the form and get a GTM container file to download. |
+| **Start verification**, then submit the form | The form verdict engine, in the extension | The submit and validation events, the success message or thank-you page, `dataLayer`, Consent Mode state and GA4 requests | Nothing in GTM |
+| **Prepare GTM version** | `POST /api/google/workflows/plan`, then `…/:id/resume` | Your GTM container, through the Tag Manager API | A managed workspace and an unpublished GTM version, only with container writes switched on |
+| **Review and approve**, then **Publish** | `…/:id/approve`, then `…/:id/publish` | The prepared version and the live version it replaces | Publishes that exact version, after you type the container ID and approve from a verified Google account, within 30 minutes. Off by default. |
+| **Review rollback**, then **Roll back** | `…/:id/rollback-approval`, then `…/:id/rollback` | The prior live version and the current live container | Republishes the prior live version, under the same approval rules |
+
+Agentic levels: L1 machine-readable · L2 agent-callable · L3 live read · L4 proposes changes
+for you to approve. Trimtale: L4 for lead forms (L1–L3 not assessed; no MCP server). The approve, publish and rollback
+steps are tested against a faked Google backend; CI and `npm run verify` never contact Google.
+
+More detail: [What it does](#what-it-does) covers each step, [Privacy and
+permissions](#privacy-and-permissions) says what leaves the browser, and the [GTM setup
+workflow runbook](docs/engineering/gtm-workflow-runbook.md) covers the container-write and
+publication switches.
 
 ## Quick start
 
@@ -69,7 +100,7 @@ Chromium), use `npm run verify`.
 | Detect the container | Reads public `GTM-` IDs from the page's script URLs and, with Google connected, matches one to exactly one container your account can access. |
 | Prepare a workspace | With container writes switched on, creates or reuses one managed custom workspace, applies the setup, validates it and creates an immutable GTM version. |
 | Verify in the browser | Watches what the browser actually does when you click or submit (the submit and validation events, the success message or thank-you page, `dataLayer` events, Consent Mode state, and GA4 requests and whether they were delivered) and classifies the result: verified, expected validation failure, missing event, tag did not fire, missing request, missing parameter, duplicate request, consent-limited, server error, or not enough evidence. |
-| Publish and roll back | Publishing and rollback exist behind an exact version-fingerprint approval and a separate backend switch. They are off by default and are never run by CI or `npm run verify`. |
+| Publish and roll back | Each takes three steps in the assistant: review what will change and type the container ID, approve (recorded under your verified Google account), then publish or roll back within 30 minutes from the same account. Both sit behind a separate backend switch, are off by default, and are never run against Google by CI or `npm run verify`. |
 
 <p align="center">
   <img src="docs/media/assistant-gtm-connection.png" width="382" alt="The Trimtale assistant on the bundled Northstar fixture site, showing GTM container GTM-TEST123 matched to the Agency account's Lead site container in read-only mode, and asking what to track on the page.">
@@ -92,7 +123,8 @@ Chromium), use `npm run verify`.
 - **Only GA4 collection requests are captured**, from `*.google-analytics.com` and
   `analytics.google.com`. Server-side GTM, first-party collection domains, Google Ads
   conversions and non-Google pixels aren't seen yet.
-- **No scheduled re-checks.** Each verification is a one-off browser run.
+- **No scheduled re-checks.** Each verification is a one-off browser run. Planned (L5, a
+  supervised loop): scheduled re-checks of a verified setup that flag a regression against the last passing run.
 - **GTM and GA4 only.** Other tag managers and analytics platforms aren't supported.
 - The managed GTM workspace is still named `GTM Observability` (the product's earlier name),
   because that name and its ownership marker identify workspaces already created in real
