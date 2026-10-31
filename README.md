@@ -43,7 +43,7 @@ flowing the way it should. Trimtale is meant to be the telltale for your trackin
 ## Agentic
 
 <p align="center">
-  <img src="docs/media/agentic-stack.svg" width="880" alt="Trimtale's agentic stack in four layers. 1, Engine, L0: the deterministic form verdict engine in packages/core, with 10 verdicts from real browser signals, the GTM setup generator and 23 fixture form scenarios. 2, Tools, L1 to L2 not assessed: the Trimtale API routes POST /api/setups and /api/google/workflows plan, resume, browser-verification, approve, publish, rollback-approval and rollback. 3, Your agent, L3 not assessed: the in-page website assistant, which proposes a GTM change and verifies form submissions from real browser signals; it is deterministic, no AI model decides a verdict, and there is no MCP server. 4, You approve, L4 for lead forms: type the container ID, approve from a verified Google account, then publish or roll back within 30 minutes; publishing is off by default.">
+  <img src="docs/media/agentic-stack.svg" width="880" alt="Trimtale's agentic stack in four layers. 1, Engine, the base layer: the deterministic form verdict engine in packages/core, with 10 verdicts from real browser signals, the GTM setup generator and 23 fixture form scenarios. 2, Tools, L1 to L2 not assessed: the Trimtale API routes POST /api/setups and /api/google/workflows plan, resume, browser-verification, approve, publish, rollback-approval and rollback. 3, Your agent, L3 not assessed: the in-page website assistant, which proposes a GTM change and verifies form submissions from real browser signals; it is deterministic, no AI model decides a verdict, and there is no MCP server. 4, You approve, L4 for lead forms: type the container ID, approve from a verified Google account, then publish or roll back within 30 minutes; publishing is off by default.">
 </p>
 
 Trimtale has no MCP server, so Claude, Cursor and other external agents can't call it. Its
@@ -60,8 +60,8 @@ or decides whether tracking passed.
 | **Review and approve**, then **Publish** | `…/:id/approve`, then `…/:id/publish` | The prepared version and the live version it replaces | Publishes that exact version, after you type the container ID and approve from a verified Google account, within 30 minutes. Off by default. |
 | **Review rollback**, then **Roll back** | `…/:id/rollback-approval`, then `…/:id/rollback` | The prior live version and the current live container | Republishes the prior live version, under the same approval rules |
 
-AGENTIC.md level: L4 proposes changes, for lead forms (L1–L3 not assessed; Trimtale's levels
-aren't cumulative, because its write path was built first). The approve, publish and rollback
+Agentic levels: L1 machine-readable · L2 agent-callable · L3 live read · L4 proposes changes
+for you to approve. Trimtale: L4 for lead forms (L1–L3 not assessed; no MCP server). The approve, publish and rollback
 steps are tested against a faked Google backend; no test or CI run contacts Google.
 
 More detail: [What it does](#what-it-does) covers each step, [Privacy and
@@ -123,8 +123,8 @@ Chromium), use `npm run verify`.
 - **Only GA4 collection requests are captured**, from `*.google-analytics.com` and
   `analytics.google.com`. Server-side GTM, first-party collection domains, Google Ads
   conversions and non-Google pixels aren't seen yet.
-- **No scheduled re-checks.** Each verification is a one-off browser run. Planned (L5):
-  scheduled re-checks of a verified setup that flag a regression against the last passing run.
+- **No scheduled re-checks.** Each verification is a one-off browser run. Planned (L5, a
+  supervised loop): scheduled re-checks of a verified setup that flag a regression against the last passing run.
 - **GTM and GA4 only.** Other tag managers and analytics platforms aren't supported.
 - The managed GTM workspace is still named `GTM Observability` (the product's earlier name),
   because that name and its ownership marker identify workspaces already created in real
