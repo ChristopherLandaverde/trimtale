@@ -9,7 +9,7 @@ Job of this step: after a published version fails browser verification, a practi
 | Scenario | Path | Screenshot |
 |---|---|---|
 | Rollback-required card, before: one inline "Rollback live-7" click, sent `approvedBy: "website assistant"` | baseline | [before](2026-10-31-rollback-approval/before-rollback-required.png) |
-| Rollback-required card, after: "Review rollback", rollback stage not passed | happy | [after](2026-10-31-rollback-approval/after-rollback-required.png) |
+| Rollback-required card, after: "Review rollback", rollback stage not passed (screenshot taken before #76 was fixed; the card now also renders on the page the link opens) | happy | [after](2026-10-31-rollback-approval/after-rollback-required.png) |
 | Review opened: container, restores `live-7`, replaces `version-8`; approve disabled; focus in the input | happy | [after](2026-10-31-rollback-approval/after-rollback-review-empty.png) |
 | Lowercase `gtm-test123` typed: approve stays disabled | negative | [after](2026-10-31-rollback-approval/after-rollback-review-wrong.png) |
 | Exact `GTM-TEST123` typed: approve enabled | happy | [after](2026-10-31-rollback-approval/after-rollback-review-ready.png) |
@@ -25,8 +25,9 @@ The hostile target rendered as text, with no `img` element in the panel and no d
 | Severity | Finding | Status |
 |---|---|---|
 | medium | Rollback reuses publication's refusal codes (`approval_expired`, `approver_changed`, `confirmation_mismatch`). Keyed on the code alone, a refused rollback would show publication copy ("Nothing was published") and mark the publication approval stage unpassed. | Fixed here: refusals with `stage: "rollback"` get rollback copy and leave the publication stages alone; covered in `setup-operation-presenter.test.ts`. |
-| medium (pre-existing) | Clicking a confirmed navigation link for browser verification navigates the page, and the assistant on the new page does not reload the operation card. The old rollback e2e passed only by clicking before navigation finished. The two-step flow made the race visible. | The e2e now answers that navigation with 204 so the page stays put. Product follow-up for Christopher: reload the stored operation after a post-publication navigation. |
+| high (pre-existing) | Clicking the confirmed link during browser verification navigates, and the assistant on the new page showed no operation card and no **Review rollback**. Click evidence held by the page's 180 ms and 1200 ms timers was lost on unload, so a failed live publication had no recovery in the page. The old rollback e2e passed only by clicking before the navigation finished. | Filed as [#76](https://github.com/ChristopherLandaverde/trimtale/issues/76) (`.scratch/workflow-automation/issues/12-post-publication-verification-survives-navigation.md`) and fixed in this PR. The run is kept in the service worker and session storage, and the next page finishes it and reloads the operation. The e2e tests use the real navigation, and a new e2e covers the unload-first path. |
+| medium (follow-up) | A re-approval while a publish or rollback waits for Google makes the final save fail after Google succeeded (both flows). | Filed as [#77](https://github.com/ChristopherLandaverde/trimtale/issues/77); not in this PR. |
 | low | A very long rollback target wraps across several lines inside the approve button. | Accepted; real GTM fingerprints are short numeric strings. Same behavior as the publish review. |
 | low | The approved card states the expiry in the viewer's local time; the backend enforces it in UTC. | Accepted, as for publish. |
 
-No blocker or high-severity findings.
+No unresolved blocker or high-severity findings. The one high finding, #76, is fixed here.

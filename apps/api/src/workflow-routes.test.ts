@@ -283,4 +283,30 @@ describe("rollback approval and rollback routes", () => {
     expect(rollbackPublishedVersion).not.toHaveBeenCalled();
     expect(runner.get("operation_navigation")?.status).toBe("rollback_required");
   });
+
+  it("names the request that sent malformed JSON", async () => {
+    const malformed = async () => {
+      throw new SyntaxError("Unexpected token");
+    };
+    for (const [path, error] of [
+      ["rollback-approval", "Rollback approval must be valid JSON."],
+      ["rollback", "Rollback must be valid JSON."],
+    ] as const) {
+      let sent: { status: number; body: Record<string, unknown> } | undefined;
+      const { runner } = await harness({ operation: rollbackRequired() });
+      await handleGoogleWorkflowRoute({
+        request: { method: "POST" } as IncomingMessage,
+        response: {} as ServerResponse,
+        requestUrl: new URL(`http://127.0.0.1:18787/api/google/workflows/operation_navigation/${path}`),
+        workflowRunner: runner,
+        publicationEnabled: true,
+        approverIdentity: async () => sessionAccount,
+        readJson: malformed,
+        sendJson: (_response, status, value) => {
+          sent = { status, body: value as Record<string, unknown> };
+        },
+      });
+      expect(sent).toEqual({ status: 400, body: { error } });
+    }
+  });
 });

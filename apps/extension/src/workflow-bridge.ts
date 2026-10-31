@@ -1,3 +1,4 @@
+import { ROLLBACK_APPROVAL_LIFETIME_MS } from "@trimtale/core";
 import type {
   FormSetupRequest,
   SetupRequest,
@@ -81,8 +82,19 @@ export interface GtmWorkflowRequestMessage {
   targetVersionFingerprint?: string;
 }
 
+/** True while a stored rollback approval can still authorize the rollback step. */
+function rollbackApprovalPending(rollback: unknown, now: number): boolean {
+  if (typeof rollback !== "object" || rollback === null || !("approval" in rollback)) return false;
+  const approval = (rollback as { approval?: unknown }).approval;
+  const approvedAt = typeof approval === "object" && approval !== null && "approvedAt" in approval
+    ? Date.parse(String((approval as { approvedAt?: unknown }).approvedAt))
+    : Number.NaN;
+  return Number.isFinite(approvedAt) && now >= approvedAt && now - approvedAt <= ROLLBACK_APPROVAL_LIFETIME_MS;
+}
+
 export function workflowResultFromStoredOperation(
   operation: Record<string, unknown>,
+  now = Date.now(),
 ): WorkflowResult<Record<string, unknown>> {
   const status = typeof operation.status === "string" ? operation.status : "unknown";
   if (status === "versioned") {
@@ -98,9 +110,8 @@ export function workflowResultFromStoredOperation(
     return { status: "completed", operation, nextStep: "platform_unavailable" };
   }
   if (status === "rollback_required") {
-    const rollback = operation.rollback;
-    const approved = typeof rollback === "object" && rollback !== null && "approval" in rollback;
-    return approved
+    // An expired approval cannot authorize the rollback, so the next step is review again.
+    return rollbackApprovalPending(operation.rollback, now)
       ? { status: "rollback_approved", operation, nextStep: "rollback" }
       : { status: "rollback_required", operation, nextStep: "rollback_approval" };
   }

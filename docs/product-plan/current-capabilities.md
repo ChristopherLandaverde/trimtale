@@ -53,6 +53,8 @@ The assistant currently supports:
   30 minutes.
 - A post-publication **Start browser verification** action that records whether the
   confirmed interaction produced exactly one expected Google collection request.
+  When the confirmed link navigates, the next page in the tab finishes the check and
+  shows the operation card, including **Review rollback** after a failure.
 - A **Review rollback** step from a `rollback_required` operation card that shows the
   container, the prior live version it restores and the version it replaces, and requires
   typing the container ID. The rollback approval is recorded under the signed-in Google

@@ -70,6 +70,11 @@ export class NavigationEvidenceController {
     return this.startVerification(request.navigation);
   }
 
+  /** The post-publication run a click belongs to, if one is active. */
+  get postPublication(): { operationId: string; request: SetupRequest } | undefined {
+    return this.#postPublication;
+  }
+
   get scopeSize(): number {
     return this.#scope.size;
   }

@@ -37,6 +37,7 @@ import {
 } from "./setup-operation-presenter.js";
 import { presentVerdict } from "./verdict-presenter.js";
 import type { TrackingWorkflowRequest, WorkflowBridgeResponse, WorkflowResult } from "./workflow-bridge.js";
+import type { NavigationRunResume } from "./navigation-run.js";
 
 declare global {
   interface Window { __gtmObservabilityInstalled?: boolean; }
@@ -1792,6 +1793,14 @@ document.addEventListener("click", (event) => {
   const startedAt = performance.now();
   const initial: BrowserEvidence = { navigationId: expected.id, clickedAt: new Date().toISOString(), pageUrl: location.href, linkText: (anchor.innerText || expected.text).trim(), linkUrl: anchor.href, requests: [] };
   navigationEvidence.recordClick(expected, initial);
+  const postPublication = navigationEvidence.postPublication;
+  if (postPublication) {
+    // The link usually navigates before this page can record the result; the next page finishes it.
+    void chrome.runtime.sendMessage({
+      type: "NAVIGATION_RUN_SAVE",
+      run: { operationId: postPublication.operationId, request: postPublication.request, evidence: initial },
+    });
+  }
   void chrome.runtime.sendMessage({ type: "VERIFICATION_EVIDENCE", evidence: initial });
   window.setTimeout(() => {
     const item = { ...initial, requests: recentAnalyticsRequests(startedAt) };
@@ -1806,6 +1815,39 @@ document.addEventListener("click", (event) => {
   }, 1200);
 }, true);
 
+
+/**
+ * Finishes a post-publication navigation check that the clicked link carried to this page:
+ * shows the recorded result, or records the evidence the service worker kept, so a failed
+ * publication always reaches its rollback review here.
+ */
+async function resumeNavigationRun(): Promise<void> {
+  let response: NavigationRunResume | undefined;
+  try {
+    response = await chrome.runtime.sendMessage({ type: "NAVIGATION_RUN_RESUME" }) as NavigationRunResume | undefined;
+  } catch {
+    return;
+  }
+  const run = response?.run;
+  if (!run || !isNavigationWorkflowRequest(run.request)) return;
+  setCollapsed(false);
+  addMessage(`The link opened ${location.pathname}. Continuing the setup operation here.`, "assistant");
+  // Evidence is recorded only against the operation's own specification.
+  const sameSpecification = run.operationId === `operation_${createSetupProposal(run.request).specification.id}`;
+  if (response?.evidence && !response.result && sameSpecification) {
+    navigationEvidence.startPostPublication(run.operationId, run.request);
+    const completion = navigationEvidence.recordEvidence(response.evidence);
+    if (completion) {
+      recordPostPublicationNavigationCompletion(completion);
+      return;
+    }
+  }
+  // Once the evidence is recorded (here or on the previous page), the stored operation is
+  // the truth: show it as it is now, so the next step, such as rollback review, stays reachable.
+  const stored = await requestSetupOperation("get", run.operationId);
+  if (stored.ok) renderSetupOperation(stored.result, run.request);
+  else addMessage(`${stored.error} Reload the setup operation before continuing.`, "assistant");
+}
 
 async function resumeFormRun(): Promise<void> {
   let response: { saved?: unknown; requests?: FormAnalyticsRequest[] } | undefined;
@@ -1823,7 +1865,7 @@ async function resumeFormRun(): Promise<void> {
 if (!window.__gtmObservabilityInstalled) {
   window.__gtmObservabilityInstalled = true;
   formCapture = new FormSignalCapture(finishFormRun);
-  void mountOverlay().then(resumeFormRun);
+  void mountOverlay().then(() => Promise.all([resumeFormRun(), resumeNavigationRun()]));
   chrome.runtime.onMessage.addListener((request: ExtensionRequest, _sender, sendResponse) => {
     if (request.type === "TOGGLE_OVERLAY") { void mountOverlay().then(() => setCollapsed(!preferences.collapsed)); sendResponse({ toggled: true }); return true; }
     if (request.type === "SCAN_NAVIGATION") { sendResponse(scanNavigation()); return; }

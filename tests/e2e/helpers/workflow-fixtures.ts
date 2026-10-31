@@ -296,6 +296,13 @@ export async function mockWritableContainerAndWorkflow(
   } = {},
 ): Promise<void> {
   const workflowOperation = options.workflowOperation ?? operation;
+  // Like the real backend, a later GET returns the operation as the last write left it.
+  let latest: Record<string, unknown> | undefined;
+  const remember = (body: unknown): string => {
+    const result = (body as { result?: { operation?: Record<string, unknown> } }).result;
+    if (result?.operation) latest = result.operation;
+    return JSON.stringify(body);
+  };
   await context.route("http://127.0.0.1:18787/api/google/containers/**", async (route) => {
     const request = route.request();
     const preparing = request.method() === "POST";
@@ -328,7 +335,7 @@ export async function mockWritableContainerAndWorkflow(
     await route.fulfill({
       status: 201,
       contentType: "application/json",
-      body: JSON.stringify({ result: { status: "planned", operation: workflowOperation("planned") } }),
+      body: remember({ result: { status: "planned", operation: workflowOperation("planned") } }),
     });
   });
   let resumeIndex = 0;
@@ -341,14 +348,14 @@ export async function mockWritableContainerAndWorkflow(
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ result: resumeResult }),
+      body: remember({ result: resumeResult }),
     });
   });
   await context.route(/http:\/\/127\.0\.0\.1:18787\/api\/google\/workflows\/(?!plan$)[^/]+$/, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ operation: options.storedOperation ?? workflowOperation("versioned") }),
+      body: JSON.stringify({ operation: options.storedOperation ?? latest ?? workflowOperation("versioned") }),
     });
   });
   await context.route("http://127.0.0.1:18787/api/google/workflows/*/approve", async (route) => {
@@ -357,7 +364,7 @@ export async function mockWritableContainerAndWorkflow(
     await route.fulfill({
       status,
       contentType: "application/json",
-      body: JSON.stringify(status >= 400 && !options.approveResult
+      body: remember(status >= 400 && !options.approveResult
         ? { error: "Approval blocked." }
         : {
           result: options.approveResult ?? {
@@ -375,7 +382,7 @@ export async function mockWritableContainerAndWorkflow(
       await route.fulfill({
         status: options.publishStatus,
         contentType: "application/json",
-        body: JSON.stringify(options.publishResult
+        body: remember(options.publishResult
           ? { result: options.publishResult }
           : { error: options.publishError ?? "Publication blocked." }),
       });
@@ -384,7 +391,7 @@ export async function mockWritableContainerAndWorkflow(
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({
+      body: remember({
         result: options.publishResult ?? {
           status: "published",
           nextStep: "verify_publication",
@@ -404,7 +411,7 @@ export async function mockWritableContainerAndWorkflow(
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({
+      body: remember({
         result: options.browserVerificationResult ?? {
           status: "completed",
           nextStep: "platform_unavailable",
@@ -418,7 +425,7 @@ export async function mockWritableContainerAndWorkflow(
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({
+      body: remember({
         result: options.rollbackApprovalResult ?? {
           status: "rollback_approved",
           nextStep: "rollback",
@@ -440,7 +447,7 @@ export async function mockWritableContainerAndWorkflow(
       await route.fulfill({
         status: options.rollbackStatus,
         contentType: "application/json",
-        body: JSON.stringify(options.rollbackResult
+        body: remember(options.rollbackResult
           ? { result: options.rollbackResult }
           : { error: options.rollbackError ?? "Rollback blocked." }),
       });
@@ -449,7 +456,7 @@ export async function mockWritableContainerAndWorkflow(
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({
+      body: remember({
         result: options.rollbackResult ?? {
           status: "rolled_back",
           nextStep: "complete",

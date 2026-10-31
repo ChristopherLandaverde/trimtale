@@ -5,6 +5,16 @@ import {
   type NavigationElement,
 } from "@trimtale/core";
 import {
+  canonicalNavigationRequest,
+  isNavigationRun,
+  mergeNavigationEvidence,
+  navigationRequestsFrom,
+  navigationRunKey,
+  navigationRunSettleDelay,
+  type NavigationRun,
+  type NavigationRunResume,
+} from "./navigation-run.js";
+import {
   workflowResultFromStoredOperation,
   type GtmWorkflowAction,
   type GtmWorkflowRequestMessage,
@@ -218,7 +228,7 @@ async function readJsonResponse(response: Response): Promise<Record<string, unkn
 chrome.runtime.onMessage.addListener(
   (
     message: GtmWorkflowRequestMessage,
-    _sender,
+    sender,
     sendResponse,
   ) => {
     if (message.type !== "GTM_WORKFLOW_REQUEST") return undefined;
@@ -307,15 +317,23 @@ chrome.runtime.onMessage.addListener(
             sendResponse({ ok: false, error: "Browser verification requires an operation ID and evidence." });
             return;
           }
-          const verified = await fetch(`http://127.0.0.1:18787/api/google/workflows/${encodeURIComponent(operationId)}/browser-verification`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ evidence: message.evidence }),
-          });
-          const verifiedBody = await readJsonResponse(verified);
-          sendResponse(verified.ok
-            ? { ok: true, result: verifiedBody.result }
-            : { ok: false, error: workflowError(verified.status) });
+          const tabId = sender.tab?.id;
+          const recording = (async () => {
+            const verified = await fetch(`http://127.0.0.1:18787/api/google/workflows/${encodeURIComponent(operationId)}/browser-verification`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ evidence: message.evidence }),
+            });
+            const verifiedBody = await readJsonResponse(verified);
+            const reply = verified.ok
+              ? { ok: true as const, result: verifiedBody.result }
+              : { ok: false as const, error: workflowError(verified.status) };
+            // The page that clicked may already be gone; keep the result for the next one.
+            if (tabId !== undefined && reply.ok) await rememberNavigationRunResult(tabId, operationId, reply.result);
+            return reply;
+          })();
+          if (tabId !== undefined) navigationRecordings.set(tabId, recording.catch(() => undefined));
+          sendResponse(await recording);
           return;
         }
 
@@ -486,5 +504,60 @@ chrome.webRequest.onBeforeRequest.addListener(
       "*://analytics.google.com/g/collect*",
       "http://127.0.0.1:14173/g/collect*",
     ],
+  },
+);
+
+// Post-publication navigation runs per tab. Clicking the confirmed link usually unloads
+// the page before its evidence is recorded, so the run, its click evidence and any
+// recorded result live here, and the next page in the tab finishes the run.
+const navigationRecordings = new Map<number, Promise<unknown>>();
+
+async function storedNavigationRun(tabId: number): Promise<NavigationRun | undefined> {
+  const stored = await chrome.storage.session.get(navigationRunKey(tabId));
+  const run: unknown = stored[navigationRunKey(tabId)];
+  return isNavigationRun(run) ? run : undefined;
+}
+
+async function rememberNavigationRunResult(tabId: number, operationId: string, result: unknown): Promise<void> {
+  const run = await storedNavigationRun(tabId);
+  if (!run || run.operationId !== operationId) return;
+  await chrome.storage.session.set({ [navigationRunKey(tabId)]: { ...run, result } });
+}
+
+chrome.runtime.onMessage.addListener(
+  (message: { type?: string; run?: unknown }, sender, sendResponse) => {
+    const tabId = sender.tab?.id;
+    if (tabId === undefined) return undefined;
+    if (message.type === "NAVIGATION_RUN_SAVE") {
+      const run = isRecord(message.run) ? { ...message.run, savedAt: Date.now() } : undefined;
+      if (isNavigationRun(run)) void chrome.storage.session.set({ [navigationRunKey(tabId)]: run });
+      return undefined;
+    }
+    if (message.type === "NAVIGATION_RUN_CLEAR") {
+      void chrome.storage.session.remove(navigationRunKey(tabId));
+      return undefined;
+    }
+    if (message.type !== "NAVIGATION_RUN_RESUME") return undefined;
+    void (async (): Promise<NavigationRunResume> => {
+      const saved = await storedNavigationRun(tabId);
+      if (!saved) return {};
+      // Give the click the same time to settle as it would have had on its own page,
+      // and let a recording the old page already started finish first.
+      await new Promise((resolve) => setTimeout(resolve, navigationRunSettleDelay(saved)));
+      await navigationRecordings.get(tabId);
+      navigationRecordings.delete(tabId);
+      const run = await storedNavigationRun(tabId) ?? saved;
+      await chrome.storage.session.remove(navigationRunKey(tabId));
+      const summary = { operationId: run.operationId, request: canonicalNavigationRequest(run.request) };
+      if (run.result) return { run: summary, result: run.result };
+      const settled = pending?.tabId === tabId && pending.evidence.navigationId === run.evidence.navigationId
+        ? pending.evidence.requests
+        : [];
+      return {
+        run: summary,
+        evidence: mergeNavigationEvidence(run.evidence, settled, requestsSince(tabId, navigationRequestsFrom(run.evidence.clickedAt))),
+      };
+    })().then(sendResponse, () => sendResponse({}));
+    return true;
   },
 );

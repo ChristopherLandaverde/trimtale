@@ -228,8 +228,10 @@ export async function handleGoogleWorkflowRoute({
         : status === 404
           ? "Tracking operation was not found."
           : status === 400
-            ? "Rollback approval must be valid JSON."
-            : "Unable to approve or roll back the tracking workflow.";
+            ? rollbackApprovalMatch ? "Rollback approval must be valid JSON." : "Rollback must be valid JSON."
+            : rollbackApprovalMatch
+              ? "Unable to approve the rollback for the tracking workflow."
+              : "Unable to roll back the tracking workflow.";
       sendJson(response, status, { error: message });
     }
     return true;

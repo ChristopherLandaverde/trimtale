@@ -203,7 +203,9 @@ describe("presentSetupOperation", () => {
       operation: operation(status),
     } as WorkflowResult);
     expect(presentation.guidance).toMatch(guidance);
-    expect(presentation.assistantMessage).toMatch(/^Setup stopped\. .* Nothing was published\.$/);
+    expect(presentation.assistantMessage).toMatch(/^Setup stopped\. /);
+    // The outcome is stated exactly once, whether the guidance or the suffix states it.
+    expect(presentation.assistantMessage.match(/nothing was published/gi)).toHaveLength(1);
     expect(presentation.actions).toEqual([expect.objectContaining({ kind: "review", versionFingerprint: "version-8" })]);
     const approval = presentation.stages.find((item) => item.key === "approval");
     if (reason === "approval_expired" || reason === "approver_changed") expect(approval?.passed).toBe(false);
@@ -301,7 +303,7 @@ describe("presentSetupOperation", () => {
     ["approval_expired", rollbackApproved, /older than 30 minutes, so nothing was rolled back/],
     ["approver_changed", rollbackApproved, /different Google account/],
     ["approval_required", () => operation("rollback_required"), /separate approval first/],
-    ["confirmation_mismatch", () => operation("rollback_required"), /typed container ID did not match, so the rollback was not approved/],
+    ["confirmation_mismatch", () => operation("rollback_required"), /^The typed container ID did not match\. Review the rollback and type it again\.$/],
     ["rollback_fingerprint_mismatch", rollbackApproved, /did not match the recorded prior live version/],
   ] as const)("routes a blocked %s rollback back to rollback review", (reason, build, guidance) => {
     const presentation = presentSetupOperation({
@@ -311,7 +313,8 @@ describe("presentSetupOperation", () => {
       operation: build(),
     } as WorkflowResult);
     expect(presentation.guidance).toMatch(guidance);
-    expect(presentation.assistantMessage).toMatch(/^Rollback stopped\. .* Nothing was rolled back\.$/);
+    expect(presentation.assistantMessage).toMatch(/^Rollback stopped\. /);
+    expect(presentation.assistantMessage.match(/nothing was rolled back/gi)).toHaveLength(1);
     expect(presentation.assistantMessage).not.toContain("Nothing was published");
     expect(presentation.actions).toEqual([expect.objectContaining({ kind: "rollbackReview", targetVersionFingerprint: "live-7" })]);
     // A refused rollback leaves the earlier publication approval and publication intact.

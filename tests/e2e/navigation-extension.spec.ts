@@ -1,4 +1,4 @@
-import { expect, test, chromium, type Page } from "@playwright/test";
+import { expect, test, chromium } from "@playwright/test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -783,14 +783,6 @@ test("records post-publication lead-form browser verification without leaking fo
   }
 });
 
-/**
- * Rollback review and approval are separate steps after browser verification, so the
- * page must survive the verification click. A 204 answer cancels the navigation in place.
- */
-async function stayOnPageAfterNavigationClick(site: Page): Promise<void> {
-  await site.route("http://127.0.0.1:14173/services", (route) => route.fulfill({ status: 204 }));
-}
-
 test("rolls back a failed publication only after a typed confirmation and a separate approval request", async () => {
   const profile = await mkdtemp(join(tmpdir(), "gtm-observability-rollback-approval-"));
   const extensionPath = resolve("apps/extension/dist");
@@ -824,9 +816,11 @@ test("rolls back a failed publication only after a typed confirmation and a sepa
     await approveThenPublish(root);
     let operationRegion = root.getByRole("region", { name: "Setup operation" });
     await operationRegion.getByRole("button", { name: "Start browser verification" }).click();
-    await stayOnPageAfterNavigationClick(site);
     await site.getByRole("link", { name: "Services" }).click();
 
+    // The link navigates; the next page finishes verification and shows the rollback step (#76).
+    await expect(site).toHaveURL(/\/services$/);
+    await expect(root.getByText("The link opened /services. Continuing the setup operation here.")).toBeVisible();
     operationRegion = root.getByRole("region", { name: "Setup operation" });
     await expect(operationRegion.getByText(/Verification failed; prior live version live-7 is ready for rollback approval/)).toBeVisible();
     await expect(operationRegion.getByRole("button", { name: /^Roll ?back/ })).toHaveCount(0);
@@ -910,8 +904,8 @@ test("sends a stale rollback approval back to rollback review instead of rolling
     await root.getByRole("button", { name: "Prepare GTM version" }).click();
     await approveThenPublish(root);
     await root.getByRole("region", { name: "Setup operation" }).getByRole("button", { name: "Start browser verification" }).click();
-    await stayOnPageAfterNavigationClick(site);
     await site.getByRole("link", { name: "Services" }).click();
+    await expect(site).toHaveURL(/\/services$/);
     await approveThenRollBack(root);
 
     const operationRegion = root.getByRole("region", { name: "Setup operation" });
@@ -922,6 +916,61 @@ test("sends a stale rollback approval back to rollback review instead of rolling
     await operationRegion.getByRole("button", { name: "Review rollback" }).click();
     await expect(root.getByRole("region", { name: "Rollback review" })).toBeVisible();
     expect(rollbackApprovals).toBe(1);
+  } finally {
+    await context.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});
+
+// Regression for #76: a failed live publication must stay recoverable after the verification click navigates.
+test("finishes post-publication verification on the next page when the link unloads first", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "gtm-observability-verification-survives-navigation-"));
+  const extensionPath = resolve("apps/extension/dist");
+  const context = await chromium.launchPersistentContext(profile, {
+    channel: "chromium",
+    headless: true,
+    args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+  });
+  const posted: Array<Record<string, unknown>> = [];
+  await mockWritableContainerAndWorkflow(context, {
+    browserVerificationResult: {
+      status: "rollback_required",
+      nextStep: "rollback_approval",
+      operation: operation("rollback_required"),
+    },
+    onBrowserVerification: (body) => posted.push(body),
+  });
+  try {
+    const site = await context.newPage();
+    // The published tag does not fire: no collection request, so nothing completes the run
+    // before the link navigates 250 ms after the click.
+    await site.addInitScript(() => {
+      Object.defineProperty(navigator, "sendBeacon", { value: () => true });
+    });
+    await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
+    const root = site.locator("#trimtale-root");
+    await root.getByRole("button", { name: "Open tracking assistant" }).click();
+    await root.getByLabel("Tracking request").fill("navigation");
+    await root.getByRole("button", { name: "Send request" }).click();
+    await root.getByRole("button", { name: "Track all" }).click();
+    await root.getByRole("button", { name: "Check GTM access" }).click();
+    await root.getByRole("button", { name: "Prepare GTM version" }).click();
+    await approveThenPublish(root);
+    await root.getByRole("region", { name: "Setup operation" }).getByRole("button", { name: "Start browser verification" }).click();
+    await site.getByRole("link", { name: "Services" }).click();
+    await expect(site).toHaveURL(/\/services$/);
+
+    await expect(root.getByText("The link opened /services. Continuing the setup operation here.")).toBeVisible();
+    await expect.poll(() => posted.length).toBe(1);
+    const evidence = posted[0]!.evidence as Record<string, unknown>;
+    // Same specification as the operation, even after the request crossed storage.
+    expect(evidence.specificationId).toBe(navigationSpecId);
+    expect(evidence.verdict).toMatchObject({ browserVerification: "failed", platformConfirmation: "unverified" });
+    const operationRegion = root.getByRole("region", { name: "Setup operation" });
+    await expect(operationRegion.getByText(/ready for rollback approval/)).toBeVisible();
+    await operationRegion.getByRole("button", { name: "Review rollback" }).click();
+    await expect(root.getByRole("region", { name: "Rollback review" })).toBeVisible();
+    await expect(root.getByText(/platform-confirmed/i)).toHaveCount(0);
   } finally {
     await context.close();
     await rm(profile, { recursive: true, force: true });

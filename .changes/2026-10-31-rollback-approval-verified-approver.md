@@ -2,7 +2,7 @@
 
 Change record version: 2
 
-Issue: `.scratch/workflow-automation/issues/11-rollback-approval-and-verified-approver.md` (GitHub #71)
+Issue: `.scratch/workflow-automation/issues/11-rollback-approval-and-verified-approver.md` (GitHub #71); also resolves `.scratch/workflow-automation/issues/12-post-publication-verification-survives-navigation.md` (GitHub #76)
 
 ## Summary
 
@@ -34,8 +34,23 @@ named, verified approver" rule to hold.
   typed ID); approving shows "Approved restoring <target> by <email>" and a separate
   **Roll back to <target>** action. Refusals return to rollback review and never say
   "Nothing was published".
-- Unchanged: publish behavior and copy, Google rollback guards, publication off by default.
-- Out of scope: requiring `rollback.approval` on legacy `rolled_back` records in the
+- Google client: `rollbackPublishedVersion` refuses without a current rollback approval,
+  mirroring `publishApprovedVersion`.
+- Navigation survival (#76, high, found in review): a post-publication navigation run is
+  saved to the service worker on the click (`chrome.storage.session`, per tab, 60 s). The
+  next page in the tab waits out the click's settle time, records the evidence if the old
+  page could not, then reloads the stored operation so **Review rollback** is reachable.
+  Two details: requests the page's own click listener sent up to 100 ms before the click
+  stamp count for the click, and the stored request is rebuilt in scan key order because
+  `chrome.storage` reorders keys and the specification fingerprint hashes them in order.
+  Evidence is posted only when the request maps to the operation's own specification.
+- A stored rollback approval older than 30 minutes reloads as `rollback_required` (review
+  again), not as approved.
+- Copy: a blocked message states "Nothing was published/rolled back" once, not twice.
+  A rollback `confirmation_mismatch` reads "The typed container ID did not match. Review
+  the rollback and type it again." The `/rollback` route has its own error messages.
+- Unchanged: publish behavior, Google rollback guards, publication off by default.
+- Out of scope: the approve/execute race on both flows (#77); requiring `rollback.approval` on legacy `rolled_back` records in the
   schema (old records stay readable; every new rollback records one).
 
 ## Regression coverage
@@ -44,9 +59,13 @@ See the issue's regression contract. Unit tests cover each refusal (mismatch, mi
 unverified approver, stale approval, changed account, publication switch off) and the
 happy path. The e2e rollback test was rewritten for the two-step flow and a stale-approval
 e2e was added. The old e2e asserted `approvedBy: "website assistant"`; it now asserts no
-approver is sent. The rollback e2e now answers the verification click's navigation with
-204 so the page stays put for the extra steps (the old test only passed by clicking
-before navigation finished; see the review).
+approver is sent. The rollback tests now go through the real navigation to `/services`.
+A new e2e, "finishes post-publication verification on the next page when the link unloads
+first", fails without the #76 fix and passes with it.
+`apps/extension/src/navigation-run.test.ts`, the new Google-client rollback refusals, and
+the stored-expiry and route-message tests are added. The publish blocked-message test now
+asserts the outcome is stated exactly once; before, it required the trailing "Nothing was
+published.", which duplicated the guidance.
 
 ## Verification
 

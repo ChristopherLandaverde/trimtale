@@ -80,7 +80,7 @@ function rollbackGuidance(reason: string): string {
   if (reason === "approval_required") return "Rolling back needs a separate approval first. Review the rollback, then approve it.";
   if (reason === "approval_expired") return "The rollback approval is older than 30 minutes, so nothing was rolled back. Review and approve again.";
   if (reason === "approver_changed") return "A different Google account is connected than the one that approved the rollback. Approve again as this account.";
-  if (reason === "confirmation_mismatch") return "The typed container ID did not match, so the rollback was not approved.";
+  if (reason === "confirmation_mismatch") return "The typed container ID did not match. Review the rollback and type it again.";
   if (reason === "rollback_fingerprint_mismatch") return "The target did not match the recorded prior live version. Review the rollback again.";
   if (reason === "operation_not_rollback_required") return "Only a failed publication awaiting rollback can be rolled back. Reload the setup operation.";
   return "Review the saved rollback state before continuing.";
@@ -139,16 +139,21 @@ function labelFor(result: WorkflowResult): string {
   return result.status;
 }
 
+/** Appends the outcome sentence unless the guidance already states it. */
+function withOutcome(message: string, outcome: string): string {
+  return message.toLowerCase().includes(outcome.slice(0, -1).toLowerCase()) ? message : `${message} ${outcome}`;
+}
+
 function localTime(iso: string | undefined): string {
   return iso ? ` before ${new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "";
 }
 
 function assistantMessageFor(result: WorkflowResult, guidance: string): string {
   if (result.status === "blocked" && result.stage === "rollback") {
-    return `Rollback stopped. ${guidance} Nothing was rolled back.`;
+    return withOutcome(`Rollback stopped. ${guidance}`, "Nothing was rolled back.");
   }
   if (result.status === "blocked" || result.status === "paused") {
-    return `Setup ${result.status === "blocked" ? "stopped" : "paused"}. ${guidance} Nothing was published.`;
+    return withOutcome(`Setup ${result.status === "blocked" ? "stopped" : "paused"}. ${guidance}`, "Nothing was published.");
   }
   if (result.status === "versioned") {
     return `Version ${result.operation.version?.fingerprint ?? ""} is ready and nothing is published. Review exactly what will change, then approve it.`;
@@ -174,7 +179,7 @@ function assistantMessageFor(result: WorkflowResult, guidance: string): string {
   if (result.status === "rolled_back") {
     return `Rollback completed. Prior live version ${result.operation.rollback?.targetVersionFingerprint ?? "unknown"} was restored.`;
   }
-  return `Setup operation ${result.status}: ${guidance} Nothing was published.`;
+  return withOutcome(`Setup operation ${result.status}: ${guidance}`, "Nothing was published.");
 }
 
 function rollbackReviewAction(operation: TrackingSetupOperationV1): SetupOperationAction[] {

@@ -94,17 +94,35 @@ describe("approved publication and rollback", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it("rolls back only from the failed published fingerprint to the recorded prior live fingerprint", async () => {
+  function rollbackRequired(approvedAt: string | null = "2026-08-22T12:18:00.000Z"): TrackingSetupOperationV1 {
     const operation = approved();
     operation.status = "rollback_required";
     operation.publication = { publishedAt: "2026-08-22T12:20:00.000Z", versionFingerprint: "version-8" };
     operation.postPublicationEvidenceId = "run_failed";
-    operation.rollback = { targetVersionFingerprint: "live-7", status: "required" };
+    operation.rollback = {
+      targetVersionFingerprint: "live-7",
+      status: "required",
+      ...(approvedAt ? { approval: { approvedAt, approvedBy: "practitioner@example.test", targetVersionFingerprint: "live-7" } } : {}),
+    };
+    return operation;
+  }
+
+  it("rolls back only from the failed published fingerprint to the recorded prior live fingerprint", async () => {
     const fetcher = publicationFetch({ liveFingerprint: "version-8" });
     const result = await new GtmDiscoveryClient(async () => "token", fetcher, true, true, () => now)
-      .rollbackPublishedVersion(operation);
+      .rollbackPublishedVersion(rollbackRequired());
     expect(result).toEqual({ targetVersionFingerprint: "live-7", status: "completed", completedAt: "2026-08-22T12:20:00.000Z" });
     expect(fetcher.mock.calls.find(([input]) => input.toString().includes(":publish"))?.[0].toString())
       .toContain("/versions/7:publish?fingerprint=live-7");
+  });
+
+  it.each([
+    ["no rollback approval", null],
+    ["a rollback approval older than 30 minutes", "2026-08-22T11:49:59.000Z"],
+  ] as const)("refuses a rollback with %s before any Google call", async (_name, approvedAt) => {
+    const fetcher = publicationFetch({ liveFingerprint: "version-8" });
+    await expect(new GtmDiscoveryClient(async () => "token", fetcher, true, true, () => now)
+      .rollbackPublishedVersion(rollbackRequired(approvedAt))).rejects.toMatchObject({ status: 409 });
+    expect(fetcher).not.toHaveBeenCalled();
   });
 });

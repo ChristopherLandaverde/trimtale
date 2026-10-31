@@ -26,7 +26,11 @@ describe("workflowResultFromStoredOperation", () => {
         approval: { approvedAt: "2026-08-30T20:06:00.000Z", approvedBy: "practitioner@example.test", targetVersionFingerprint: "live-7" },
       },
     };
-    expect(workflowResultFromStoredOperation(operation)).toEqual({ status: "rollback_approved", operation, nextStep: "rollback" });
+    const within = Date.parse("2026-08-30T20:35:00.000Z");
+    expect(workflowResultFromStoredOperation(operation, within)).toEqual({ status: "rollback_approved", operation, nextStep: "rollback" });
+    const expired = Date.parse("2026-08-30T20:36:01.000Z");
+    expect(workflowResultFromStoredOperation(operation, expired))
+      .toEqual({ status: "rollback_required", operation, nextStep: "rollback_approval" });
   });
 
   it.each([
