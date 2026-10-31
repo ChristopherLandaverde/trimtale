@@ -9,7 +9,8 @@ Issue: none; owner request (README needs a recording of the extension capturing 
 The verdict's "Show evidence" list now shows the first captured GA4 request by host and
 allowlisted parameters (`tid`, `en`, `ep.form_id`, `ep.form_name`), labelled
 `network.ga4Requests[0].*`, next to the existing request count. The README hero is now a GIF of a
-lead form verified on the bundled fixture site, recorded by `scripts/record-readme-gif.mjs`.
+four-frame storyboard (target confirmed, broken variant, fix and re-run, captured request) built from
+real extension runs on the bundled fixture site by `scripts/readme-demo/`.
 
 ## Why
 
@@ -27,9 +28,10 @@ needed to show the browser actually collecting the tag.
 - Evidence label column capped at 55% instead of 62% so values such as `browser_verified` no longer
   wrap mid-word next to the longer labels.
 - Unchanged: verdicts, finding copy, stored evidence, the count row.
-- `scripts/record-readme-gif.mjs` is a manual maintenance script; it is not run by `npm run verify`
-  or CI. It uses only the local API and fixture site, and seeds the remembered panel size
-  (420×690) in extension storage, the same state a manual resize leaves.
+- `scripts/readme-demo/` (capture, frame HTML, build, how-to) is a manual maintenance tool; it is
+  not run by `npm run verify` or CI. It uses only the local API and fixture site, seeds the
+  remembered panel height (380×540) in extension storage, the same state a manual resize leaves,
+  and takes every quoted string and number in the frames from its own run.
 
 ## Regression coverage
 
@@ -44,7 +46,9 @@ needed to show the browser actually collecting the tag.
 
 ## Verification
 
-`npm run verify` (see PR body for output).
+`npm run verify` exit 0: preflight, change-docs check, strict typecheck, Vitest 43 files / 403 tests
+passed, Playwright 82 E2E tests passed. `node scripts/readme-demo/capture.mjs` and `build.mjs` ran
+against the fixture and produced the committed GIF (880×640, 4 frames × 4 s, 172 KB).
 
 ## Exploratory review
 
@@ -55,6 +59,7 @@ off-allowlist values. One low finding fixed (label column width); no blocker or 
 
 ## Documentation
 
-- README: GIF hero with alt text and caption naming the fixture site and local collection endpoint;
+- README: storyboard GIF hero with alt text and caption naming the fixture site and its stand-in collector;
   the GTM-connection screenshot moved below "What it does".
 - `docs/security-and-publishing.md`: what the evidence list displays from a stored request.
+- `scripts/readme-demo/README.md`: how to regenerate the README GIF.
