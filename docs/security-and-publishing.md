@@ -84,7 +84,9 @@ then publish. Approval needs the container's public ID typed back, records the c
 Google account's verified email as the approver, and expires after 30 minutes.
 
 Google and intake-evaluation routes answer cross-origin requests only from the origin in
-`EXTENSION_ORIGIN` (`apps/api/src/cors.ts`); a missing, `*` or `null` value refuses them.
+`EXTENSION_ORIGIN` (`apps/api/src/cors.ts`); a missing, `*` or `null` value refuses them. The
+local server and the Vercel functions (`apps/api/src/vercel.ts`) apply the same rule. Public
+routes (`/api/health`, `/api/setups`) stay open to any origin because they are stateless.
 
 ## Extension permissions
 
@@ -104,9 +106,9 @@ Do not add wildcard Vercel host permissions. Build hosted extension artifacts wi
 GTM_OBSERVABILITY_API_BASE=https://your-api.vercel.app npm run build:extension
 ```
 
-`GTM_OBSERVABILITY_EXTENSION_TOKEN` is compiled into the extension bundle when set. Leave it
-unset for any build you share; anything compiled into an extension can be read by whoever
-installs it.
+The extension bundle carries no secrets: the only build-time value compiled into it is
+`GTM_OBSERVABILITY_API_BASE`. Anything compiled into an extension can be read by whoever
+installs it, so never add a credential to the build.
 
 Load `apps/extension/prod-dist` for production-style testing (`npm run build:extension:prod`).
 The local deterministic harness uses `apps/extension/dist`, so `prod-dist` stays stable when
@@ -120,8 +122,9 @@ Before promoting a Vercel deployment to production:
 - Typecheck the root Vercel API entrypoints.
 - Verify `GET /api/health` and `POST /api/setups` on the deployment with a disposable request.
 - Confirm `.env*.local`, `.vercel` and `.data/` remain ignored and uncommitted.
-- Build any distributable extension artifact with the production API origin and without
-  `GTM_OBSERVABILITY_EXTENSION_TOKEN`.
+- Build any distributable extension artifact with the production API origin.
+- Set `EXTENSION_ORIGIN` to the published extension's exact `chrome-extension://<id>` origin
+  before any Google or intake route is served from Vercel; unset, `*` or `null` refuses them.
 
 ## Publishing boundary
 

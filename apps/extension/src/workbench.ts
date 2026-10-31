@@ -6,10 +6,8 @@ import {
 } from "@trimtale/core";
 
 declare const __GTM_OBSERVABILITY_API_BASE__: string;
-declare const __GTM_OBSERVABILITY_EXTENSION_TOKEN__: string;
 
 const apiBase = __GTM_OBSERVABILITY_API_BASE__;
-const extensionToken = __GTM_OBSERVABILITY_EXTENSION_TOKEN__;
 const targetTabId = Number.parseInt(new URLSearchParams(location.search).get("tabId") ?? "", 10);
 const siteConfigPrefix = "siteConfig:";
 const proposalSessionKey = Number.isFinite(targetTabId) ? `proposal:${targetTabId}` : "";
@@ -28,14 +26,6 @@ interface SiteConfig {
 interface PageTrackingSignals {
   gtmContainers: string[];
   ga4MeasurementIds: string[];
-}
-
-interface SiteResolutionResult {
-  matchedBy: "detected-container" | "none";
-  container?: {
-    publicId: string;
-  };
-  measurementIds: string[];
 }
 
 interface DownloadPayload {
@@ -201,32 +191,6 @@ async function prefillSiteConfig(url: string): Promise<boolean> {
   byId<HTMLInputElement>("container-id").value = stored.containerId;
   renderTrackingSignals();
   updateConfigReadiness();
-  return true;
-}
-
-async function resolveSiteConfigFromGtm(): Promise<boolean> {
-  const { measurementId, containerId } = currentConfig();
-  if (measurementId || !containerId || !extensionToken) return false;
-
-  const response = await fetch(`${apiBase}/api/google/gtm/resolve-site`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${extensionToken}`,
-    },
-    body: JSON.stringify({
-      pageUrl,
-      detected: pageSignals,
-    }),
-  });
-  if (!response.ok) return false;
-
-  const result = (await response.json()) as SiteResolutionResult;
-  const resolvedMeasurementId = result.measurementIds.length === 1 ? result.measurementIds[0] : undefined;
-  const resolvedContainerId = result.container?.publicId?.toUpperCase();
-  if (!resolvedMeasurementId || resolvedContainerId !== containerId.toUpperCase()) return false;
-
-  byId<HTMLInputElement>("measurement-id").value = resolvedMeasurementId;
   return true;
 }
 
@@ -413,7 +377,6 @@ byId<HTMLButtonElement>("scan").addEventListener("click", async () => {
     renderNavigation();
     const foundSiteConfig = await prefillSiteConfig(pageUrl);
     autoFillDetectedConfig();
-    const resolvedFromGtm = await resolveSiteConfigFromGtm();
     const savedConfig = foundSiteConfig ? currentConfig() : undefined;
     renderTrackingSignals();
     updateConfigReadiness();
@@ -425,8 +388,6 @@ byId<HTMLButtonElement>("scan").addEventListener("click", async () => {
     setStatus(
       savedConfig
         ? `Loaded saved GTM configuration. ${trackingSignalStatus(savedConfig)}`
-        : resolvedFromGtm
-          ? "Resolved GA4 destination from the connected GTM container."
         : configReady()
           ? `Detected site configuration. ${trackingSignalStatus(currentConfig())}`
           : "Confirm scope. GTM was detected when available; GA4 may require GTM account connection.",

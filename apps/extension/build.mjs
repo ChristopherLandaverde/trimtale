@@ -5,7 +5,6 @@ import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 const apiBase = process.env.GTM_OBSERVABILITY_API_BASE ?? "http://127.0.0.1:18787";
 const apiOrigin = new URL(apiBase).origin;
 const outdir = process.env.GTM_OBSERVABILITY_EXTENSION_OUTDIR ?? "dist";
-const resolverToken = process.env.GTM_OBSERVABILITY_EXTENSION_TOKEN ?? "";
 const shouldWatch = process.argv.includes("--watch");
 let building = false;
 let pending = false;
@@ -37,7 +36,6 @@ async function buildExtension() {
       loader: { ".woff2": "binary" },
       define: {
         __GTM_OBSERVABILITY_API_BASE__: JSON.stringify(apiBase),
-        __GTM_OBSERVABILITY_EXTENSION_TOKEN__: JSON.stringify(resolverToken),
       },
     });
 
