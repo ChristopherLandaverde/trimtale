@@ -36,3 +36,12 @@ Before completing a change, run `npm run verify` and report the evidence. Never 
 - Add permanent regression coverage in the same change as new accepted behavior. Do not delete or weaken an existing regression without documenting the product decision in the change record.
 - Keep pull requests to one reviewable vertical slice. Open a draft pull request early when remote collaboration is available; a draft is a visibility mechanism, not a reason to pause local implementation.
 - Pull-request descriptions must identify the issue/spec, behavior change, regression evidence, documentation updates, risk, and rollback approach. Use `.github/pull_request_template.md`.
+
+## Merging
+
+Standing permission from the owner (Christopher Landaverde, 2026-10-30): agents merge their own pull requests, user-visible ones included, without asking, when all of these hold:
+- CI is green on GitHub on the PR's latest commit (`gh pr checks <n>`; local runs don't count).
+- An agent other than the author reviewed the diff and posted `Blocking findings: none`.
+- The PR merges cleanly into `main`.
+
+Merge with `gh pr merge <n> --squash --delete-branch`, then confirm `main` CI passes. Still stop and ask for: releases, tags, store or package publishing, deploys, repo settings or visibility, spending money, and deleting anything you didn't create. Never push directly to `main` or force-push a shared branch.
