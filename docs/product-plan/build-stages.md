@@ -183,4 +183,3 @@ Build:
 - Weekly client-ready reports.
 - Audit trail of fixes.
 - Reusable journey templates.
-- Pricing by monitored site or client.

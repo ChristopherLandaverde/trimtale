@@ -46,5 +46,4 @@ These are product capabilities, not three separate interfaces. Internally, the b
 - [August 24 Roadmap](./2026-08-24-roadmap.md) - Next-session plan for a real post-publication journey and weighted shadow-mode language evaluation.
 - [Build Stages](./build-stages.md) - MVP-to-full-product sequence.
 - [Technical Architecture](./technical-architecture.md) - System components and agent/workflow design.
-- [Go-To-Market Timing](./go-to-market.md) - When to build the website, market, sell, and narrow positioning.
-- [Tracking Proof Product Concept](./tracking-proof.md) - Future owner-only proof overlay, conversion contracts, evidence trails, status model, WordPress/WooCommerce wedge, positioning, and validation plan.
+- [Tracking Proof Product Concept](./tracking-proof.md) - Future owner-only proof overlay, conversion contracts, evidence trails, status model, WordPress/WooCommerce wedge, positioning.
