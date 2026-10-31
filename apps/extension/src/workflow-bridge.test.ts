@@ -16,6 +16,23 @@ describe("workflowResultFromStoredOperation", () => {
     });
   });
 
+  it("maps a rollback-required operation with a recorded rollback approval to the separate rollback step", () => {
+    const operation = {
+      id: "operation_1",
+      status: "rollback_required",
+      rollback: {
+        targetVersionFingerprint: "live-7",
+        status: "required",
+        approval: { approvedAt: "2026-08-30T20:06:00.000Z", approvedBy: "practitioner@example.test", targetVersionFingerprint: "live-7" },
+      },
+    };
+    const within = Date.parse("2026-08-30T20:35:00.000Z");
+    expect(workflowResultFromStoredOperation(operation, within)).toEqual({ status: "rollback_approved", operation, nextStep: "rollback" });
+    const expired = Date.parse("2026-08-30T20:36:01.000Z");
+    expect(workflowResultFromStoredOperation(operation, expired))
+      .toEqual({ status: "rollback_required", operation, nextStep: "rollback_approval" });
+  });
+
   it.each([
     ["planned", "paused", "planning", "ready_to_apply"],
     ["applying", "paused", "application", "partial_application"],

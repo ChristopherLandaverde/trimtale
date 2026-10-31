@@ -20,6 +20,7 @@ import {
   normalizePublicContainerId,
   publicationApprovalCurrent,
   recognizeContainer,
+  rollbackApprovalCurrent,
   type GtmContainerExport,
   type GtmEntitySet,
   type ManagedWorkspaceInspection,
@@ -927,6 +928,10 @@ export class GtmDiscoveryClient {
     assertTrackingOperation(operation);
     if (operation.status !== "rollback_required" || !operation.version || !operation.rollback) {
       throw new GoogleIntegrationError("Rollback requires failed publication evidence and a recorded target.", 409);
+    }
+    // Mirrors publication: the client itself refuses a rollback without a current approval.
+    if (!rollbackApprovalCurrent(operation, this.now())) {
+      throw new GoogleIntegrationError("Rollback requires current approval for the exact target fingerprint.", 409);
     }
     const [target, inspection] = await Promise.all([
       this.get<GtmContainerVersion>(`/${operation.version.priorLiveVersionPath}`),

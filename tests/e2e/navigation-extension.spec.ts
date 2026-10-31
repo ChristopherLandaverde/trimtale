@@ -5,11 +5,13 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
   approveThenPublish,
+  approveThenRollBack,
   formOperation,
   mockWritableContainerAndWorkflow,
   navigationSpecId,
   operation,
   sessionApprover,
+  withRollbackApproval,
 } from "./helpers/workflow-fixtures.js";
 
 const screenshotOptions = {
@@ -781,7 +783,7 @@ test("records post-publication lead-form browser verification without leaking fo
   }
 });
 
-test("rolls back a failed publication only after exact target approval", async () => {
+test("rolls back a failed publication only after a typed confirmation and a separate approval request", async () => {
   const profile = await mkdtemp(join(tmpdir(), "gtm-observability-rollback-approval-"));
   const extensionPath = resolve("apps/extension/dist");
   const context = await chromium.launchPersistentContext(profile, {
@@ -789,16 +791,16 @@ test("rolls back a failed publication only after exact target approval", async (
     headless: true,
     args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
   });
-  let postedRollback: Record<string, unknown> | undefined;
+  const rollbackApprovals: Array<Record<string, unknown>> = [];
+  const rollbacks: Array<Record<string, unknown>> = [];
   await mockWritableContainerAndWorkflow(context, {
     browserVerificationResult: {
       status: "rollback_required",
       nextStep: "rollback_approval",
       operation: operation("rollback_required"),
     },
-    onRollback: (body) => {
-      postedRollback = body;
-    },
+    onRollbackApproval: (body) => rollbackApprovals.push(body),
+    onRollback: (body) => rollbacks.push(body),
   });
   try {
     const site = await context.newPage();
@@ -813,27 +815,234 @@ test("rolls back a failed publication only after exact target approval", async (
 
     await approveThenPublish(root);
     let operationRegion = root.getByRole("region", { name: "Setup operation" });
-    operationRegion = root.getByRole("region", { name: "Setup operation" });
     await operationRegion.getByRole("button", { name: "Start browser verification" }).click();
     await site.getByRole("link", { name: "Services" }).click();
 
+    // The link navigates; the next page finishes verification and shows the rollback step (#76).
+    await expect(site).toHaveURL(/\/services$/);
+    await expect(root.getByText("The link opened /services. Continuing the setup operation here.")).toBeVisible();
     operationRegion = root.getByRole("region", { name: "Setup operation" });
     await expect(operationRegion.getByText(/Verification failed; prior live version live-7 is ready for rollback approval/)).toBeVisible();
-    await operationRegion.getByRole("button", { name: "Rollback live-7" }).click();
+    await expect(operationRegion.getByRole("button", { name: /^Roll ?back/ })).toHaveCount(0);
+    await operationRegion.getByRole("button", { name: "Review rollback" }).click();
 
-    await expect.poll(() => postedRollback).toMatchObject({
-      targetVersionFingerprint: "live-7",
-      approvedBy: "website assistant",
-    });
+    // (a) The confirmation shows exactly what the rollback restores and replaces.
+    const review = root.getByRole("region", { name: "Rollback review" });
+    await expect(review.getByRole("heading", { name: "Roll back GTM-TEST123 to live-7?" })).toBeVisible();
+    await expect(review.getByText("GTM-TEST123 · accounts/1/containers/10")).toBeVisible();
+    await expect(review.locator("dd", { hasText: /^live-7$/ })).toBeVisible();
+    await expect(review.locator("dd", { hasText: /^version-8$/ })).toBeVisible();
+    const confirm = review.getByLabel("Type GTM-TEST123 to confirm");
+    await expect(confirm).toBeFocused();
+    const approve = review.getByRole("button", { name: "Approve rollback to live-7" });
+    await expect(approve).toBeDisabled();
+    await confirm.fill("gtm-test123");
+    await expect(approve).toBeDisabled();
+    await confirm.fill("GTM-TEST123");
+    await expect(approve).toBeEnabled();
+    expect(rollbackApprovals).toHaveLength(0);
+    expect(rollbacks).toHaveLength(0);
+    await approve.click();
+
+    // (b) Approval is its own request and rolls nothing back; (c) no approver is sent.
+    await expect.poll(() => rollbackApprovals).toEqual([{ targetVersionFingerprint: "live-7", confirmation: "GTM-TEST123" }]);
+    operationRegion = root.getByRole("region", { name: "Setup operation" });
+    await expect(operationRegion.getByText(`Approved restoring live-7 by ${sessionApprover}`)).toBeVisible();
+    await expect(root.getByRole("region", { name: "Rollback review" })).toHaveCount(0);
+    expect(rollbacks).toHaveLength(0);
+
+    await operationRegion.getByRole("button", { name: "Roll back to live-7" }).click();
+    await expect.poll(() => rollbacks).toEqual([{ targetVersionFingerprint: "live-7" }]);
     operationRegion = root.getByRole("region", { name: "Setup operation" });
     await expect(operationRegion.getByText(/Rollback completed/)).toBeVisible();
-    await expect(operationRegion.getByText(/Restored prior live version live-7/)).toBeVisible();
+    await expect(operationRegion.getByText(`Restored prior live version live-7; approved by ${sessionApprover}`)).toBeVisible();
+    await expect(root.getByText(/platform-confirmed/i)).toHaveCount(0);
+    const sent = JSON.stringify([...rollbackApprovals, ...rollbacks]);
+    expect(sent).not.toContain("approvedBy");
+    expect(sent).not.toContain("website assistant");
+  } finally {
+    await context.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});
+
+test("sends a stale rollback approval back to rollback review instead of rolling back", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "gtm-observability-stale-rollback-"));
+  const extensionPath = resolve("apps/extension/dist");
+  const context = await chromium.launchPersistentContext(profile, {
+    channel: "chromium",
+    headless: true,
+    args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+  });
+  let rollbackApprovals = 0;
+  await mockWritableContainerAndWorkflow(context, {
+    browserVerificationResult: {
+      status: "rollback_required",
+      nextStep: "rollback_approval",
+      operation: operation("rollback_required"),
+    },
+    onRollbackApproval: () => {
+      rollbackApprovals += 1;
+    },
+    rollbackStatus: 409,
+    rollbackResult: {
+      status: "blocked",
+      stage: "rollback",
+      reason: "approval_expired",
+      operation: withRollbackApproval(operation("rollback_required")),
+    },
+  });
+  try {
+    const site = await context.newPage();
+    await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123&scenario=duplicate");
+    const root = site.locator("#trimtale-root");
+    await root.getByRole("button", { name: "Open tracking assistant" }).click();
+    await root.getByLabel("Tracking request").fill("navigation");
+    await root.getByRole("button", { name: "Send request" }).click();
+    await root.getByRole("button", { name: "Track all" }).click();
+    await root.getByRole("button", { name: "Check GTM access" }).click();
+    await root.getByRole("button", { name: "Prepare GTM version" }).click();
+    await approveThenPublish(root);
+    await root.getByRole("region", { name: "Setup operation" }).getByRole("button", { name: "Start browser verification" }).click();
+    await site.getByRole("link", { name: "Services" }).click();
+    await expect(site).toHaveURL(/\/services$/);
+    await approveThenRollBack(root);
+
+    const operationRegion = root.getByRole("region", { name: "Setup operation" });
+    await expect(operationRegion.getByText(/rollback approval is older than 30 minutes, so nothing was rolled back/i)).toBeVisible();
+    await expect(operationRegion.getByText("Rollback approval for live-7 expired; approve again")).toBeVisible();
+    await expect(operationRegion.getByText(/Restored prior live version/)).toHaveCount(0);
+    await expect(root.getByText(/Nothing was published/)).toHaveCount(0);
+    await operationRegion.getByRole("button", { name: "Review rollback" }).click();
+    await expect(root.getByRole("region", { name: "Rollback review" })).toBeVisible();
+    expect(rollbackApprovals).toBe(1);
+  } finally {
+    await context.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});
+
+// Regression for #76: a failed live publication must stay recoverable after the verification click navigates.
+test("finishes post-publication verification on the next page when the link unloads first", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "gtm-observability-verification-survives-navigation-"));
+  const extensionPath = resolve("apps/extension/dist");
+  const context = await chromium.launchPersistentContext(profile, {
+    channel: "chromium",
+    headless: true,
+    args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+  });
+  const posted: Array<Record<string, unknown>> = [];
+  await mockWritableContainerAndWorkflow(context, {
+    browserVerificationResult: {
+      status: "rollback_required",
+      nextStep: "rollback_approval",
+      operation: operation("rollback_required"),
+    },
+    onBrowserVerification: (body) => posted.push(body),
+  });
+  try {
+    const site = await context.newPage();
+    // The published tag does not fire: no collection request, so nothing completes the run
+    // before the link navigates 250 ms after the click.
+    await site.addInitScript(() => {
+      Object.defineProperty(navigator, "sendBeacon", { value: () => true });
+    });
+    await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
+    const root = site.locator("#trimtale-root");
+    await root.getByRole("button", { name: "Open tracking assistant" }).click();
+    await root.getByLabel("Tracking request").fill("navigation");
+    await root.getByRole("button", { name: "Send request" }).click();
+    await root.getByRole("button", { name: "Track all" }).click();
+    await root.getByRole("button", { name: "Check GTM access" }).click();
+    await root.getByRole("button", { name: "Prepare GTM version" }).click();
+    await approveThenPublish(root);
+    await root.getByRole("region", { name: "Setup operation" }).getByRole("button", { name: "Start browser verification" }).click();
+    await site.getByRole("link", { name: "Services" }).click();
+    await expect(site).toHaveURL(/\/services$/);
+
+    await expect(root.getByText("The link opened /services. Continuing the setup operation here.")).toBeVisible();
+    await expect.poll(() => posted.length).toBe(1);
+    const evidence = posted[0]!.evidence as Record<string, unknown>;
+    // Same specification as the operation, even after the request crossed storage.
+    expect(evidence.specificationId).toBe(navigationSpecId);
+    expect(evidence.verdict).toMatchObject({ browserVerification: "failed", platformConfirmation: "unverified" });
+    const operationRegion = root.getByRole("region", { name: "Setup operation" });
+    await expect(operationRegion.getByText(/ready for rollback approval/)).toBeVisible();
+    await operationRegion.getByRole("button", { name: "Review rollback" }).click();
+    await expect(root.getByRole("region", { name: "Rollback review" })).toBeVisible();
     await expect(root.getByText(/platform-confirmed/i)).toHaveCount(0);
   } finally {
     await context.close();
     await rm(profile, { recursive: true, force: true });
   }
 });
+
+// Regression for the #76 review: only the clicked document's requests count. The
+// destination page's own page_view must neither duplicate a working tag's hit nor stand
+// in for a broken tag's missing one.
+for (const [name, tagWorks, verdict] of [
+  ["passes a working tag when the destination page sends its own page_view", true, { code: "browser_verified", browserVerification: "passed" }],
+  ["fails a broken tag even when the destination page sends its own page_view", false, { code: "tag_fired_request_missing", browserVerification: "failed" }],
+] as const) {
+  test(name, async () => {
+    const profile = await mkdtemp(join(tmpdir(), "gtm-observability-destination-page-view-"));
+    const extensionPath = resolve("apps/extension/dist");
+    const context = await chromium.launchPersistentContext(profile, {
+      channel: "chromium",
+      headless: true,
+      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+    });
+    const posted: Array<Record<string, unknown>> = [];
+    await mockWritableContainerAndWorkflow(context, { onBrowserVerification: (body) => posted.push(body) });
+    try {
+      const site = await context.newPage();
+      await site.addInitScript((working: boolean) => {
+        // Like GA4 on a real site: the destination sends a page_view as it loads.
+        if (location.pathname === "/services") navigator.sendBeacon("/g/collect?v=2&tid=G-TEST123456&en=page_view");
+        if (location.pathname !== "/") return;
+        // A fast site: the link commits navigation ~50 ms after the click, before the 180 ms sample.
+        document.addEventListener("click", (event) => {
+          const link = (event.target as Element | null)?.closest?.("a[href$='/services']") as HTMLAnchorElement | null;
+          if (link) setTimeout(() => { location.href = link.href; }, 50);
+        });
+        // GA4 batches hits and flushes them when the page is hidden; a broken tag never sends.
+        const queue: string[] = [];
+        const send = navigator.sendBeacon.bind(navigator);
+        Object.defineProperty(navigator, "sendBeacon", { value: (url: string) => { queue.push(url); return true; } });
+        addEventListener("pagehide", () => { if (working) for (const url of queue) send(url); });
+      }, tagWorks);
+      await site.goto("http://127.0.0.1:14173/?gtm=GTM-TEST123");
+      const root = site.locator("#trimtale-root");
+      await root.getByRole("button", { name: "Open tracking assistant" }).click();
+      await root.getByLabel("Tracking request").fill("navigation");
+      await root.getByRole("button", { name: "Send request" }).click();
+      await root.getByRole("button", { name: "Track all" }).click();
+      await root.getByRole("button", { name: "Check GTM access" }).click();
+      await root.getByRole("button", { name: "Prepare GTM version" }).click();
+      await approveThenPublish(root);
+      await root.getByRole("region", { name: "Setup operation" }).getByRole("button", { name: "Start browser verification" }).click();
+      await site.getByRole("link", { name: "Services" }).click();
+      await expect(site).toHaveURL(/\/services$/);
+
+      await expect.poll(() => posted.length).toBe(1);
+      const evidence = posted[0]!.evidence as {
+        specificationId: string;
+        verdict: Record<string, unknown>;
+        observations: { network: { ga4Requests: Array<{ url: string }> } };
+      };
+      expect(evidence.specificationId).toBe(navigationSpecId);
+      expect(evidence.verdict).toMatchObject({ ...verdict, platformConfirmation: "unverified" });
+      const urls = evidence.observations.network.ga4Requests.map((request) => request.url);
+      expect(urls.some((url) => url.includes("en=page_view"))).toBe(false);
+      expect(urls.filter((url) => url.includes("en=navigation_click"))).toHaveLength(tagWorks ? 1 : 0);
+      await site.waitForTimeout(500);
+      expect(posted).toHaveLength(1);
+    } finally {
+      await context.close();
+      await rm(profile, { recursive: true, force: true });
+    }
+  });
+}
 
 test("keeps publication failures bounded without advancing verification", async () => {
   const profile = await mkdtemp(join(tmpdir(), "gtm-observability-publication-block-"));

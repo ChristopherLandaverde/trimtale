@@ -69,6 +69,12 @@ export interface TrackingSetupOperationV1 {
     targetVersionFingerprint: string;
     status: "required" | "completed";
     completedAt?: string;
+    /** The verified account that approved restoring the target, and when. */
+    approval?: {
+      approvedAt: string;
+      approvedBy: string;
+      targetVersionFingerprint: string;
+    };
   };
 }
 
@@ -281,6 +287,16 @@ export function validateTrackingOperation(value: unknown): string[] {
     }
     if (rollback.status === "completed" && !validTimestamp(rollback.completedAt)) {
       errors.push("completed rollback requires completedAt");
+    }
+    if (rollback.approval !== undefined) {
+      const rollbackApproval = isRecord(rollback.approval) ? rollback.approval : {};
+      if (!validTimestamp(rollbackApproval.approvedAt) || !nonempty(rollbackApproval.approvedBy)
+        || !nonempty(rollbackApproval.targetVersionFingerprint)) {
+        errors.push("rollback.approval is invalid");
+      }
+      if (rollbackApproval.targetVersionFingerprint !== rollback.targetVersionFingerprint) {
+        errors.push("rollback.approval.targetVersionFingerprint must match rollback.targetVersionFingerprint");
+      }
     }
   }
   return [...new Set(errors)];

@@ -64,6 +64,8 @@ local readiness
 - [x] Version creation records an immutable fingerprint and prior live version.
 - [x] Publication requires approval bound to that fingerprint.
 - [x] Post-publication verification and rollback evidence complete the operation.
+- [x] Rollback requires the same typed container confirmation, separate approve step,
+  verified Google approver and 30-minute window as publication (issue 11, GitHub #71).
 - [x] One durable API workflow resumes application through immutable version creation
   and stops before publication approval.
 

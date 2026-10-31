@@ -83,6 +83,11 @@ Even with publication enabled, publishing a version takes two separate requests:
 then publish. Approval needs the container's public ID typed back, records the connected
 Google account's verified email as the approver, and expires after 30 minutes.
 
+Rolling back to the prior live version follows the same rule (`/rollback-approval`, then
+`/rollback`), behind the same publication switch: the container's public ID typed back, the
+verified email recorded as the rollback approver, a 30-minute approval, and the same account
+at rollback time. An approver sent by the client is ignored on every route.
+
 Google and intake-evaluation routes answer cross-origin requests only from the origin in
 `EXTENSION_ORIGIN` (`apps/api/src/cors.ts`); a missing, `*` or `null` value refuses them. The
 local server and the Vercel functions (`apps/api/src/vercel.ts`) apply the same rule. Public

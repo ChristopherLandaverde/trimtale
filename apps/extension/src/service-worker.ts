@@ -5,6 +5,18 @@ import {
   type NavigationElement,
 } from "@trimtale/core";
 import {
+  canonicalNavigationRequest,
+  isNavigationRun,
+  mergeNavigationEvidence,
+  navigationRunKey,
+  navigationRunRequests,
+  navigationRunResumableAt,
+  navigationRunSettleDelay,
+  type DocumentRequest,
+  type NavigationRun,
+  type NavigationRunResume,
+} from "./navigation-run.js";
+import {
   workflowResultFromStoredOperation,
   type GtmWorkflowAction,
   type GtmWorkflowRequestMessage,
@@ -198,7 +210,7 @@ chrome.runtime.onMessage.addListener(
 );
 
 function workflowError(status: number, action?: GtmWorkflowAction): string {
-  if (status === 403 && action === "publish") return "GTM publication is disabled for this backend.";
+  if (status === 403 && (action === "publish" || action === "rollback")) return "GTM publication is disabled for this backend.";
   if (status === 403) return "Container-write access is disabled for this backend.";
   if (status === 404) return "The tracking setup operation was not found.";
   if (status === 409) return "The tracking setup operation is blocked and needs review.";
@@ -218,7 +230,7 @@ async function readJsonResponse(response: Response): Promise<Record<string, unkn
 chrome.runtime.onMessage.addListener(
   (
     message: GtmWorkflowRequestMessage,
-    _sender,
+    sender,
     sendResponse,
   ) => {
     if (message.type !== "GTM_WORKFLOW_REQUEST") return undefined;
@@ -261,24 +273,31 @@ chrome.runtime.onMessage.addListener(
           return;
         }
 
-        if (message.action === "approve" || message.action === "publish") {
-          if (!operationId || !message.versionFingerprint
-            || (message.action === "approve" && !message.confirmation)) {
+        if (message.action === "approve" || message.action === "publish"
+          || message.action === "approveRollback" || message.action === "rollback") {
+          const rollback = message.action === "approveRollback" || message.action === "rollback";
+          const approving = message.action === "approve" || message.action === "approveRollback";
+          const fingerprint = rollback ? message.targetVersionFingerprint : message.versionFingerprint;
+          if (!operationId || !fingerprint || (approving && !message.confirmation)) {
             sendResponse({
               ok: false,
-              error: message.action === "approve"
-                ? "Approval requires an operation ID, version fingerprint, and typed container confirmation."
-                : "Publication requires an operation ID and the approved version fingerprint.",
+              error: approving
+                ? `${rollback ? "Rollback approval" : "Approval"} requires an operation ID, ${rollback ? "target" : "version"} fingerprint, and typed container confirmation.`
+                : rollback
+                  ? "Rollback requires an operation ID and the approved target fingerprint."
+                  : "Publication requires an operation ID and the approved version fingerprint.",
             });
             return;
           }
           // No approver is sent: the backend records the signed-in Google account itself.
-          const response = await fetch(`http://127.0.0.1:18787/api/google/workflows/${encodeURIComponent(operationId)}/${message.action}`, {
+          const path = { approve: "approve", publish: "publish", approveRollback: "rollback-approval", rollback: "rollback" }[message.action];
+          const confirmation = approving ? { confirmation: message.confirmation } : {};
+          const response = await fetch(`http://127.0.0.1:18787/api/google/workflows/${encodeURIComponent(operationId)}/${path}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(message.action === "approve"
-              ? { versionFingerprint: message.versionFingerprint, confirmation: message.confirmation }
-              : { versionFingerprint: message.versionFingerprint }),
+            body: JSON.stringify(rollback
+              ? { targetVersionFingerprint: fingerprint, ...confirmation }
+              : { versionFingerprint: fingerprint, ...confirmation }),
           });
           const responseBody = await readJsonResponse(response);
           const blockedResult = response.status === 409 && isRecord(responseBody.result) && responseBody.result.status === "blocked";
@@ -290,7 +309,7 @@ chrome.runtime.onMessage.addListener(
               ok: false,
               error: identityRefused
                 ? "Google did not confirm a verified email for the connected account. Reconnect Google with publication access, then approve again."
-                : workflowError(response.status, "publish"),
+                : workflowError(response.status, rollback ? "rollback" : "publish"),
             });
           return;
         }
@@ -300,35 +319,23 @@ chrome.runtime.onMessage.addListener(
             sendResponse({ ok: false, error: "Browser verification requires an operation ID and evidence." });
             return;
           }
-          const verified = await fetch(`http://127.0.0.1:18787/api/google/workflows/${encodeURIComponent(operationId)}/browser-verification`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ evidence: message.evidence }),
-          });
-          const verifiedBody = await readJsonResponse(verified);
-          sendResponse(verified.ok
-            ? { ok: true, result: verifiedBody.result }
-            : { ok: false, error: workflowError(verified.status) });
-          return;
-        }
-
-        if (message.action === "rollback") {
-          if (!operationId || !message.targetVersionFingerprint || !message.approvedBy) {
-            sendResponse({ ok: false, error: "Rollback requires an operation ID, target fingerprint, and approver." });
-            return;
-          }
-          const rolledBack = await fetch(`http://127.0.0.1:18787/api/google/workflows/${encodeURIComponent(operationId)}/rollback`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              targetVersionFingerprint: message.targetVersionFingerprint,
-              approvedBy: message.approvedBy,
-            }),
-          });
-          const rolledBackBody = await readJsonResponse(rolledBack);
-          sendResponse(rolledBack.ok
-            ? { ok: true, result: rolledBackBody.result }
-            : { ok: false, error: workflowError(rolledBack.status, "publish") });
+          const tabId = sender.tab?.id;
+          const recording = (async () => {
+            const verified = await fetch(`http://127.0.0.1:18787/api/google/workflows/${encodeURIComponent(operationId)}/browser-verification`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ evidence: message.evidence }),
+            });
+            const verifiedBody = await readJsonResponse(verified);
+            const reply = verified.ok
+              ? { ok: true as const, result: verifiedBody.result }
+              : { ok: false as const, error: workflowError(verified.status) };
+            // The page that clicked may already be gone; keep the result for the next one.
+            if (tabId !== undefined && reply.ok) await rememberNavigationRunResult(tabId, operationId, reply.result);
+            return reply;
+          })();
+          if (tabId !== undefined) navigationRecordings.set(tabId, recording.catch(() => undefined));
+          sendResponse(await recording);
           return;
         }
 
@@ -478,6 +485,7 @@ chrome.webRequest.onBeforeRequest.addListener(
       .filter((item) => Date.parse(item.observedAt) >= cutoff);
     observed.push(request);
     recentRequests.set(details.tabId, observed);
+    recordDocumentRequest(details.tabId, { ...request, ...(details.documentId ? { documentId: details.documentId } : {}) });
     const formRequest: FormAnalyticsRequest = { id: details.requestId, ...request, delivery: "pending" };
     recordFormRequest(details.tabId, formRequest);
     if (details.tabId >= 0) {
@@ -499,5 +507,76 @@ chrome.webRequest.onBeforeRequest.addListener(
       "*://analytics.google.com/g/collect*",
       "http://127.0.0.1:14173/g/collect*",
     ],
+  },
+);
+
+// Post-publication navigation runs per tab. Clicking the confirmed link usually unloads
+// the page before its evidence is recorded, so the run, its click evidence and any
+// recorded result live here, and the next page in the tab finishes the run.
+const navigationRecordings = new Map<number, Promise<unknown>>();
+
+// Collection requests per tab with the document that sent them, kept long enough for the
+// next page to finish a run. The destination page's own hits (a page_view on load) come
+// from another document and so never count for the click.
+const documentRequests = new Map<number, DocumentRequest[]>();
+const documentRequestLifetimeMs = 30_000;
+
+function recordDocumentRequest(tabId: number, request: DocumentRequest): void {
+  if (tabId < 0) return;
+  const cutoff = Date.now() - documentRequestLifetimeMs;
+  const observed = (documentRequests.get(tabId) ?? []).filter((item) => Date.parse(item.observedAt) >= cutoff);
+  observed.push(request);
+  documentRequests.set(tabId, observed);
+}
+
+async function storedNavigationRun(tabId: number): Promise<NavigationRun | undefined> {
+  const stored = await chrome.storage.session.get(navigationRunKey(tabId));
+  const run: unknown = stored[navigationRunKey(tabId)];
+  return isNavigationRun(run) ? run : undefined;
+}
+
+async function rememberNavigationRunResult(tabId: number, operationId: string, result: unknown): Promise<void> {
+  const run = await storedNavigationRun(tabId);
+  if (!run || run.operationId !== operationId) return;
+  await chrome.storage.session.set({ [navigationRunKey(tabId)]: { ...run, result } });
+}
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  void chrome.storage.session.remove([navigationRunKey(tabId), formRunKey(tabId)]);
+  documentRequests.delete(tabId);
+  navigationRecordings.delete(tabId);
+});
+
+chrome.runtime.onMessage.addListener(
+  (message: { type?: string; run?: unknown }, sender, sendResponse) => {
+    const tabId = sender.tab?.id;
+    if (tabId === undefined) return undefined;
+    if (message.type === "NAVIGATION_RUN_SAVE") {
+      // The clicked document comes from the sender, never from the page's message.
+      const run = isRecord(message.run)
+        ? { ...message.run, savedAt: Date.now(), documentId: sender.documentId }
+        : undefined;
+      if (isNavigationRun(run)) void chrome.storage.session.set({ [navigationRunKey(tabId)]: run });
+      return undefined;
+    }
+    if (message.type !== "NAVIGATION_RUN_RESUME") return undefined;
+    void (async (): Promise<NavigationRunResume> => {
+      const saved = await storedNavigationRun(tabId);
+      if (!saved || !navigationRunResumableAt(saved, sender.url)) return {};
+      // Give the click the same time to settle as it would have had on its own page,
+      // and let a recording the old page already started finish first.
+      await new Promise((resolve) => setTimeout(resolve, navigationRunSettleDelay(saved)));
+      await navigationRecordings.get(tabId);
+      navigationRecordings.delete(tabId);
+      const run = await storedNavigationRun(tabId) ?? saved;
+      await chrome.storage.session.remove(navigationRunKey(tabId));
+      const summary = { operationId: run.operationId, request: canonicalNavigationRequest(run.request) };
+      if (run.result) return { run: summary, result: run.result };
+      return {
+        run: summary,
+        evidence: mergeNavigationEvidence(run.evidence, navigationRunRequests(run, documentRequests.get(tabId) ?? [])),
+      };
+    })().then(sendResponse, () => sendResponse({}));
+    return true;
   },
 );

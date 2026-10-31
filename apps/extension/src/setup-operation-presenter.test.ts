@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TrackingSetupOperationV1 } from "@trimtale/core";
-import { presentPublicationReview, presentSetupOperation } from "./setup-operation-presenter.js";
+import { presentPublicationReview, presentRollbackReview, presentSetupOperation } from "./setup-operation-presenter.js";
 import type { WorkflowResult } from "./workflow-bridge.js";
 
 function operation(status: TrackingSetupOperationV1["status"]): TrackingSetupOperationV1 {
@@ -130,6 +130,15 @@ function terminalResult(status: "versioned" | "approved" | "published" | "comple
   return { status, operation: operation(status), nextStep } as WorkflowResult;
 }
 
+function rollbackApproved(): TrackingSetupOperationV1 {
+  const approved = operation("rollback_required");
+  approved.rollback = {
+    ...approved.rollback!,
+    approval: { approvedAt: "2026-08-30T20:06:00.000Z", approvedBy: "practitioner@example.test", targetVersionFingerprint: "live-7" },
+  };
+  return approved;
+}
+
 function stage(result: WorkflowResult, key: string) {
   const match = presentSetupOperation(result).stages.find((item) => item.key === key);
   expect(match).toBeDefined();
@@ -194,7 +203,9 @@ describe("presentSetupOperation", () => {
       operation: operation(status),
     } as WorkflowResult);
     expect(presentation.guidance).toMatch(guidance);
-    expect(presentation.assistantMessage).toMatch(/^Setup stopped\. .* Nothing was published\.$/);
+    expect(presentation.assistantMessage).toMatch(/^Setup stopped\. /);
+    // The outcome is stated exactly once, whether the guidance or the suffix states it.
+    expect(presentation.assistantMessage.match(/nothing was published/gi)).toHaveLength(1);
     expect(presentation.actions).toEqual([expect.objectContaining({ kind: "review", versionFingerprint: "version-8" })]);
     const approval = presentation.stages.find((item) => item.key === "approval");
     if (reason === "approval_expired" || reason === "approver_changed") expect(approval?.passed).toBe(false);
@@ -248,28 +259,107 @@ describe("presentSetupOperation", () => {
     });
   });
 
-  it("shows rollback approval only for rollback-required operations", () => {
+  it("offers rollback review, never a direct rollback, for a rollback-required operation", () => {
     const presentation = presentSetupOperation(terminalResult("rollback_required"));
 
     expect(presentation.label).toBe("Rollback required");
-    expect(presentation.guidance).toContain("Rollback approval is required");
+    expect(presentation.guidance).toContain("Review the rollback, then approve it");
     expect(presentation.actions).toEqual([{
-      kind: "rollback",
-      label: "Rollback live-7",
+      kind: "rollbackReview",
+      label: "Review rollback",
       operationId: "operation_spec_navigation",
       targetVersionFingerprint: "live-7",
     }]);
     expect(stage(terminalResult("rollback_required"), "rollback")).toMatchObject({
-      detail: "Approval required to restore live-7",
+      detail: "Separate approval is required to restore live-7; nothing was rolled back",
       passed: false,
     });
+    expect(JSON.stringify(presentation)).not.toContain("website assistant");
   });
 
-  it("renders rolled-back completion without platform confirmation or actions", () => {
-    const presentation = presentSetupOperation(terminalResult("rolled_back"));
+  it("offers rollback only after a recorded rollback approval, naming the approver", () => {
+    const result = { status: "rollback_approved", operation: rollbackApproved(), nextStep: "rollback" } as WorkflowResult;
+    const presentation = presentSetupOperation(result);
+
+    expect(presentation.label).toBe("Rollback approved, not rolled back");
+    expect(presentation.actions).toEqual([{
+      kind: "rollback",
+      label: "Roll back to live-7",
+      operationId: "operation_spec_navigation",
+      targetVersionFingerprint: "live-7",
+    }]);
+    expect(presentation.assistantMessage).toMatch(
+      /^Rollback to live-7 approved by practitioner@example\.test\. Nothing is rolled back yet\. Roll back before .+, or approve again\.$/,
+    );
+    expect(stage(result, "rollback")).toMatchObject({
+      detail: "Approved restoring live-7 by practitioner@example.test",
+      passed: false,
+    });
+    // The publication approval stays what it was; a rollback approval does not rewrite it.
+    expect(stage(result, "approval")).toMatchObject({ passed: true, detail: "Approved fingerprint version-8 by practitioner@example.test" });
+  });
+
+  it.each([
+    ["approval_expired", rollbackApproved, /older than 30 minutes, so nothing was rolled back/],
+    ["approver_changed", rollbackApproved, /different Google account/],
+    ["approval_required", () => operation("rollback_required"), /separate approval first/],
+    ["confirmation_mismatch", () => operation("rollback_required"), /^The typed container ID did not match\. Review the rollback and type it again\.$/],
+    ["rollback_fingerprint_mismatch", rollbackApproved, /did not match the recorded prior live version/],
+  ] as const)("routes a blocked %s rollback back to rollback review", (reason, build, guidance) => {
+    const presentation = presentSetupOperation({
+      status: "blocked",
+      stage: "rollback",
+      reason,
+      operation: build(),
+    } as WorkflowResult);
+    expect(presentation.guidance).toMatch(guidance);
+    expect(presentation.assistantMessage).toMatch(/^Rollback stopped\. /);
+    expect(presentation.assistantMessage.match(/nothing was rolled back/gi)).toHaveLength(1);
+    expect(presentation.assistantMessage).not.toContain("Nothing was published");
+    expect(presentation.actions).toEqual([expect.objectContaining({ kind: "rollbackReview", targetVersionFingerprint: "live-7" })]);
+    // A refused rollback leaves the earlier publication approval and publication intact.
+    expect(presentation.stages.find((item) => item.key === "approval")?.passed).toBe(true);
+    expect(presentation.stages.find((item) => item.key === "publication")?.passed).toBe(true);
+    expect(presentation.stages.find((item) => item.key === "rollback")?.passed).toBe(false);
+    if (reason === "approval_expired") {
+      expect(presentation.stages.find((item) => item.key === "rollback")?.detail).toBe("Rollback approval for live-7 expired; approve again");
+    }
+  });
+
+  it("presents exactly what one rollback would change", () => {
+    expect(presentRollbackReview(operation("rollback_required"))).toEqual({
+      title: "Roll back GTM-TEST123 to live-7?",
+      consequence: "Rolling back makes live-7 the live version of GTM-TEST123 again, replacing version-8. Every page that loads this container gets the change.",
+      rows: [
+        { label: "Container", value: "GTM-TEST123 · accounts/1/containers/10" },
+        { label: "Restores", value: "live-7" },
+        { label: "Replaces", value: "version-8" },
+      ],
+      changes: [],
+      approvalNote: "The backend records your connected Google account as the approver. The approval lasts 30 minutes, and rolling back is a separate step.",
+      confirmation: "GTM-TEST123",
+      approveLabel: "Approve rollback to live-7",
+    });
+    expect(presentRollbackReview(rollbackApproved())?.approveLabel).toBe("Approve rollback to live-7");
+    expect(presentRollbackReview(operation("published"))).toBeUndefined();
+    expect(presentRollbackReview(operation("rolled_back"))).toBeUndefined();
+  });
+
+  it("renders rolled-back completion with the recorded approver and no actions", () => {
+    const rolledBack = operation("rolled_back");
+    rolledBack.rollback = {
+      ...rolledBack.rollback!,
+      approval: { approvedAt: "2026-08-30T20:04:00.000Z", approvedBy: "practitioner@example.test", targetVersionFingerprint: "live-7" },
+    };
+    const result = { status: "rolled_back", operation: rolledBack, nextStep: "complete" } as WorkflowResult;
+    const presentation = presentSetupOperation(result);
 
     expect(presentation.actions).toEqual([]);
     expect(presentation.assistantMessage).toContain("Rollback completed");
+    expect(stage(result, "rollback")).toMatchObject({
+      detail: "Restored prior live version live-7; approved by practitioner@example.test",
+      passed: true,
+    });
     expect(stage(terminalResult("rolled_back"), "rollback")).toMatchObject({
       detail: "Restored prior live version live-7",
       passed: true,

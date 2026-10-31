@@ -1,3 +1,4 @@
+import { ROLLBACK_APPROVAL_LIFETIME_MS } from "@trimtale/core";
 import type {
   FormSetupRequest,
   SetupRequest,
@@ -5,7 +6,15 @@ import type {
   TrackingSetupOperationV1,
 } from "@trimtale/core";
 
-export type GtmWorkflowAction = "start" | "resume" | "get" | "approve" | "publish" | "browserVerification" | "rollback";
+export type GtmWorkflowAction =
+  | "start"
+  | "resume"
+  | "get"
+  | "approve"
+  | "publish"
+  | "browserVerification"
+  | "approveRollback"
+  | "rollback";
 export type TrackingWorkflowRequest = SetupRequest | FormSetupRequest;
 
 export type WorkflowResult<Operation = TrackingSetupOperationV1> =
@@ -36,6 +45,12 @@ export type WorkflowResult<Operation = TrackingSetupOperationV1> =
     nextStep: "rollback_approval";
   }
   | {
+    status: "rollback_approved";
+    operation: Operation;
+    nextStep: "rollback";
+    approvalExpiresAt?: string;
+  }
+  | {
     status: "rolled_back";
     operation: Operation;
     nextStep: "complete";
@@ -43,7 +58,7 @@ export type WorkflowResult<Operation = TrackingSetupOperationV1> =
   | {
     status: "blocked" | "paused";
     operation?: Operation;
-    stage?: "planning" | "application" | "validation" | "version" | "approval" | "publication" | "browser_verification";
+    stage?: "planning" | "application" | "validation" | "version" | "approval" | "publication" | "browser_verification" | "rollback";
     reason: string;
     details?: unknown;
   };
@@ -58,16 +73,28 @@ export interface GtmWorkflowRequestMessage {
   request?: TrackingWorkflowRequest;
   operationId?: string;
   versionFingerprint?: string;
-  /** The container ID the practitioner typed to confirm publication. */
+  /**
+   * The container ID the practitioner typed to confirm publication or rollback. No
+   * approver is ever sent: the backend records its verified Google session account.
+   */
   confirmation?: string;
-  /** Rollback only. Publication approvers come from the backend's Google session. */
-  approvedBy?: string;
   evidence?: TrackingRunEvidenceV1;
   targetVersionFingerprint?: string;
 }
 
+/** True while a stored rollback approval can still authorize the rollback step. */
+function rollbackApprovalPending(rollback: unknown, now: number): boolean {
+  if (typeof rollback !== "object" || rollback === null || !("approval" in rollback)) return false;
+  const approval = (rollback as { approval?: unknown }).approval;
+  const approvedAt = typeof approval === "object" && approval !== null && "approvedAt" in approval
+    ? Date.parse(String((approval as { approvedAt?: unknown }).approvedAt))
+    : Number.NaN;
+  return Number.isFinite(approvedAt) && now >= approvedAt && now - approvedAt <= ROLLBACK_APPROVAL_LIFETIME_MS;
+}
+
 export function workflowResultFromStoredOperation(
   operation: Record<string, unknown>,
+  now = Date.now(),
 ): WorkflowResult<Record<string, unknown>> {
   const status = typeof operation.status === "string" ? operation.status : "unknown";
   if (status === "versioned") {
@@ -83,7 +110,10 @@ export function workflowResultFromStoredOperation(
     return { status: "completed", operation, nextStep: "platform_unavailable" };
   }
   if (status === "rollback_required") {
-    return { status: "rollback_required", operation, nextStep: "rollback_approval" };
+    // An expired approval cannot authorize the rollback, so the next step is review again.
+    return rollbackApprovalPending(operation.rollback, now)
+      ? { status: "rollback_approved", operation, nextStep: "rollback" }
+      : { status: "rollback_required", operation, nextStep: "rollback_approval" };
   }
   if (status === "rolled_back") {
     return { status: "rolled_back", operation, nextStep: "complete" };
