@@ -33,8 +33,8 @@ attacker-shaped paths through the Vercel handler and confirms refusal.
 - `npm run check:change-docs` — passed; change documentation valid (66 records).
 - `npm run check` — passed; core build and type checks passed across all workspaces.
 - `npm test` — passed; 45 test files and 419 tests passed.
-- `npm run test:e2e` was skipped as requested because browsers are unavailable in
-  this sandbox.
+- `npm run verify` (run by Claude after Codex's sandboxed run, which had no browsers) — exit 0;
+  419 unit tests and 82 Playwright e2e tests passed.
 
 ## Exploratory review
 
