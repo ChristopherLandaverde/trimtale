@@ -71,4 +71,27 @@ describe("API CORS boundary", () => {
       allowOrigin: "*",
     });
   });
+
+  it("refuses unknown, mixed-case, and percent-encoded routes by default", () => {
+    for (const pathname of [
+      "/api/Google/status",
+      "/api/%67oogle/status",
+      "/api/INTAKE-EVALUATIONS",
+      "/api/%69ntake-evaluations/report",
+      "/api/not-public",
+    ]) {
+      expect(corsDecision(pathname, "https://attacker.example", extensionOrigin)).toEqual({
+        allowed: false,
+      });
+    }
+  });
+
+  it("keeps the explicit public route allowlist open", () => {
+    for (const pathname of ["/health", "/api/health", "/api/setups"]) {
+      expect(corsDecision(pathname, "https://example.test", undefined)).toEqual({
+        allowed: true,
+        allowOrigin: "*",
+      });
+    }
+  });
 });
